@@ -1,0 +1,257 @@
+
+module gridclass
+use modcom
+use parameters
+implicit none
+private
+
+type, public :: CLgrid
+  character(len=4) mode
+  integer npt
+  real(dp) vecs(NDIM,NDIM)
+  integer, allocatable, private :: vi_(:,:)
+  real(dp), allocatable, private :: vl_(:,:)
+  contains
+  procedure :: vpi=>give_vpi
+  procedure :: vpl=>give_vpl
+  procedure :: vpc=>calc_vpc
+endtype CLgrid
+
+type, public, extends(CLgrid) :: GRID
+  logical centered
+  logical fractional
+  integer ngrid(NDIM)
+  contains 
+  procedure :: init=>init_grid
+  procedure :: io=>io_grid
+  procedure :: find=>find_grid_point
+endtype GRID
+
+type, public, extends(CLgrid) :: PATH
+  integer nvert
+  integer, allocatable :: np_per_vert(:)
+  real(dp), allocatable :: vert(:,:)
+  real(dp), allocatable :: dvpc(:)
+  real(dp), allocatable :: dvrt(:)
+  contains 
+  procedure :: init=>init_path
+endtype PATH
+
+contains
+
+subroutine init_grid(THIS,ngrid,vecs,centered,fractional)
+class(GRID), intent(out) :: THIS
+integer, intent(in) :: ngrid(NDIM)
+real(dp), intent(in) :: vecs(NDIM,NDIM)
+logical, intent(in) :: centered,fractional
+integer id,i1,i2,i3,ii,jj,ip
+THIS%mode="grid"
+THIS%centered=centered
+THIS%fractional=fractional
+THIS%vecs=vecs
+THIS%ngrid=ngrid
+THIS%npt=1
+do id=1,NDIM
+  THIS%npt=THIS%npt*THIS%ngrid(id)
+end do
+allocate(THIS%vi_(NDIM,THIS%npt))
+allocate(THIS%vl_(NDIM,THIS%npt))
+do ip=1,THIS%npt
+  ! model for the sequence index in (0:N-1 notation) is:
+  ! ii=N2*N3*i1+N3*i2+i3
+  ! i.e. row-major indexing, therefor the map from ii to i1,i2,i3 is known and used below
+  ii=ip-1
+  if (NDIM.eq.1) then
+    i1=ii
+    if (centered) then
+      THIS%vi_(1,ip)=i1-THIS%ngrid(1)/2
+    else
+      THIS%vi_(1,ip)=i1
+    end if
+  else if (NDIM.eq.2) then
+    i2=mod(ii,THIS%ngrid(2))
+    i1=int(ii/THIS%ngrid(2))
+    if (centered) then
+      THIS%vi_(1,ip)=i1-THIS%ngrid(1)/2
+      THIS%vi_(2,ip)=i2-THIS%ngrid(2)/2
+    else
+      THIS%vi_(1,ip)=i1
+      THIS%vi_(2,ip)=i2
+    end if
+  else if (NDIM.eq.3) then
+    i3=mod(ii,THIS%ngrid(3))
+    jj=int(ii/THIS%ngrid(3))
+    i2=mod(jj,THIS%ngrid(2))
+    i1=int(jj/THIS%ngrid(2))
+    if (centered) then
+      THIS%vi_(1,ip)=i1-THIS%ngrid(1)/2
+      THIS%vi_(2,ip)=i2-THIS%ngrid(2)/2
+      THIS%vi_(3,ip)=i3-THIS%ngrid(3)/2
+    else
+      THIS%vi_(1,ip)=i1
+      THIS%vi_(2,ip)=i2
+      THIS%vi_(3,ip)=i3
+    end if
+    !write(*,*) i1,i2,i3,"!",ii,"!",i1*THIS%ngrid(3)*THIS%ngrid(2)+i2*THIS%ngrid(3)+i3
+  else
+    call throw("GRID%init()","NDIM is greater than 3")
+  end if
+  if (fractional) then
+    !write(*,'(I3," ! ",3I3," ! ",3I3)')ip,i1,i2,i3,i1-THIS%ngrid(1)/2,i2-THIS%ngrid(2)/2,i3-THIS%ngrid(3)/2
+    THIS%vl_(:,ip)=dble(THIS%vi_(:,ip))/dble(THIS%ngrid(:))
+  else
+    THIS%vl_(:,ip)=dble(THIS%vi_(:,ip))
+  end if
+end do
+end subroutine
+
+subroutine init_path(THIS,nvert,np_per_vert,vert,vecs)
+class(PATH), intent(out) :: THIS
+integer, intent(in) :: nvert,np_per_vert(nvert)
+real(dp), intent(in) :: vert(NDIM,nvert)
+real(dp), intent(in) :: vecs(NDIM,NDIM)
+integer ip,ivert,counter
+real(dp) v1(NDIM),v2(NDIM),v3(NDIM)
+THIS%mode="path"
+allocate(THIS%vert(NDIM,nvert))
+allocate(THIS%np_per_vert(nvert))
+THIS%nvert=nvert
+THIS%vecs=vecs
+THIS%vert=vert
+THIS%np_per_vert(:)=np_per_vert(:)
+THIS%np_per_vert(1)=0
+THIS%npt=sum(THIS%np_per_vert(:))
+allocate(THIS%vl_(NDIM,THIS%npt))
+allocate(THIS%dvpc(THIS%npt))
+allocate(THIS%dvrt(THIS%nvert))
+THIS%dvpc(:)=0._dp
+THIS%dvrt(:)=0._dp
+counter=0
+do ivert=2,THIS%nvert
+  if (THIS%np_per_vert(ivert).lt.2) then
+    call throw("PATH%init_path()","np_per_vert should be greater than 1")
+  end if
+  v1=THIS%vert(:,ivert-1)
+  v2=THIS%vert(:,ivert)
+  v3=matmul(v2-v1,THIS%vecs)
+  THIS%dvrt(ivert)=THIS%dvrt(ivert-1)+sqrt(dot_product(v3,v3))
+  do ip=1,THIS%np_per_vert(ivert)
+    counter=counter+1
+    if (ivert.eq.THIS%nvert) then
+      THIS%vl_(:,counter)=v1+dble(ip-1)/dble(THIS%np_per_vert(ivert)-1)*(v2-v1)
+    else
+      THIS%vl_(:,counter)=v1+dble(ip-1)/dble(THIS%np_per_vert(ivert))*(v2-v1)
+    end if
+    if (counter.gt.1) then
+        v3=matmul(THIS%vl_(:,counter)-THIS%vl_(:,counter-1),THIS%vecs)
+        THIS%dvpc(counter)=THIS%dvpc(counter-1)+sqrt(dot_product(v3,v3))
+    end if
+  end do
+end do
+end subroutine
+
+subroutine io_grid(THIS,unt,fname,action,pars,norb)
+class(GRID), intent(inout) :: THIS
+integer, intent(in) :: unt
+integer, intent(inout) :: norb
+class(CLpars), intent(in) :: pars
+character(len=*), intent(in) :: action,fname
+! local
+integer nd,nstates
+logical centered,fractional
+integer ngrid(NDIM)
+real(dp) vecs(NDIM,NDIM)
+if (trim(adjustl(action)).ne."write".and.trim(adjustl(action)).ne."read") &
+call throw("modcom%io_grid()","unknown read/write action")
+open(unt,file=trim(adjustl(fname)),form='unformatted',action=trim(adjustl(action)))
+! the following uniquely defines k-grid, also eigen-vectors grid is written here
+if (trim(adjustl(action)).eq."write") then
+  write(unt) NDIM
+  write(unt) THIS%centered
+  write(unt) THIS%fractional
+  write(unt) THIS%ngrid(:)
+  write(unt) THIS%vecs(:,:)
+  write(unt) norb
+  write(unt) pars%nstates
+else
+  read(unt) nd
+  if (nd.ne.NDIM) call throw("GRID%io_grid()","different dimensionality in the _file")
+  read(unt) centered
+  read(unt) fractional
+  read(unt) ngrid(:)
+  if (sum(abs(ngrid-pars%ngrid)).ne.0) &
+   call throw("grid%io_grid()","the k-point grid dimensions in _grid file are different from ones derived from input")
+  read(unt) vecs(:,:)
+  read(unt) norb
+  read(unt) nstates
+  if (pars%nstates.ne.nstates) &
+   call throw("grid%io_grid()","the number of states in _grid file is different from the one derived from input")
+end if
+THIS%centered=centered
+THIS%fractional=fractional
+THIS%ngrid=ngrid
+THIS%vecs=vecs
+call THIS%init(ngrid,vecs,centered,fractional)
+close(unt)
+end subroutine
+
+
+! access to private vertex variables
+function give_vpi(THIS,ip) result(vi)
+class(CLgrid), intent(in) :: THIS
+integer, intent(in) :: ip
+integer :: vi(NDIM)
+if (THIS%mode.eq."path") call throw("CLgrid%give_vpi()","vpi method is not available for path object")
+vi(:)=THIS%vi_(:,ip)
+end function
+function give_vpl(THIS,ip) result(vl)
+class(CLgrid), intent(in) :: THIS
+integer, intent(in) :: ip
+real(dp) :: vl(NDIM)
+vl(:)=THIS%vl_(:,ip)
+end function
+function calc_vpc(THIS,ip) result(vc)
+class(CLgrid), intent(in) :: THIS
+integer, intent(in) :: ip
+real(dp) :: vc(NDIM)
+vc(:)=matmul(THIS%vl_(:,ip),THIS%vecs(:,:))
+end function
+
+function find_grid_point(THIS,vpl) result(ikg)
+class(GRID), intent(in) :: THIS
+real(dp), intent(in) :: vpl(NDIM)
+integer ikg(NDIM+1)
+real(dp) vchk(NDIM)
+if (THIS%centered) then
+  ! centered grid is defined differently, this complicated construct is becase THIS%ngrid/2 
+  ! action was used in the creation of the grid, and the result is different for odd and even grids
+  ! so here we just plug exactly the same as was used in the initialisation
+  ikg(1:NDIM)=nint( (vpl+dble(THIS%ngrid/2)/dble(THIS%ngrid))*dble(THIS%ngrid) )
+  ikg(1:NDIM)=modulo(ikg(1:NDIM),THIS%ngrid)
+else
+  ikg(1:NDIM)=modulo(nint(vpl*dble(THIS%ngrid)),THIS%ngrid)
+end if
+if (NDIM.eq.1) then
+  ikg(NDIM+1)=ikg(NDIM)
+else if (NDIM.eq.2) then
+  ikg(NDIM+1)=THIS%ngrid(2)*ikg(1)+ikg(2)
+else if (NDIM.eq.3) then
+  ikg(NDIM+1)=THIS%ngrid(3)*THIS%ngrid(2)*ikg(1)+THIS%ngrid(3)*ikg(2)+ikg(3)+1
+else
+  call throw("GRID%find_grid_point()","NDIM is greater than 3")
+end if
+if (THIS%centered) then
+  ! return back to orgiginal values
+  ikg(1:NDIM)=ikg(1:NDIM)-THIS%ngrid/2
+end if
+! finally, redefine ikg(1:NDIM) such that they return translation vectors
+ikg(1:NDIM)=nint(vpl-THIS%vpl(ikg(NDIM+1)))
+! do the check
+vchk=dble(ikg(1:3))+THIS%vpl(ikg(NDIM+1))
+if (sum(abs(vchk-vpl)).gt.epslat) then
+  call throw("GRID%find_grid_point()","grid point not found")
+end if
+
+end function
+
+end module

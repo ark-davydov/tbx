@@ -1,0 +1,347 @@
+
+module tasksclass
+#ifdef MPI
+  use mpi
+#endif
+use modcom
+use parameters
+use gridclass
+use tbclass
+use symmetryclass
+implicit none
+private
+type, public :: CLtasks
+   contains 
+   procedure, nopass :: run
+   
+end type
+
+contains
+
+subroutine run(pars)
+class(CLpars), intent(inout) :: pars
+integer itask
+do itask=1,pars%ntasks
+  if (trim(adjustl(pars%tasks(itask))).eq."bands") then
+     call message("*** bandstructure calculation ***")
+     call message("")
+     call bands(pars)
+     call message("")
+  else if (trim(adjustl(pars%tasks(itask))).eq."eigen") then
+     call message("*** eigenvalues  calculation ***")
+     call message("")
+     call eigen(pars)
+     call message("")
+  else if (trim(adjustl(pars%tasks(itask))).eq."dos") then
+     call message("*** dos  calculation ***")
+     call message("")
+     call calc_dos(pars)
+     call message("")
+  else if (trim(adjustl(pars%tasks(itask))).eq."rpachi") then
+     call message("*** rpachi  calculation ***")
+     call message("")
+     call calc_chi(pars,"rpa")
+     call message("")
+  else
+    call throw("CLtasks%run","unknown task")
+  end if
+end do
+end subroutine
+
+subroutine bands(pars)
+class(CLpars), intent(inout) :: pars
+type(PATH) kpath
+type(CLtb) tbmodel
+type(CLsym) sym
+integer ik,iq,ist
+#ifdef MPI
+  integer nn
+#endif
+real(dp), allocatable :: eval(:,:)
+complex(dp), allocatable :: evec(:,:,:)
+call kpath%init(pars%nvert,pars%np_per_vert,pars%vert,pars%bvec)
+call message("  initialise TB model ..")
+call message("")
+call tbmodel%init(pars,"")
+call message("  initialise symmetries ..")
+call message("")
+call sym%init(pars)
+allocate(eval(pars%nstates,kpath%npt))
+allocate(evec(tbmodel%norb_TB,pars%nstates,kpath%npt))
+eval=0._dp
+evec=0._dp
+call message("  Eigenproblem calculation. some k-points progress below ..")
+#ifdef MPI
+  call MPI_barrier(mpi_com,mpi_err)
+#endif
+do ik=1,kpath%npt
+   if (mod(ik-1,np_mpi).ne.lp_mpi) cycle
+   if (mod(ik-1,max(np_mpi,kpath%npt/10)).eq.0) write(*,*) "ik, of: ",ik,kpath%npt
+   call tbmodel%evalk(.false.,pars,kpath%vpl(ik),eval(:,ik),evec(:,:,ik))
+end do
+#ifdef MPI
+  nn=pars%nstates*kpath%npt
+  call mpi_allreduce(mpi_in_place,eval,nn,mpi_double_precision,mpi_sum, &
+   mpi_com,mpi_err)
+  nn=tbmodel%norb_TB*pars%nstates*kpath%npt
+  call mpi_allreduce(mpi_in_place,evec,nn,mpi_double_complex,mpi_sum, &
+   mpi_com,mpi_err)
+#endif
+if (mp_mpi) then
+  open(100,file="bands.dat",action="write")
+  do ist=1,pars%nstates
+    do ik=1,kpath%npt
+       write(100,*) kpath%dvpc(ik),eval(ist,ik)-pars%efermi
+     end do
+     write(100,*)
+  end do
+  close(100)
+  open(101,file="bandlines.dat",action="write")
+  do ik=1,kpath%nvert
+    write(101,*) kpath%dvrt(ik),minval(eval-pars%efermi)
+    write(101,*) kpath%dvrt(ik),maxval(eval-pars%efermi)
+    write(101,*)
+  end do
+  close(101)
+end if
+deallocate(eval)
+deallocate(evec)
+#ifdef MPI
+  call MPI_barrier(mpi_com,mpi_err)
+#endif
+end subroutine
+
+subroutine eigen(pars)
+class(CLpars), intent(inout) :: pars
+type(GRID) kgrid
+type(CLtb) tbmodel
+type(CLsym) sym
+integer ik
+real(dp), allocatable :: vkl(:,:)
+#ifdef MPI
+  integer nn
+#endif
+real(dp), allocatable :: eval(:,:)
+complex(dp), allocatable :: evec(:,:,:)
+call kgrid%init(pars%ngrid,pars%bvec,centered_kgrid,.true.)
+call message("  initialise TB model ..")
+call message("")
+call tbmodel%init(pars,"")
+call message("  initialise symmetries ..")
+call message("")
+call sym%init(pars)
+allocate(eval(pars%nstates,kgrid%npt))
+allocate(evec(tbmodel%norb_TB,pars%nstates,kgrid%npt))
+eval=0._dp
+evec=0._dp
+call message("  Eigenproblem calculation. some k-points progress below ..")
+#ifdef MPI
+  call MPI_barrier(mpi_com,mpi_err)
+#endif
+do ik=1,kgrid%npt
+   if (mod(ik-1,np_mpi).ne.lp_mpi) cycle
+   if (mod(ik-1,max(np_mpi,kgrid%npt/10)).eq.0) write(*,*) "ik, of: ",ik,kgrid%npt
+   call tbmodel%evalk(.true.,pars,kgrid%vpl(ik),eval(:,ik),evec(:,:,ik))
+end do
+#ifdef MPI
+  nn=pars%nstates*kgrid%npt
+  call mpi_allreduce(mpi_in_place,eval,nn,mpi_double_precision,mpi_sum, &
+   mpi_com,mpi_err)
+  nn=tbmodel%norb_TB*pars%nstates*kgrid%npt
+  call mpi_allreduce(mpi_in_place,evec,nn,mpi_double_complex,mpi_sum, &
+   mpi_com,mpi_err)
+#endif
+if (mp_mpi) then
+  allocate(vkl(NDIM,kgrid%npt))
+  do ik=1,kgrid%npt
+    vkl(:,ik)=kgrid%vpl(ik)
+  end do
+  call io_evec(1000,"write","_evec",tbmodel%norb_TB,pars%nstates,kgrid%npt,evec)
+  call io_eval(1001,"write","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
+  call io_eval(1002,"write",trim(adjustl(pars%seedname))//'.eig',.true.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
+  call kgrid%io(1003,"_grid","write",pars,tbmodel%norb_TB)
+  deallocate(vkl)
+end if
+deallocate(eval,evec)
+#ifdef MPI
+  call MPI_barrier(mpi_com,mpi_err)
+#endif
+end subroutine
+
+
+subroutine calc_dos(pars)
+class(CLpars), intent(in) :: pars
+integer norb_TB,ik
+real(dp), allocatable :: eval(:,:)
+real(dp), allocatable :: vkl(:,:)
+real(dp), allocatable :: tdos(:),dosk(:,:)
+complex(dp), allocatable :: evec(:,:,:)
+type(GRID) kgrid
+integer ie
+#ifdef MPI
+  call MPI_barrier(mpi_com,mpi_err)
+#endif
+call kgrid%io(100,"_grid","read",pars,norb_TB)
+allocate(eval(pars%nstates,kgrid%npt))
+allocate(evec(norb_TB,pars%nstates,kgrid%npt))
+allocate(vkl(NDIM,kgrid%npt))
+allocate(tdos(pars%negrid),dosk(pars%negrid,kgrid%npt))
+do ik=1,kgrid%npt
+ vkl(:,ik)=kgrid%vpl(ik)
+end do
+eval=0._dp
+evec=0._dp
+call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
+call io_evec(1002,"read","_evec",norb_TB,pars%nstates,kgrid%npt,evec)
+! shift all eigenvalues by efermi 
+eval=eval-pars%efermi
+do ik=1,kgrid%npt
+  call get_dosk(pars%nstates,pars,eval(:,ik),dosk(:,ik))
+end do
+tdos=0._dp
+do ie=1,pars%negrid
+  tdos(ie)=sum(dosk(ie,:))/dble(kgrid%npt)
+end do
+if (mp_mpi) then
+  open(100,file="dos.dat")
+  do ie=1,pars%negrid
+    write(100,'(2G18.10)') pars%egrid(ie),tdos(ie)
+  end do
+end if
+deallocate(dosk,tdos)
+deallocate(eval,evec,vkl)
+#ifdef MPI
+  call MPI_barrier(mpi_com,mpi_err)
+#endif
+end subroutine
+
+subroutine calc_chi(pars,opt)
+class(CLpars), intent(in) :: pars
+character(len=*), intent(in) :: opt
+integer norb_TB,ik,iq
+real(dp), allocatable :: eval(:,:)
+real(dp), allocatable :: vkl(:,:)
+complex(dp), allocatable :: evec(:,:,:)
+complex(dp), allocatable :: chi(:,:)
+type(GRID) kgrid,qgrid
+integer ie
+#ifdef MPI
+  call MPI_barrier(mpi_com,mpi_err)
+#endif
+if (trim(adjustl(opt)).ne."rpa") then
+  call throw("CLtasks","unknown argument for the response function (only RPA is available via rpachi task)")
+end if
+! read the k-point grid on which eigenvales/eigenvectors are computed
+call kgrid%io(1000,"_grid","read",pars,norb_TB)
+! In principle, we can have a different q-point grid for the RPA function,
+! However, the grid dimensions will have to be commensurate with original k-grid dimensions, because
+! in RPA one needs to find kp=k+q, and kp has to be found in the original k-point grid.
+! Finally, below there is an example how one should proceed when qgrid is equal to kgrid
+call qgrid%init(kgrid%ngrid,pars%bvec,centered_qgrid,.true.)
+! allocate array for eigen values
+allocate(eval(pars%nstates,kgrid%npt))
+! allocate array for eigen vectors
+allocate(evec(norb_TB,pars%nstates,kgrid%npt))
+! this is needed to copy the private data of kgrid object, i.e., k-points in lattice coordinates
+allocate(vkl(NDIM,kgrid%npt))
+! array for RPA response function which can be dynamic (on pars%negrid frequencies), and at different q-points
+allocate(chi(pars%negrid,kgrid%npt))
+! copy the private data
+do ik=1,kgrid%npt
+ vkl(:,ik)=kgrid%vpl(ik)
+end do
+! zero the arrays for security reasons
+eval=0._dp
+evec=0._dp
+! read eigenvalues, subroutine in modcom.f90
+call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
+! read eigenvectors, subroutine in modcom.f90
+call io_evec(1002,"read","_evec",norb_TB,pars%nstates,kgrid%npt,evec)
+! shift all eigenvalues by efermi (so, it should not be changend in the input file)
+eval=eval-pars%efermi
+! do the computation. later we will attach MPI parallelisation here 
+! (you can see bands, eigen tasks how to do it), therefore arrays have to be zeroed
+chi(:,:)=0._dp
+do iq=1,qgrid%npt
+  call get_chiq(pars,kgrid,qgrid%vpl(iq),norb_TB,eval,evec,chi(:,iq))
+end do
+if (mp_mpi) then
+  open(2000,file="chi.dat")
+  do iq=1,qgrid%npt
+    do ie=1,pars%negrid
+      write(2000,'(2G18.10)') pars%egrid(ie),chi(ie,iq)
+    end do
+  end do
+end if
+deallocate(eval,evec,vkl)
+#ifdef MPI
+  call MPI_barrier(mpi_com,mpi_err)
+#endif
+end subroutine
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Side subroutines, could be placed into another file
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+subroutine get_dosk(nstates,pars,eval,dosk)
+integer, intent(in) :: nstates
+class(CLpars), intent(in) :: pars
+real(dp), intent(in) :: eval(nstates)
+real(dp), intent(out) :: dosk(pars%negrid)
+! local
+integer ie,ist,nstates_window
+integer, allocatable :: idx(:)
+real(dp), allocatable :: ekw(:),ee(:)
+! first serach for all states within a window emin,emax
+allocate(idx(nstates))
+nstates_window=0
+do ist=1,nstates
+  if (eval(ist).gt.pars%emin.and.eval(ist).lt.pars%emax) then
+    nstates_window=nstates_window+1
+    idx(nstates_window)=ist
+  end if
+end do
+allocate(ekw(nstates_window),ee(nstates_window))
+do ist=1,nstates_window
+  ekw(ist)=eval(idx(ist))
+end do
+dosk(:)=0._dp
+do ie=1,pars%negrid
+  do ist=1,nstates_window
+    ee(ist)=exp( -( (ekw(ist)-pars%egrid(ie))/pars%gauss_sigma )**2 ) &
+         / pars%gauss_sigma / sqrtpi
+  end do
+  dosk(ie)=sum(ee)
+end do
+deallocate(idx,ekw,ee)
+end subroutine
+
+
+subroutine get_chiq(pars,kgrid,vpl,norb,eval,evec,chiq)
+class(CLpars), intent(in) :: pars
+class(GRID), intent(in) :: kgrid
+real(dp), intent(in) :: vpl(NDIM)
+integer, intent(in) :: norb
+real(dp), intent(in) :: eval(pars%nstates,kgrid%npt)
+complex(dp), intent(in) :: evec(norb,pars%nstates,kgrid%npt)
+complex(dp), intent(out) :: chiq(pars%negrid)
+! local
+integer ie,ist,jst,ikq,ik
+real(dp) vkq(NDIM),vg(NDIM)
+integer ikg(NDIM+1)
+! I guess, chi has to be zeroed again, since it is intent(out) 
+chiq=0._dp
+! to start with, one needs a subroutine to find k+q on the regular k-poit grid stored inside kgrid object
+! therefore, one should plug it in a subroutine of kgrid object, here there is an example
+do ik=1,kgrid%npt
+  vkq=vpl+kgrid%vpl(ik)
+  ikg=kgrid%find(vkq)
+  vg=dble(ikg(1:NDIM))
+  write(*,'("vkq,corresponding vk+G: ",6F10.4)') vkq,kgrid%vpl(ikg(NDIM+1))+vg
+end do
+
+end subroutine
+
+end module

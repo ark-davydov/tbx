@@ -1,0 +1,59 @@
+tasks 4
+ bands
+ eigen
+ dos
+ rpachi
+
+! important, this defines not only the k-grid, but also the R-grid fot TB hamiltonian
+ngrid
+ 12 12 1
+
+! k-path conntecting vertices. format "x y z npoints"
+path 4
+0.666666 0.333333 0. 0
+0.5 0. 0. 50
+0.0 0. 0. 50
+0.333333 0.666666 0. 50
+
+! generate the atoms and vectors from the geometry library for TBG
+! angle defined by an integer of the next line 
+! one can set the geometry vectors and atoms positions as well
+geometry_source tbg
+ 104
+
+! impose Fermi level on the resulting bandstucture
+efermi
+ 0.7911
+
+
+! desired lower, uppare states to compute, note that (1) sparse eigensolver
+! can not give give exactly that states, but it gives states closed to efermi 
+! (the input parameter). (2) if upper state index is larger then number of available
+! states, it will be modified, lower state will be allose modified, such that its
+! index is less or equal index of upper state
+states
+ 1 4
+
+! set .true. to use sparse eigen solver. Eigesolver, which always works with sparse
+! matrices is available only via MKL linking of the code. Otherwise
+! the algorithm will need to allocate the full Hamiltonian matrix at some point
+sparse
+ .true.
+
+! seedname for wannier90 interface
+seedname
+  structure
+
+! neglect all Hamiltonian terms smaller than sparse_eps
+sparse_eps
+ 1.d-5
+
+sktype
+ tbgsk
+
+! grid for the DOS, maybe for the frequency in the future (RPA)
+egrid 1000
+-13 9
+
+gauss_sigma
+ 0.2
