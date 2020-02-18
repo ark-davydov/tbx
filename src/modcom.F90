@@ -162,7 +162,7 @@ end subroutine dmatrix_inverse
 
 subroutine eigenv_problem(ndim,matrix,eval)
 integer, intent(in) :: ndim
-complex(dp), intent(in) :: matrix(:,:)
+complex(dp), intent(inout) :: matrix(:,:)
 real(dp), intent(out) :: eval(:)
 integer info,ld,lwork
 real(dp), allocatable :: rwork(:)
@@ -180,7 +180,6 @@ end subroutine
   !> the IL-th through IU-th eigenvalues will be found.
   subroutine zheevx_pack(JOBZ, UPLO, N, il, iu, A, eigval, eigvec)
      implicit none
-     integer, parameter :: dp=8
      !> inout variables
      character(1), intent(in) :: JOBZ ! 'V' compute eigenvectors and eigenvalues; 'N' only eigenvalues
      character(1), intent(in) :: UPLO
@@ -231,6 +230,10 @@ end subroutine
 
      if (info/=0) then
         print *, ' Error info in zheevx: ', info
+        if (info.gt.0) then
+          print *, ' zheevx failed to converge ',info, ' eigenvalues' 
+          print *, ' increase the number of states to compute to a full spectrum, in order to use zheev '
+        end if
         stop ' Error happens in zheev_pack'
      endif
 

@@ -1,9 +1,13 @@
 
 
 module geometry_library
+#ifdef MPI
+  use mpi
+#endif
 use modcom
 implicit none
 private
+real(dp), parameter :: twthr=0.666666666666666666666666_dp
 type, public :: geomlib
   integer nspec
   integer nmaxatm_pspec
@@ -23,28 +27,73 @@ character(len=*), intent(in) :: mode
 integer, intent(in) :: istruct
 if (trim(adjustl(mode)).eq."tbg") then
    call generate_structure_tbg3D(THIS,istruct)
+else if (trim(adjustl(mode)).eq."slg") then
+   call generate_structure_slg3D(THIS)
 else
    call throw("geometry_library%generate_structure()","unknown mode parameter")
 end if
 end subroutine
 
 
-subroutine generate_structure_tbg3D(THIS,jstruct)
+
+subroutine generate_structure_slg3D(THIS)
+class(geomlib), intent(inout) :: THIS
+integer, parameter :: number_of_atoms=2
+real(dp) tvec(3,3)
 #ifdef MPI
-  use mpi
+  call MPI_barrier(mpi_com,mpi_err)
 #endif
+THIS%avec(1,:)=graphene_lvec_length*(/ 0.5_dp,0.5_dp*sqrt(3._dp),0._dp/)
+THIS%avec(2,:)=graphene_lvec_length*(/-0.5_dp,0.5_dp*sqrt(3._dp),0._dp/)
+THIS%avec(3,:)=     tbg_ab_distance*(/  0._dp,            0._dp,1._dp/)
+! reciprocal lattice vectors
+tvec=THIS%avec
+call dmatrix_inverse(tvec,THIS%bvec,NDIM)
+THIS%bvec=transpose(THIS%bvec)*twopi
+THIS%nspec=1
+THIS%nmaxatm_pspec=number_of_atoms
+allocate(THIS%nat_per_spec(THIS%nspec))
+allocate(THIS%atml(3,number_of_atoms,1))
+THIS%nat_per_spec(1)=number_of_atoms
+THIS%atml(:,1,1)=(/ 0._dp  , 0._dp ,0._dp/)
+THIS%atml(:,2,1)=(/ twthr , twthr,0._dp/)
+if (mp_mpi) then
+  call info("generate_structure_slg()","")
+  write(*,*) "avec:"
+  write(*,'(10F16.6)')THIS%avec(1,:)
+  write(*,'(10F16.6)')THIS%avec(2,:)
+  write(*,'(10F16.6)')THIS%avec(3,:)
+  write(*,*) "bvec:"
+  write(*,'(10F16.6)')THIS%bvec(1,:)
+  write(*,'(10F16.6)')THIS%bvec(2,:)
+  write(*,'(10F16.6)')THIS%bvec(3,:)
+  write(*,'("Number of atoms: ",I6)') number_of_atoms
+  write(*,*)
+end if
+#ifdef MPI
+  call MPI_barrier(mpi_com,mpi_err)
+#endif
+return
+end subroutine
+
+
+
+subroutine generate_structure_tbg3D(THIS,jstruct)
 class(geomlib), intent(inout) :: THIS
 integer, intent(in) :: jstruct
 integer, parameter :: ntrans=140
 integer i,j,iat,istruct
 integer number_of_atoms,counter
 real(dp) t1,t2,t3,z,zmid,vac
-real(dp) costheta,theta,thetadeg,twthr
+real(dp) costheta,theta,thetadeg
 real(dp) a33,tbg_interplane_dist,zlat,dvar
 real(dp) atl(3),atc(3),atl_super(3)
 real(dp) rot(3,3),atxy(4,3)
 real(dp) ave(3,3),ave2(3,3),tvec(3,3),bvect(3,3)
 real(dp), allocatable :: atmlt(:,:)
+#ifdef MPI
+  call MPI_barrier(mpi_com,mpi_err)
+#endif
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 if (jstruct.lt.0) call throw("geomlib%generate_structure_tbg()","integer structure value of TBG should be positive or zero")
 if (jstruct.ge.100) then
@@ -88,11 +137,8 @@ bvect=transpose(THIS%bvec)/twopi
 t1=abs(THIS%avec(1,1)*THIS%avec(2,2)-THIS%avec(1,2)*THIS%avec(2,1))
 t2=abs(ave(1,1)*ave(2,2)-ave(1,2)*ave(2,1))
 number_of_atoms=nint(4._dp*t1/t2)
-call info("generate_structure_tbg()","")
-#ifdef MPI
-  call MPI_barrier(mpi_com,mpi_err)
-#endif
 if (mp_mpi) then
+  call info("generate_structure_tbg()","")
   write(*,'("istruct: ",I6)') istruct
   write(*,'("costheta: ",F10.6)') costheta
   write(*,'("theta (radians): ",F10.6)') theta
@@ -108,7 +154,6 @@ if (mp_mpi) then
   write(*,'("Number of atoms: ",I6)') number_of_atoms
   write(*,*)
 end if
-twthr=2._dp/3._dp
 ! AB stacking
 atxy(1,:)=(/ 0._dp  , 0._dp ,0._dp/)
 atxy(2,:)=(/ twthr , twthr,0._dp/)
@@ -184,6 +229,12 @@ deallocate(atmlt)
 return
 end subroutine
 
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! side subroutines 
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
 subroutine getrot(trans,theta,rotmat)
 implicit none
 logical, intent(in)  :: trans
@@ -199,5 +250,6 @@ end if
 rotmat(3,:)=(/0._dp,0._dp,1._dp/)
 return
 end subroutine
+
 
 end module

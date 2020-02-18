@@ -339,7 +339,7 @@ do ik=1,kgrid%npt
   vkq=vpl+kgrid%vpl(ik)
   ikg=kgrid%find(vkq)
   vg=dble(ikg(1:NDIM))
-  write(*,'("vkq,corresponding vk+G: ",6F10.4)') vkq,kgrid%vpl(ikg(NDIM+1))+vg
+ ! write(*,'("vkq,corresponding vk+G: ",6F10.4)') vkq,kgrid%vpl(ikg(NDIM+1))+vg
 end do
 
 end subroutine

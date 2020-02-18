@@ -193,12 +193,17 @@ else
       end if
     end do
   end do
-  if (lvec) then
-   ! routine from wannier tools
-    call zheevx_pack('V', 'U', THIS%norb_TB, pars%istart, pars%istop , ztmp, eval, evec)
+  if (THIS%norb_TB.eq.pars%nstates) then
+    call eigenv_problem(THIS%norb_TB,ztmp,eval)
+    evec=ztmp
   else
-   ! routine from wannier tools
-    call zheevx_pack('N', 'U', THIS%norb_TB, pars%istart, pars%istop , ztmp, eval, evec)
+    if (lvec) then
+     ! routine from wannier tools
+      call zheevx_pack('V', 'U', THIS%norb_TB, pars%istart, pars%istop , ztmp, eval, evec)
+    else
+     ! routine from wannier tools
+      call zheevx_pack('N', 'U', THIS%norb_TB, pars%istart, pars%istop , ztmp, eval, evec)
+    end if
   end if
   deallocate(ztmp)
 end if

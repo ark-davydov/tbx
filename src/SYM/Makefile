@@ -27,7 +27,7 @@ DELOBJ = $(OBJ)
 ####################### Targets beginning here #########################
 ########################################################################
 
-all: $(APPNAME)
+all: directory $(APPNAME)
 
 # Builds the app
 $(APPNAME): $(OBJ)
@@ -43,3 +43,5 @@ $(OBJDIR)/%.o: $(SRCDIR)/%$(EXT)
 clean:
 	$(RM) $(DELOBJ) $(DEP) $(APPNAME) $(MOD)
 
+directory:
+	mkdir -p $(OBJDIR)

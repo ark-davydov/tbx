@@ -36,7 +36,7 @@ DELOBJ = $(OBJ)
 ########################################################################
 
 
-all: arpack sym $(APPNAME) 
+all: arpack sym directory $(APPNAME) 
 
 arpack: 
 	cd ARPACK; make lib; cd ..;
@@ -58,6 +58,9 @@ cleanall:
 	cd ARPACK;  make clean; cd ..;
 	cd SYM; make clean; cd ..;
 	$(RM) $(DELOBJ) $(DEP) $(APPNAME) $(MOD)
+
+directory:
+	mkdir -p $(OBJDIR)
 
 # create docs
 docs:

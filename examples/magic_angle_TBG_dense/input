@@ -33,7 +33,9 @@ egrid 100
 ! can not give give exactly that states, but it gives states closed to efermi 
 ! (the input parameter). (2) if upper state index is larger then number of available
 ! states, it will be modified, lower state will be allose modified, such that its
-! index is less or equal index of upper state
+! index is less or equal index of upper state. (3) finally if the dense
+! eigensolver fail to converge some eigen states, one should choos to compute
+! the full spectrum
 states
  5855 6054 ! N/2-100+1 N/2+100, ie., 200 bands around the Fermi level
 

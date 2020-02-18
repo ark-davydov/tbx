@@ -6,6 +6,7 @@ module parameters
 use modcom
 implicit none
 private
+logical :: atoms_block_found=.false.
 integer, parameter :: nmaxtasks=10
 integer, parameter :: nlines_max=100000
 !integer, parameter :: dp = SELECTED_REAL_KIND (15,300)
@@ -117,6 +118,7 @@ do iline=1,nlines_max
   
   ! atoms coordinates and species
   else if (trim(block).eq."atoms") then
+    atoms_block_found=.true.
     read(arg,*,iostat=iostat) THIS%nspec
     if (iostat.ne.0) call throw("paramters%read_input()","problem with atoms block nspec argument")
     allocate(THIS%nat_per_spec(THIS%nspec))
@@ -226,7 +228,7 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%istart,THIS%istop
     if (iostat.ne.0) call throw("paramters%read_input()","problem with states data")
     if (mp_mpi) write(*,'(i6,": ",2I6)') jline,THIS%istart,THIS%istop
-    if (THIS%istop.le.THIS%istart) call throw("paramters%read_input()","istart state should be less then istop")
+    if (THIS%istop.lt.THIS%istart) call throw("paramters%read_input()","istart state should be less or equal then istop")
     THIS%nstates=THIS%istop-THIS%istart+1
 
   ! seedname for Wannier90 interface
@@ -265,15 +267,14 @@ if (trim(adjustl(THIS%geometry_source)).ne."") then
    THIS%nat_per_spec=geometry%nat_per_spec
    THIS%atml=geometry%atml
    if (trim(adjustl(THIS%geometry_source)).eq."tbg".or.&
-       trim(adjustl(THIS%geometry_source)).eq."AAgraphene".or.&
-       trim(adjustl(THIS%geometry_source)).eq."ABgraphene".or.&
-       trim(adjustl(THIS%geometry_source)).eq."BAgraphene".or.&
-       trim(adjustl(THIS%geometry_source)).eq."graphene") then
+       trim(adjustl(THIS%geometry_source)).eq."slg") then
 
                if (allocated(THIS%norb_per_spec)) deallocate(THIS%norb_per_spec)
                allocate(THIS%norb_per_spec(geometry%nspec))
                THIS%norb_per_spec=1
-    end if
+   else
+      call throw("paramters%read_input()","unknown geometry structure option")
+   end if
 end if
 ! compute total number of atoms, and construct mapping to/from total index
 THIS%natmtot=0
@@ -293,6 +294,7 @@ do ispec=1,THIS%nspec
     THIS%iais_tot(iat,ispec)=THIS%natmtot
   end do
 end do
+if (THIS%natmtot.le.0) call throw("paramters%read_input()","no atoms!")
 ! allocate default/read egrid
 allocate(THIS%egrid(THIS%negrid))
 if (THIS%negrid.le.1) then
