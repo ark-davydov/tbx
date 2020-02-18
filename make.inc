@@ -9,7 +9,7 @@ F90 = mpif90
 
 # main compiler flags
 F90FLAGS = -O3 -funroll-loops 
-F90FLAGS = -g -Wall -fbacktrace -fbounds-check
+#F90FLAGS = -g -Wall -fbacktrace -fbounds-check
 
 # uncomment to use OpenMP parallisation
 OMP = -fopenmp
