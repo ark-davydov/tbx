@@ -37,13 +37,14 @@ type, public :: CLtb
   integer, allocatable, private :: icio_orb(:,:)
   integer, allocatable, private :: ncenters_nn(:)
   integer, allocatable, private :: jcjr_nn(:,:,:)
-  real(dp), allocatable, private :: centers(:,:)
+  real(dp), allocatable :: centers(:,:)
   real(dp), allocatable, private :: centers_cart(:,:)
   real(dp), allocatable, private :: deg_hr(:)
   complex(dp), allocatable, private :: ham_hr(:,:)
   contains
   procedure :: init=>init_variables
   procedure :: evalk=>calc_eigenvalues_at_K
+  procedure :: vplorb=>get_location_of_orbial
   procedure, private :: hK=>give_hK
   procedure, private :: hR=>give_hR
   procedure, private :: tij=>tij_function
@@ -61,6 +62,7 @@ class(CLtb), intent(out) :: THIS
 class(CLpars), intent(inout) :: pars
 character(len=*), intent(in) :: mode
 integer iat,ispec,ios,iorb,ic
+call info ("CLtb%init_variables","")
 THIS%mode=trim(adjustl(mode))
 THIS%sparse_eps=pars%sparse_eps
 THIS%rcut_nn=pars%rcut_nn
@@ -111,22 +113,6 @@ do ispec=1,pars%nspec
 end do
 ! init real space grid
 call THIS%rgrid%init(pars%ngrid,pars%avec,.true.,.false.)
-if (trim(adjustl(THIS%mode)).eq.'tbfile'.or.&
-  trim(adjustl(THIS%mode)).eq.'hrfile'.or.&
-  trim(adjustl(THIS%mode)).eq.'datfile') then
-  call throw("CLtb%init_variables()","reading TB hamiltonian from file is not implemented yet")
-else 
-  call THIS%skfunc%init(THIS%sktype)
-  call THIS%findnn()
-  call THIS%inquire_hamsize()
-end if
-call info ("CLtb%init_variables","")
-if (mp_mpi) then
-  write(*,*) "max number of nearest neighbors found: ", maxval(THIS%ncenters_nn)
-  write(*,*) "number of non-zeros in the upper-triangular part of Hamiltonian: ", THIS%hamsize
-  write(*,'(" upper-triangular sparsisity: ",F18.10)') dble(THIS%hamsize)/&
-                            ( 0.5d0*dble(THIS%norb_TB*THIS%norb_TB)+0.5d0*dble(THIS%norb_TB) )
-end if
 ! Fix the parameters for bottom and top states to calculate
 if (pars%istop.gt.THIS%norb_TB) then
   pars%istop=THIS%norb_TB
@@ -137,6 +123,25 @@ if (pars%istart.gt.pars%istop) then
   call message("bottom state to compute was changed")
 end if
 pars%nstates=pars%istop-pars%istart+1
+if (trim(adjustl(THIS%mode)).eq.'tbfile'.or.&
+  trim(adjustl(THIS%mode)).eq.'hrfile'.or.&
+  trim(adjustl(THIS%mode)).eq.'datfile') then
+  call throw("CLtb%init_variables()","reading TB hamiltonian from file is not implemented yet")
+else if (trim(adjustl(THIS%mode)).eq.'SK') then
+  call THIS%skfunc%init(THIS%sktype)
+  call THIS%findnn()
+  call THIS%inquire_hamsize()
+else if (trim(adjustl(THIS%mode)).eq.'noham') then
+   return
+else
+  call throw("CLtb%init_variables()","unknown TB initialization mode")
+end if
+if (mp_mpi) then
+  write(*,*) "max number of nearest neighbors found: ", maxval(THIS%ncenters_nn)
+  write(*,*) "number of non-zeros in the upper-triangular part of Hamiltonian: ", THIS%hamsize
+  write(*,'(" upper-triangular sparsisity: ",F18.10)') dble(THIS%hamsize)/&
+                            ( 0.5d0*dble(THIS%norb_TB*THIS%norb_TB)+0.5d0*dble(THIS%norb_TB) )
+end if
 if (mp_mpi) write(*,*)
 end subroutine
 
@@ -411,8 +416,14 @@ end function
 
 
 
-
-
+function get_location_of_orbial(THIS,iorb) result(vpl)
+class(CLtb), intent(in) :: THIS
+integer, intent(in) :: iorb
+integer ic
+real(dp) vpl(NDIM)
+ic=THIS%orb_icio(iorb,1)
+vpl=THIS%centers(:,ic)
+end function
 
 
 end module

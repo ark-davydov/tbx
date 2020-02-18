@@ -153,7 +153,8 @@ end subroutine
 subroutine io_grid(THIS,unt,fname,action,pars,norb)
 class(GRID), intent(inout) :: THIS
 integer, intent(in) :: unt
-integer, intent(inout) :: norb
+integer, intent(in) :: norb
+integer norb_
 class(CLpars), intent(in) :: pars
 character(len=*), intent(in) :: action,fname
 ! local
@@ -182,7 +183,9 @@ else
   if (sum(abs(ngrid-pars%ngrid)).ne.0) &
    call throw("grid%io_grid()","the k-point grid dimensions in _grid file are different from ones derived from input")
   read(unt) vecs(:,:)
-  read(unt) norb
+  read(unt) norb_
+  if (norb_.ne.norb) &
+   call throw("grid%io_grid()","number of orbitals in _grid file are different from ones derived from input")
   read(unt) nstates
   if (pars%nstates.ne.nstates) &
    call throw("grid%io_grid()","the number of states in _grid file is different from the one derived from input")

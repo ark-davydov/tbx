@@ -62,7 +62,7 @@ complex(dp), allocatable :: evec(:,:,:)
 call kpath%init(pars%nvert,pars%np_per_vert,pars%vert,pars%bvec)
 call message("  initialise TB model ..")
 call message("")
-call tbmodel%init(pars,"")
+call tbmodel%init(pars,"SK")
 call message("  initialise symmetries ..")
 call message("")
 call sym%init(pars)
@@ -126,7 +126,7 @@ complex(dp), allocatable :: evec(:,:,:)
 call kgrid%init(pars%ngrid,pars%bvec,centered_kgrid,.true.)
 call message("  initialise TB model ..")
 call message("")
-call tbmodel%init(pars,"")
+call tbmodel%init(pars,"SK")
 call message("  initialise symmetries ..")
 call message("")
 call sym%init(pars)
@@ -170,20 +170,22 @@ end subroutine
 
 
 subroutine calc_dos(pars)
-class(CLpars), intent(in) :: pars
-integer norb_TB,ik
+class(CLpars), intent(inout) :: pars
+integer ik
 real(dp), allocatable :: eval(:,:)
 real(dp), allocatable :: vkl(:,:)
 real(dp), allocatable :: tdos(:),dosk(:,:)
 complex(dp), allocatable :: evec(:,:,:)
 type(GRID) kgrid
+type(CLtb) tbmodel
 integer ie
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
 #endif
-call kgrid%io(100,"_grid","read",pars,norb_TB)
+call tbmodel%init(pars,"noham")
+call kgrid%io(100,"_grid","read",pars,tbmodel%norb_TB)
 allocate(eval(pars%nstates,kgrid%npt))
-allocate(evec(norb_TB,pars%nstates,kgrid%npt))
+allocate(evec(tbmodel%norb_TB,pars%nstates,kgrid%npt))
 allocate(vkl(NDIM,kgrid%npt))
 allocate(tdos(pars%negrid),dosk(pars%negrid,kgrid%npt))
 do ik=1,kgrid%npt
@@ -192,7 +194,7 @@ end do
 eval=0._dp
 evec=0._dp
 call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
-call io_evec(1002,"read","_evec",norb_TB,pars%nstates,kgrid%npt,evec)
+call io_evec(1002,"read","_evec",tbmodel%norb_TB,pars%nstates,kgrid%npt,evec)
 ! shift all eigenvalues by efermi 
 eval=eval-pars%efermi
 do ik=1,kgrid%npt
@@ -216,14 +218,15 @@ deallocate(eval,evec,vkl)
 end subroutine
 
 subroutine calc_chi(pars,opt)
-class(CLpars), intent(in) :: pars
+class(CLpars), intent(inout) :: pars
 character(len=*), intent(in) :: opt
-integer norb_TB,ik,iq
+integer ik,iq
 real(dp), allocatable :: eval(:,:)
 real(dp), allocatable :: vkl(:,:)
 complex(dp), allocatable :: evec(:,:,:)
 complex(dp), allocatable :: chi(:,:)
 type(GRID) kgrid,qgrid
+type(CLtb) tbmodel
 integer ie
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
@@ -231,8 +234,10 @@ integer ie
 if (trim(adjustl(opt)).ne."rpa") then
   call throw("CLtasks","unknown argument for the response function (only RPA is available via rpachi task)")
 end if
+! initialise TB model, to have centers coordinates and other data
+call tbmodel%init(pars,"noham")
 ! read the k-point grid on which eigenvales/eigenvectors are computed
-call kgrid%io(1000,"_grid","read",pars,norb_TB)
+call kgrid%io(1000,"_grid","read",pars,tbmodel%norb_TB)
 ! In principle, we can have a different q-point grid for the RPA function,
 ! However, the grid dimensions will have to be commensurate with original k-grid dimensions, because
 ! in RPA one needs to find kp=k+q, and kp has to be found in the original k-point grid.
@@ -241,7 +246,7 @@ call qgrid%init(kgrid%ngrid,pars%bvec,centered_qgrid,.true.)
 ! allocate array for eigen values
 allocate(eval(pars%nstates,kgrid%npt))
 ! allocate array for eigen vectors
-allocate(evec(norb_TB,pars%nstates,kgrid%npt))
+allocate(evec(tbmodel%norb_TB,pars%nstates,kgrid%npt))
 ! this is needed to copy the private data of kgrid object, i.e., k-points in lattice coordinates
 allocate(vkl(NDIM,kgrid%npt))
 ! array for RPA response function which can be dynamic (on pars%negrid frequencies), and at different q-points
@@ -256,14 +261,14 @@ evec=0._dp
 ! read eigenvalues, subroutine in modcom.f90
 call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
 ! read eigenvectors, subroutine in modcom.f90
-call io_evec(1002,"read","_evec",norb_TB,pars%nstates,kgrid%npt,evec)
+call io_evec(1002,"read","_evec",tbmodel%norb_TB,pars%nstates,kgrid%npt,evec)
 ! shift all eigenvalues by efermi (so, it should not be changend in the input file)
 eval=eval-pars%efermi
 ! do the computation. later we will attach MPI parallelisation here 
 ! (you can see bands, eigen tasks how to do it), therefore arrays have to be zeroed
 chi(:,:)=0._dp
 do iq=1,qgrid%npt
-  call get_chiq(pars,kgrid,qgrid%vpl(iq),norb_TB,eval,evec,chi(:,iq))
+  call get_chiq(pars,kgrid,tbmodel,qgrid%vpl(iq),eval,evec,chi(:,iq))
 end do
 if (mp_mpi) then
   open(2000,file="chi.dat")
@@ -319,16 +324,16 @@ deallocate(idx,ekw,ee)
 end subroutine
 
 
-subroutine get_chiq(pars,kgrid,vpl,norb,eval,evec,chiq)
+subroutine get_chiq(pars,kgrid,tbmodel,vpl,eval,evec,chiq)
 class(CLpars), intent(in) :: pars
 class(GRID), intent(in) :: kgrid
+class(CLtb), intent(in) :: tbmodel
 real(dp), intent(in) :: vpl(NDIM)
-integer, intent(in) :: norb
 real(dp), intent(in) :: eval(pars%nstates,kgrid%npt)
-complex(dp), intent(in) :: evec(norb,pars%nstates,kgrid%npt)
+complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
 complex(dp), intent(out) :: chiq(pars%negrid)
 ! local
-integer ie,ist,jst,ikq,ik
+integer ie,ist,jst,ikq,ik,iorb
 real(dp) vkq(NDIM),vg(NDIM)
 integer ikg(NDIM+1)
 ! I guess, chi has to be zeroed again, since it is intent(out) 
@@ -339,7 +344,10 @@ do ik=1,kgrid%npt
   vkq=vpl+kgrid%vpl(ik)
   ikg=kgrid%find(vkq)
   vg=dble(ikg(1:NDIM))
- ! write(*,'("vkq,corresponding vk+G: ",6F10.4)') vkq,kgrid%vpl(ikg(NDIM+1))+vg
+  write(*,'("vkq,corresponding vk+G: ",6F10.4)') vkq,kgrid%vpl(ikg(NDIM+1))+vg
+end do
+do iorb=1,tbmodel%norb_TB
+  write(*,'("iorb, lattice coords: ",i4,6F10.4)') iorb,tbmodel%vplorb(iorb)
 end do
 
 end subroutine
