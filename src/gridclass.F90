@@ -186,12 +186,12 @@ else
   read(unt) nstates
   if (pars%nstates.ne.nstates) &
    call throw("grid%io_grid()","the number of states in _grid file is different from the one derived from input")
+  THIS%centered=centered
+  THIS%fractional=fractional
+  THIS%ngrid=ngrid
+  THIS%vecs=vecs
+  call THIS%init(ngrid,vecs,centered,fractional)
 end if
-THIS%centered=centered
-THIS%fractional=fractional
-THIS%ngrid=ngrid
-THIS%vecs=vecs
-call THIS%init(ngrid,vecs,centered,fractional)
 close(unt)
 end subroutine
 
