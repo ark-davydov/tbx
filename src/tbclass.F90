@@ -37,7 +37,7 @@ type, public :: CLtb
   integer, allocatable, private :: icio_orb(:,:)
   integer, allocatable, private :: ncenters_nn(:)
   integer, allocatable, private :: jcjr_nn(:,:,:)
-  real(dp), allocatable :: centers(:,:)
+  real(dp), allocatable, private :: centers(:,:)
   real(dp), allocatable, private :: centers_cart(:,:)
   real(dp), allocatable, private :: deg_hr(:)
   complex(dp), allocatable, private :: ham_hr(:,:)

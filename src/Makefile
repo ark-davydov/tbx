@@ -36,11 +36,11 @@ DELOBJ = $(OBJ)
 ########################################################################
 
 
-all: arpack sym directory $(APPNAME) 
+all: arp symm directory $(APPNAME) 
 
-arpack: 
+arp: 
 	cd ARPACK; make lib; cd ..;
-sym: 
+symm: 
 	cd SYM; make; cd ..;
 
 # Builds the app
