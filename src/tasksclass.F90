@@ -8,6 +8,7 @@ use parameters
 use gridclass
 use tbclass
 use symmetryclass
+use wannier_interface
 implicit none
 private
 type, public :: CLtasks
@@ -41,6 +42,11 @@ do itask=1,pars%ntasks
      call message("*** rpachi  calculation ***")
      call message("")
      call calc_chi(pars,"rpa")
+     call message("")
+  else if (trim(adjustl(pars%tasks(itask))).eq."projection_wannier") then
+     call message("*** wannier projection ***")
+     call message("")
+     call projection_wannier(pars)
      call message("")
   else
     call throw("CLtasks%run","unknown task")
@@ -250,7 +256,7 @@ allocate(evec(tbmodel%norb_TB,pars%nstates,kgrid%npt))
 ! this is needed to copy the private data of kgrid object, i.e., k-points in lattice coordinates
 allocate(vkl(NDIM,kgrid%npt))
 ! array for RPA response function which can be dynamic (on pars%negrid frequencies), and at different q-points
-allocate(chi(pars%negrid,kgrid%npt))
+allocate(chi(pars%negrid,qgrid%npt))
 ! copy the private data
 do ik=1,kgrid%npt
  vkl(:,ik)=kgrid%vpl(ik)
@@ -283,6 +289,58 @@ deallocate(eval,evec,vkl)
   call MPI_barrier(mpi_com,mpi_err)
 #endif
 end subroutine
+
+
+subroutine projection_wannier(pars)
+class(CLpars), intent(inout) :: pars
+integer ik,iq
+real(dp), allocatable :: eval(:,:)
+real(dp), allocatable :: vkl(:,:)
+complex(dp), allocatable :: evec(:,:,:)
+complex(dp), allocatable :: chi(:,:)
+type(GRID) kgrid
+type(CLtb) tbmodel
+type(CLwan) wannier
+integer ie
+#ifdef MPI
+  call MPI_barrier(mpi_com,mpi_err)
+#endif
+! initialise TB model, to have centers coordinates and other data
+call tbmodel%init(pars,"noham")
+! read the k-point grid on which eigenvales/eigenvectors are computed
+call kgrid%io(1000,"_grid","read",pars,tbmodel%norb_TB)
+! allocate array for eigen values
+allocate(eval(pars%nstates,kgrid%npt))
+! allocate array for eigen vectors
+allocate(evec(tbmodel%norb_TB,pars%nstates,kgrid%npt))
+! this is needed to copy the private data of kgrid object, i.e., k-points in lattice coordinates
+allocate(vkl(NDIM,kgrid%npt))
+! copy the private data
+do ik=1,kgrid%npt
+ vkl(:,ik)=kgrid%vpl(ik)
+end do
+! zero the arrays for security reasons
+eval=0._dp
+evec=0._dp
+! read eigenvalues, subroutine in modcom.f90
+call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
+! read eigenvectors, subroutine in modcom.f90
+call io_evec(1002,"read","_evec",tbmodel%norb_TB,pars%nstates,kgrid%npt,evec)
+! shift all eigenvalues by efermi (so, it should not be changend in the input file)
+eval=eval-pars%efermi
+! do the computation. later we will attach MPI parallelisation here 
+! (you can see bands, eigen tasks how to do it), therefore arrays have to be zeroed
+call wannier%init(pars)
+call wannier%project(tbmodel,kgrid,eval,evec)
+!call wannier%overlap(pars,tbmodel,kgrid,eval,evec)
+if (mp_mpi) then
+end if
+deallocate(eval,evec,vkl)
+#ifdef MPI
+  call MPI_barrier(mpi_com,mpi_err)
+#endif
+end subroutine
+
 
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
