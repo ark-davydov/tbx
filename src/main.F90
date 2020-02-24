@@ -43,8 +43,7 @@ type(CLtasks) tasks
 #endif
 
 call get_command_argument(1, arg)
-pars%input_file=trim(adjustl(arg))
-call pars%init()
+call pars%init(trim(adjustl(arg)))
 call tasks%run(pars)
 
 call message("Finished")

@@ -12,14 +12,11 @@ integer, parameter :: nlines_max=100000
 !integer, parameter :: dp = SELECTED_REAL_KIND (15,300)
 
 type, public :: CLpars
-  character(len=100) :: input_file
-  character(len=100) :: wannier_proj_mode
   character(len=100) :: tasks(nmaxtasks)
   character(len=100) :: geometry_source=""
   character(len=100) :: seedname="seedname"
   character(len=100) :: sktype="sk"
   logical :: sparse=.false.
-  integer :: nwan
   integer :: geometry_index=0
   integer :: symtype=0
   integer :: nvert
@@ -55,9 +52,10 @@ endtype CLpars
 
 contains
 
-subroutine read_input(THIS)
+subroutine read_input(THIS,fname)
 use geometry_library
 class(CLpars), intent(out) :: THIS
+character(len=*), intent(in) :: fname
 ! internal
 type(geomlib) geometry
 integer iostat,iline,jline,ii
@@ -71,7 +69,7 @@ real(dp), allocatable :: atml_temp(:,:,:)
   call MPI_barrier(mpi_com,mpi_err)
 #endif
 
-open(50,file=trim(adjustl(THIS%input_file)),action="read",status="old",iostat=iostat)
+open(50,file=trim(adjustl(fname)),action="read",status="old",iostat=iostat)
 if (iostat.ne.0) call throw("paramters%read_input()","could not open input file")
 if (mp_mpi) call message("")
 if (mp_mpi) call message("Reading input file: ")
@@ -239,27 +237,13 @@ do iline=1,nlines_max
         read(50,'(A)',iostat=iostat) THIS%seedname
         if (iostat.ne.0) call throw("paramters%read_input()","problem with seedname data")
         if (mp_mpi) write(*,'(i6,": ",A)') jline,trim(adjustl(THIS%seedname))
-
+  
   ! type of Slater-Koster function
   else if (trim(block).eq."sktype") then
         jline=jline+1
         read(50,'(A)',iostat=iostat) THIS%sktype
         if (iostat.ne.0) call throw("paramters%read_input()","problem with sktype data")
         if (mp_mpi) write(*,'(i6,": ",A)') jline,trim(adjustl(THIS%seedname))
-
-  ! projection mode for wannier export
-  else if (trim(block).eq."wannier_proj_mode") then
-        jline=jline+1
-        read(50,'(A)',iostat=iostat) THIS%wannier_proj_mode
-        if (iostat.ne.0) call throw("paramters%read_input()","problem with wannier_proj_mode data")
-        if (mp_mpi) write(*,'(i6,": ",A)') jline,trim(adjustl(THIS%wannier_proj_mode))
-  
-  ! number of disired wannier projection
-  else if (trim(block).eq."nwan") then
-    jline=jline+1
-    read(50,*,iostat=iostat) THIS%nwan
-    if (iostat.ne.0) call throw("paramters%read_input()","problem with nwan data")
-    if (mp_mpi) write(*,'(i6,": ",I6)') jline,THIS%nwan
 
   end if
   
