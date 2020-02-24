@@ -16,7 +16,7 @@ LDFLAGS = $(SYMLIB) $(ARPACKLIB) $(BLAS) $(LAPACK)
 
 # modules
 MODULES = modcom.F90 geometry_library.F90 parameters.F90 symmetryclass.F90 gridclass.F90  \
-          slater_koster.F90 tbclass.F90 tasksclass.F90
+          slater_koster.F90 tbclass.F90 wannier_interface.F90 tasksclass.F90
 # sourses
 SRC     = $(MODULES) arpack_interface.F90  main.F90
 

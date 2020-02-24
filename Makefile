@@ -2,7 +2,7 @@
 all:
 	cd src ; make
 
-clean:	cleansrc cleanscr
+clean:	cleanscr cleansrc
 
 cleansrc:
 	cd ./src ; make cleanall

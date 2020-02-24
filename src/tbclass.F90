@@ -140,7 +140,7 @@ if (mp_mpi) then
   write(*,*) "max number of nearest neighbors found: ", maxval(THIS%ncenters_nn)
   write(*,*) "number of non-zeros in the upper-triangular part of Hamiltonian: ", THIS%hamsize
   write(*,'(" upper-triangular sparsisity: ",F18.10)') dble(THIS%hamsize)/&
-                            ( 0.5d0*dble(THIS%norb_TB*THIS%norb_TB)+0.5d0*dble(THIS%norb_TB) )
+                            ( 0.5_dp*dble(THIS%norb_TB*THIS%norb_TB)+0.5_dp*dble(THIS%norb_TB) )
 end if
 if (mp_mpi) write(*,*)
 end subroutine
