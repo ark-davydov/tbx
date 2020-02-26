@@ -301,6 +301,7 @@ complex(dp), allocatable :: chi(:,:)
 type(GRID) kgrid
 type(CLtb) tbmodel
 type(CLwan) wannier
+type(CLsym) sym
 integer ie
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
@@ -309,6 +310,8 @@ integer ie
 call tbmodel%init(pars,"noham")
 ! read the k-point grid on which eigenvales/eigenvectors are computed
 call kgrid%io(1000,"_grid","read",pars,tbmodel%norb_TB)
+! generater spacial symmetries
+call sym%init(pars)
 ! allocate array for eigen values
 allocate(eval(pars%nstates,kgrid%npt))
 ! allocate array for eigen vectors
@@ -330,8 +333,7 @@ call io_evec(1002,"read","_evec",tbmodel%norb_TB,pars%nstates,kgrid%npt,evec)
 eval=eval-pars%efermi
 ! do the computation. later we will attach MPI parallelisation here 
 ! (you can see bands, eigen tasks how to do it), therefore arrays have to be zeroed
-call wannier%init(pars)
-call wannier%project(tbmodel,kgrid,eval,evec)
+call wannier%project(tbmodel,pars,sym,kgrid,eval,evec)
 !call wannier%overlap(pars,tbmodel,kgrid,eval,evec)
 if (mp_mpi) then
 end if

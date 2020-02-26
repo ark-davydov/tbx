@@ -40,13 +40,13 @@ integer, allocatable :: iea(:,:,:)
 real(8), allocatable :: apl(:,:,:)
 real(8), allocatable :: vtl(:,:)
 ! allocate local array
-allocate(apl(3,maxatoms,maxspecies))
-allocate(iea(natmmax,nspecies,48))
+allocate(apl(3,maxatoms,nspecies))
+allocate(iea(maxatoms,nspecies,48))
 ! allocate equivalent atom arrays
-if (allocated(ieqatom)) deallocate(ieqatom)
-allocate(ieqatom(natmmax,nspecies,maxsymcrys))
+!if (allocated(ieqatom)) deallocate(ieqatom)
+!allocate(ieqatom(maxatoms,nspecies,maxsymcrys))
 if (allocated(eqatoms)) deallocate(eqatoms)
-allocate(eqatoms(natmmax,natmmax,nspecies))
+allocate(eqatoms(maxatoms,maxatoms,nspecies))
 ! store position of first atom
 if (natmtot.gt.0) v0(:)=atposl(:,1,1)
 ! find the smallest set of atoms

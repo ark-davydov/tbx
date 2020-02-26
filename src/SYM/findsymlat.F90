@@ -114,6 +114,10 @@ do i=1,nsymlat
   s(:,:)=dble(symlat(:,:,i))
   call r3mm(s,ainv,c)
   call r3mm(avec,c,symlatc(:,:,i))
+!  write(*,*) i
+!  write(*,*) symlatc(1,:,i)
+!  write(*,*) symlatc(2,:,i)
+!  write(*,*) symlatc(3,:,i)
 end do
 return
 end subroutine

@@ -7,6 +7,8 @@ use modcom
 use parameters
 use gridclass
 use slater_koster
+use symmetryclass
+use wannier_supplementary
 implicit none
 private
 integer, parameter :: maxallowd_orbs=46340
@@ -19,7 +21,7 @@ type, public :: CLtb
   integer :: norb_TB
   integer, private    :: nspec
   integer, private    :: hamsize
-  integer, private    :: ncenters
+  integer, public     :: ncenters
   integer, private    :: nmaxatm_pspec
   integer, private    :: nmaxorb_pspec
   real(dp), private   :: rcut_nn
@@ -27,24 +29,27 @@ type, public :: CLtb
   type(SK), private   :: skfunc
   type(GRID), private :: rgrid
   ! sparse indexing (isa,jsa)
+  integer, allocatable, private :: lmr(:,:)
   integer, allocatable, private :: isa(:)
   integer, allocatable, private :: jsa(:)
-  integer, allocatable, private :: norb_ispec(:)
+  integer, allocatable, public  :: norb_ic(:)
   integer, allocatable, private :: norb_nn(:)
   integer, allocatable, private :: nn_idx(:,:,:)
   integer, allocatable, private :: ic_ispec(:)
-  integer, allocatable, private :: orb_icio(:,:)
-  integer, allocatable, private :: icio_orb(:,:)
+  integer, allocatable, public  :: orb_icio(:,:)
+  integer, allocatable, public  :: icio_orb(:,:)
   integer, allocatable, private :: ncenters_nn(:)
   integer, allocatable, private :: jcjr_nn(:,:,:)
   real(dp), allocatable, private :: centers(:,:)
   real(dp), allocatable, private :: centers_cart(:,:)
   real(dp), allocatable, private :: deg_hr(:)
+  real(dp), allocatable, private :: waxis(:,:,:)
   complex(dp), allocatable, private :: ham_hr(:,:)
   contains
-  procedure :: init=>init_variables
-  procedure :: evalk=>calc_eigenvalues_at_K
-  procedure :: vplorb=>get_location_of_orbial
+  procedure, public :: init=>init_variables
+  procedure, public :: evalk=>calc_eigenvalues_at_K
+  procedure, public :: vplorb=>get_location_of_orbial
+  procedure, public :: wfGtransform=>bloch_wf_transform_at_gamma
   procedure, private :: hK=>give_hK
   procedure, private :: hR=>give_hR
   procedure, private :: tij=>tij_function
@@ -68,18 +73,23 @@ THIS%sparse_eps=pars%sparse_eps
 THIS%rcut_nn=pars%rcut_nn
 THIS%nspec=pars%nspec
 THIS%nmaxatm_pspec=pars%nmaxatm_pspec
-THIS%nmaxorb_pspec=maxval(pars%norb_per_spec(:))
+THIS%nmaxorb_pspec=maxval(pars%norb_per_center(:))
 ! this can be changed later
 THIS%ncenters=pars%natmtot
 THIS%sktype=pars%sktype
-allocate(THIS%norb_ispec(THIS%nspec))
+allocate(THIS%lmr(2,THIS%ncenters))
+allocate(THIS%norb_ic(THIS%ncenters))
+allocate(THIS%waxis(NDIM,2,THIS%ncenters))
 allocate(THIS%icio_orb(THIS%ncenters,THIS%nmaxorb_pspec))
-THIS%norb_ispec=pars%norb_per_spec
+! this corresponds to PZ orbitals:
+THIS%lmr(1,:)=1 !l
+THIS%lmr(2,:)=1 !mr
+THIS%norb_ic=pars%norb_per_center
+THIS%waxis=pars%wannier_axis
 ! compute first the total number of orbitals
 THIS%norb_TB=0
 do ic=1,THIS%ncenters
-  ispec=pars%tot_iais(ic,2)
-  do ios=1,THIS%norb_ispec(ispec)
+  do ios=1,THIS%norb_ic(ic)
      THIS%norb_TB=THIS%norb_TB+1
      if(THIS%norb_TB.gt.maxallowd_orbs) then
        call throw("CLtb%init_variables()","maximum allowed basis orbitals exceeded (integer overflow in NxN value)")
@@ -89,15 +99,16 @@ do ic=1,THIS%ncenters
   end do
 end do
 allocate(THIS%ic_ispec(THIS%ncenters))
-allocate(THIS%orb_icio(THIS%norb_TB,2))
+allocate(THIS%orb_icio(THIS%norb_TB,3))
 do ic=1,THIS%ncenters
   ispec=pars%tot_iais(ic,2)
   THIS%ic_ispec(ic)=ispec
-  do ios=1,THIS%norb_ispec(ispec)
+  do ios=1,THIS%norb_ic(ic)
      iorb=THIS%icio_orb(ic,ios)
      ! map:  final basis orbital to center,orbialindex
      THIS%orb_icio(iorb,1)=ic
      THIS%orb_icio(iorb,2)=ios
+     THIS%orb_icio(iorb,3)=ispec
   end do
 end do
 ! compute the actual centers
@@ -140,7 +151,7 @@ if (mp_mpi) then
   write(*,*) "max number of nearest neighbors found: ", maxval(THIS%ncenters_nn)
   write(*,*) "number of non-zeros in the upper-triangular part of Hamiltonian: ", THIS%hamsize
   write(*,'(" upper-triangular sparsisity: ",F18.10)') dble(THIS%hamsize)/&
-                            ( 0.5d0*dble(THIS%norb_TB*THIS%norb_TB)+0.5d0*dble(THIS%norb_TB) )
+                            ( 0.5_dp*dble(THIS%norb_TB*THIS%norb_TB)+0.5_dp*dble(THIS%norb_TB) )
 end if
 if (mp_mpi) write(*,*)
 end subroutine
@@ -243,7 +254,7 @@ class(CLtb), intent(in) :: THIS
 integer, intent(in) :: itr
 complex(dp), intent(out) :: ham(THIS%hamsize)
 integer iorb,jorb,ic,jc,jr,ispec,jspec,ios,jos,nn,idx,ii
-ham=0.d0
+ham=0._dp
 if (THIS%mode.eq."hr") then
   do iorb=1,THIS%norb_TB
     do jorb=iorb,THIS%norb_TB
@@ -265,11 +276,11 @@ else
       jr=THIS%jcjr_nn(ic,nn,2)
       jspec=THIS%ic_ispec(jc)
       if (itr.ne.jr) cycle
-      do ios=1,THIS%norb_ispec(ispec)
+      do ios=1,THIS%norb_ic(ic)
         iorb=THIS%icio_orb(ic,ios)
         ! sparse index of the first non-zero element in the row iorb
         ii=THIS%isa(iorb)
-        do jos=1,THIS%norb_ispec(jspec)
+        do jos=1,THIS%norb_ic(jc)
           jorb=THIS%icio_orb(jc,jos)
           do idx=ii,min(THIS%isa(iorb+1),THIS%hamsize)
              ! jsa is a map from sparse index to the column one
@@ -297,9 +308,9 @@ do ic=1,THIS%ncenters
     jc=THIS%jcjr_nn(ic,nn,1)
     jr=THIS%jcjr_nn(ic,nn,2)
     jspec=THIS%ic_ispec(jc)
-    do ios=1,THIS%norb_ispec(ispec)
+    do ios=1,THIS%norb_ic(ic)
       iorb=THIS%icio_orb(ic,ios)
-      do jos=1,THIS%norb_ispec(jspec)
+      do jos=1,THIS%norb_ic(jc)
         jorb=THIS%icio_orb(jc,jos)
         if (abs(THIS%tij(ic,jc,ios,jos,jr)).gt.THIS%sparse_eps.or.&
            iorb.eq.jorb) then
@@ -369,9 +380,9 @@ do ic=1,THIS%ncenters
       dv=THIS%centers_cart(:,jc)+THIS%rgrid%vpc(jR)-THIS%centers_cart(:,ic)
       t1=sqrt(dot_product(dv,dv))
       if (t1.lt.THIS%rcut_nn) then
-        do ios=1,THIS%norb_ispec(ispec)
+        do ios=1,THIS%norb_ic(ic)
           iorb=THIS%icio_orb(ic,ios)
-          do jos=1,THIS%norb_ispec(jspec)
+          do jos=1,THIS%norb_ic(jc)
             jorb=THIS%icio_orb(jc,jos)
             if (abs(THIS%tij(ic,jc,ios,jos,jR)).gt.THIS%sparse_eps.or.&
                 iorb.eq.jorb) then
@@ -425,5 +436,50 @@ ic=THIS%orb_icio(iorb,1)
 vpl=THIS%centers(:,ic)
 end function
 
+subroutine bloch_wf_transform_at_gamma(THIS,pars,sym,isym,wfinout)
+class(CLtb), intent(in) :: THIS
+class(CLpars), intent(in) :: pars
+class(CLsym), intent(in) :: sym
+integer, intent(in) :: isym
+complex(dp), intent(inout) :: wfinout(THIS%norb_TB)
+complex(dp), allocatable :: wftemp(:)
+! local
+integer iat,jat,jspec
+integer ic,jc,iorb,jorb,ios,jos 
+real(dp) t1
+allocate(wftemp(THIS%norb_TB))
+wftemp(:)=wfinout(:)
+wfinout(:)=0._dp
+do jc=1,THIS%ncenters
+  ! iatom/specie index of jc cite
+  jat=pars%tot_iais(jc,1)
+  jspec=pars%tot_iais(jc,2)
+  ! equivalent atom to jat,jspec at the jsym operation
+  iat=sym%ieqat(jat,jspec,isym)
+  ! cite index of iat,ispec=jspec
+  ic=pars%iais_tot(iat,jspec)
+  do ios=1,THIS%norb_ic(ic)
+    iorb=THIS%icio_orb(ic,ios)
+    do jos=1,THIS%norb_ic(jc)
+      t1=give_symrep_me(sym%car(:,:,isym),THIS%waxis(:,:,ios),THIS%waxis(:,:,jos),THIS%lmr(:,ios),THIS%lmr(:,jos))
+      jorb=THIS%icio_orb(jc,jos)
+      wfinout(iorb)=wfinout(iorb)+t1*wftemp(jorb)
+    end do
+  end do
+end do
+deallocate(wftemp)
+return
+end subroutine
+
+
+! overlap of the basis wannier functions rotatated on a cite
+real(dp) function give_symrep_me(symcar,axis1,axis2,lmr1,lmr2)
+real(dp), intent(in) :: symcar(NDIM,NDIM)
+integer, intent(in) :: lmr1(2),lmr2(2)
+real(dp), intent(in) :: axis1(NDIM,2),axis2(NDIM,2)
+type(interface_wovlp) :: wovlp
+give_symrep_me=wovlp%wws(symcar,lmr1(1),lmr1(2),lmr2(1),lmr2(2),&
+                         axis1(:,1),axis1(:,2),axis2(:,1),axis2(:,2))
+end function
 
 end module

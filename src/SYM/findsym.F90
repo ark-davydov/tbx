@@ -38,12 +38,12 @@ use modelk
 !BOC
 implicit none
 ! arguments
-real(8), intent(in) :: apl1(3,maxatoms,maxspecies)
-real(8), intent(in) :: apl2(3,maxatoms,maxspecies)
+real(8), intent(in) :: apl1(3,maxatoms,nspecies)
+real(8), intent(in) :: apl2(3,maxatoms,nspecies)
 integer, intent(out) :: nsym
 integer, intent(out) :: lspl(48)
 integer, intent(out) :: lspn(48)
-integer, intent(out) :: iea(natmmax,nspecies,48)
+integer, intent(out) :: iea(maxatoms,nspecies,48)
 ! local variables
 integer isym,jsym
 integer is,ia,ja
@@ -51,7 +51,7 @@ real(8) sl(3,3),v(3),t1
 ! allocatable arrays
 integer, allocatable :: jea(:,:)
 real(8), allocatable :: apl3(:,:)
-allocate(jea(natmmax,nspecies))
+allocate(jea(maxatoms,nspecies))
 allocate(apl3(3,natmmax))
 nsym=0
 ! loop over lattice symmetries (spatial rotations)

@@ -1,5 +1,5 @@
 subroutine arpack_interface(rvec,bmat,which,nev,nx,npack,ia,ja,matrix,eval,evec)
-use modcom, only : throw,info
+use modcom, only : throw,info,dp
 implicit none
 logical, intent(in)           :: rvec
 character(len=1), intent(in)  :: bmat
@@ -12,8 +12,8 @@ double precision, intent(out) :: eval(nev)
 complex*16, intent(out)       :: evec(nx,nev)
 ! local
 character(len=100) strmsg
-Complex*16, parameter  :: sigma=cmplx(0.d0,0.d0,kind=8)
-Double precision, parameter     :: eps=1.d-6
+Complex*16, parameter  :: sigma=cmplx(0._dp,0._dp,kind=dp)
+Double precision, parameter     :: eps=1.e-6_dp
 integer           maxn, maxnev, maxncv, ldv
 integer           iparam(11), ipntr(14)
 integer           ido, n, ncv, lworkl, arinfo, ierr, nconv, maxitr, ishfts, mode, counter
@@ -82,7 +82,7 @@ allocate(ipiv(maxn))
 allocate(rwork(maxn))
 allocate(BB(NX))
 
-tol    = 1.d-15
+tol    = 1.e-15_dp
 ido    = 0
 arinfo = 0
 ishfts = 1
@@ -105,7 +105,7 @@ iparam(7) = mode
   allocate(laipiv(maxn))
   allocate(aa(nx,nx))
   ! unpack the full matrix
-  aa=0.d0
+  aa=0._dp
   do jj=1,npack
     do ii=1,nx
       if (jj.ge.ia(ii).and.jj.lt.ia(ii+1)) then
@@ -268,7 +268,7 @@ iparam(7) = mode
          call info("arpack_interface","Warning, NEV not equal to NCONV")
       end if
       eval(1:nev)=dble(D(1:nev))
-      if (sum(abs(eval(1:nev)-D(1:nev))).gt.1.d0) then
+      if (sum(abs(eval(1:nev)-D(1:nev))).gt.1._dp) then
          write(strmsg,*) "eigenvalues have large imaginary part ",sum(abs(eval(1:nev)-D(1:nev)))
          call throw("arpack_interface",strmsg)
       end if
@@ -307,7 +307,7 @@ contains
       integer, intent(in) :: nx
       Complex*16, intent(inout)    ::    vv(:), ww(:)
       integer ii,jj
-      ww(1:nx)=0.d0
+      ww(1:nx)=0._dp
       do jj=1,npack
         do ii=1,nx
           if (jj.ge.ia(ii).and.jj.lt.ia(ii+1)) then
