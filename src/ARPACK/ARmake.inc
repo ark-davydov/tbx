@@ -111,12 +111,12 @@ ECHO    = echo
 LN      = ln
 LNFLAGS = -s
 
-MAKE    = /bin/make
+MAKE    = make
 
 RM      = rm
 RMFLAGS = -f
 
-SHELL   = /bin/sh
+SHELL   = sh
 #
 #  %----------------------------------------------------------------%
 #  | The archiver and the flag(s) to use when building an archive   |
