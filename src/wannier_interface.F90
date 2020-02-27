@@ -12,26 +12,69 @@ implicit none
 private
 
 type, public :: CLwan
+  integer :: nnk=0
+  integer :: dis_num_iter=1000
+  integer :: num_iter=1000
+  real(dp) :: dis_win_min=-100._dp
+  real(dp) :: dis_win_max= 100._dp
+  real(dp) :: dis_froz_min=-100._dp
+  real(dp) :: dis_froz_max= 100._dp
+  real(dp), allocatable :: proj_centers(:,:)
+  integer, allocatable :: nnkp(:,:,:)
   contains
-  procedure, nopass :: project=>compute_projection
+  procedure :: init
+  procedure :: projection
+  procedure :: readnnkp
+  procedure, private :: writewin
 endtype CLwan
 
 contains
 
-subroutine compute_projection(tbmodel,pars,sym,kgrid,eval,evec)
+
+subroutine init(THIS,kgrid,kpath,pars,eval)
+class(CLwan), intent(inout) :: THIS
+class(GRID), intent(in) :: kgrid
+class(PATH), intent(in) :: kpath
+class(CLpars), intent(in) :: pars
+real(dp), intent(inout) :: eval(pars%nstates,kgrid%npt)
+!
+integer ik
+real(dp), allocatable :: vkl(:,:)
+if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band') then
+  allocate(THIS%proj_centers(NDIM,pars%nwan))
+  THIS%proj_centers(:,1)=(/onethrd,onethrd,0._dp/)
+  THIS%proj_centers(:,2)=(/onethrd,onethrd,0._dp/)
+  THIS%proj_centers(:,3)=(/twothrd,twothrd,0._dp/)
+  THIS%proj_centers(:,4)=(/twothrd,twothrd,0._dp/)
+  allocate(vkl(NDIM,kgrid%npt))
+  do ik=1,kgrid%npt
+    vkl(:,ik)=kgrid%vpl(ik)
+  end do
+  if (mp_mpi) then
+    call THIS%writewin(kgrid,kpath,pars)
+    call io_eval(1002,"write",trim(adjustl(pars%seedname))//'.eig',.true.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
+  end if
+  call readnnkp(THIS,kgrid,pars)
+  deallocate(vkl)
+else
+  call throw("wannier_interface%generate_trial_wavefunctions()","unknown projection option")
+end if
+end subroutine
+
+subroutine projection(THIS,tbmodel,pars,sym,kgrid,evec)
+class(CLwan), intent(in) :: THIS
 class(CLtb), intent(in) :: tbmodel
 class(CLpars), intent(in) :: pars
 class(CLsym), intent(in) :: sym
 class(GRID), intent(in) :: kgrid
-real(dp), intent(in) :: eval(pars%nstates,kgrid%npt)
 complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
 ! local
 character(len=200) :: message
 integer iorb,ispec
 integer eps_plus_state_val,eps_plus_state_con
 integer  isym1,isym2,ik_gamma,ikg(NDIM+1)
+real(dp) sigma
 real(dp) vpl(NDIM)
-real(dp) rot(NDIM,NDIM),ax(NDIM),res(NDIM,NDIM)
 complex(dp), allocatable :: wftrial(:,:)
 complex(dp), allocatable :: psi_gamma_Eplus(:)
 complex(dp), allocatable :: psi_gamma_Eminus(:)
@@ -96,28 +139,15 @@ if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band') then
   wftrial(:,3)=wftrial(:,1)
   call tbmodel%wfGtransform(pars,sym,isym2,wftrial(:,3))
   wftrial(:,4)=conjg(wftrial(:,3))
+  ! 0.7 of lattice constant as in the paper of Johannes Lischner
+  sigma=0.7_dp*sqrt(dot_product(pars%avec(1,:),pars%avec(1,:)))
+  call generate_amn_overlap(tbmodel,pars,kgrid,evec,wftrial,.true.,THIS%proj_centers,sigma)
+  call generate_mmn_overlap(THIS,tbmodel,pars,kgrid,evec)
   deallocate(psi_gamma_Eplus)
   deallocate(psi_gamma_Eminus)
 else
   call throw("wannier_interface%generate_trial_wavefunctions()","unknown projection option")
 end if
-! A_mn(k)=<\psi_m(k)|g_n>
-!open(50,file='structure.amn',action='write')
-!write(50,*) ' structure.amn file '
-!write(50,*) num_bands,nkpt,nwan
-!do ik=1,nkpt
-!  call geteigvec(ik,eigc)
-!  do i=1,nwan
-!    j=1
-!    do jst=ist_wan,jst_wan
-!      z1=dot_product(eigc(:,jst),wftrial(:,i))
-!      write(50,'(3I6,2G18.10)') j,i,ik,dble(z1),aimag(z1)
-!      amn(j,i,ik)=z1
-!      j=j+1
-!    end do
-!  end do
-!end do
-!close(50)
 deallocate(wftrial)
 end subroutine
 
@@ -162,23 +192,249 @@ else if (a2*b2.lt.0._dp) then
 else
   call throw("CLwan%project","could not find state with 2pi/3 rotation eigenvalue")
 end if
-call generate_amn_overlap(tbmodel,pars,sym,kgrid,eval,evec,wftrial)
 deallocate(wf_t)
 end function
 
-subroutine generate_amn_overlap(tbmodel,pars,sym,kgrid,eval,evec,wftrial)
+subroutine generate_amn_overlap(tbmodel,pars,kgrid,evec,wftrial,lgauss,gauss_centers,sigma)
 class(CLtb), intent(in) :: tbmodel
 class(CLpars), intent(in) :: pars
-class(CLsym), intent(in) :: sym
 class(GRID), intent(in) :: kgrid
-real(dp), intent(in) :: eval(pars%nstates,kgrid%npt)
 complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
 complex(dp), intent(in) :: wftrial(tbmodel%norb_TB,pars%nwan)
-real(dp) cntr1(NDIM),cntr2(NDIM),cntr1c(NDIM),cntr2c(NDIM)
-  cntr1=(/onethrd,onethrd,0._dp/)
-  cntr2=(/twothrd,twothrd,0._dp/)
-  cntr1c=matmul(cntr1,pars%avec)
-  cntr2c=matmul(cntr2,pars%avec)
+logical, intent(in) :: lgauss
+real(dp), intent(in) :: gauss_centers(NDIM,pars%nwan)
+real(dp), intent(in) :: sigma
+! local
+logical exs
+integer ik,iwan,ist,iR,iorb
+real(dp) t1,t2,dd
+real(dp) dv(NDIM),dc(NDIM)
+complex(dp) z2
+complex(dp), allocatable :: amn(:,:)
+! A_mn(k)=<\psi_m(k)|g_n>
+inquire(file=trim(adjustl(pars%seedname))//'.amn',exist=exs)
+if (exs) then
+  call info("CLwan%generate_amn_overlap","skipping "//trim(adjustl(pars%seedname))//".amn creation")
+  return
+end if
+if (mp_mpi) then
+  open(50,file=trim(adjustl(pars%seedname))//'.amn',action='write')
+  write(50,*) '# '//trim(adjustl(pars%seedname))//' file '
+  write(50,*) pars%nstates,kgrid%npt,pars%nwan
+end if
+allocate(amn(pars%nstates,pars%nwan))
+do ik=1,kgrid%npt
+  amn=0._dp
+  do iwan=1,pars%nwan
+    do iR=1,tbmodel%rgrid%npt
+      t2=dot_product(kgrid%vpl(ik),tbmodel%rgrid%vpl(iR))*twopi
+      z2=cmplx(cos(t2),-sin(t2),kind=dp)
+      do iorb=1,tbmodel%norb_TB
+        if (lgauss) then
+          dv=tbmodel%vplorb(iorb)+tbmodel%rgrid%vpl(iR)-gauss_centers(:,iwan)
+          dc=matmul(dv,pars%avec)
+          dd=sqrt(dot_product(dc,dc))
+          t1=gauss(dd,sigma)
+          if (t1.lt.epsengy) cycle
+          amn(:,iwan)=amn(:,iwan)+conjg(evec(iorb,:,ik))*wftrial(iorb,iwan)*t1*z2
+        else
+          amn(:,iwan)=amn(:,iwan)+conjg(evec(iorb,:,ik))*wftrial(iorb,iwan)*z2
+        end if
+      end do
+    end do
+  end do
+  do iwan=1,pars%nwan
+    do ist=1,pars%nstates
+      if (mp_mpi) write(50,'(3I6,2G18.10)') ist,iwan,ik,dble(amn(ist,iwan)),aimag(amn(ist,iwan))
+    end do
+  end do
+end do
+if (mp_mpi) close(50)
+deallocate(amn)
 end subroutine
+
+
+subroutine generate_mmn_overlap(THIS,tbmodel,pars,kgrid,evec)
+class(CLwan), intent(in) :: THIS
+class(CLtb), intent(in) :: tbmodel
+class(CLpars), intent(in) :: pars
+class(GRID), intent(in) :: kgrid
+complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
+! local
+logical exs
+integer ik,jk,mst,nst,iorb,innk
+real(dp) dc,t1
+complex(dp) z1
+real(dp) vq(NDIM),vc(NDIM)
+complex(dp), allocatable :: mmn(:,:,:)
+! M_mn(k)=<u_mk|u_n{k+q}>
+inquire(file=trim(adjustl(pars%seedname))//'.mmn',exist=exs)
+if (exs) then
+  call info("CLwan%generate_mmn_overlap","skipping "//trim(adjustl(pars%seedname))//".mmn creation")
+  return
+end if
+if (mp_mpi) then
+  open(50,file=trim(adjustl(pars%seedname))//'.mmn',action='write')
+  write(50,*) '# '//trim(adjustl(pars%seedname))//' file '
+  write(50,*) pars%nstates,kgrid%npt,THIS%nnk
+end if
+allocate(mmn(pars%nstates,pars%nstates,THIS%nnk))
+do ik=1,kgrid%npt
+  mmn=0._dp
+  do innk=1,THIS%nnk
+    jk=THIS%nnkp(4,innk,ik)
+    vq=kgrid%vpl(jk)+dble(THIS%nnkp(1:3,innk,ik))-kgrid%vpl(ik)
+    vc=matmul(vq,pars%avec)
+    dc=sqrt(dot_product(vc,vc))
+    do mst=1,pars%nstates
+      do nst=1,pars%nstates
+        do iorb=1,tbmodel%norb_TB
+          t1=dot_product(vq,tbmodel%vplorb(iorb))*twopi
+          z1=cmplx(cos(t1),-sin(t1),kind=dp)
+          mmn(mst,nst,innk)=mmn(mst,nst,innk)+conjg(evec(iorb,mst,ik))*evec(iorb,nst,jk)*z1*pwave_ovlp(dc)
+        end do
+      end do
+    end do
+  end do
+  do innk=1,THIS%nnk
+    if (mp_mpi)  write(50,'(5I6)') ik,THIS%nnkp(4,innk,ik),THIS%nnkp(1:3,innk,ik)
+    do nst=1,pars%nstates
+      do mst=1,pars%nstates
+        if (mp_mpi) write(50,'(2G18.10)') dble(mmn(mst,nst,innk)),aimag(mmn(mst,nst,innk))
+      end do
+    end do
+  end do
+end do
+if (mp_mpi) close(50)
+deallocate(mmn)
+end subroutine
+
+subroutine readnnkp(THIS,kgrid,pars)
+class(CLwan), intent(inout) :: THIS
+class(GRID), intent(in) :: kgrid
+class(CLpars), intent(in) :: pars
+integer i,nk,np,innk,ik
+logical exs
+inquire(file=trim(adjustl(pars%seedname))//'.nnkp',exist=exs)
+if (.not.exs) then
+  call throw("CLwan%readnnkp","file "//trim(adjustl(pars%seedname))&
+            //".nnkp missing, run: wannier -pp "//trim(adjustl(pars%seedname))//".win")
+end if
+open(50,file=trim(adjustl(pars%seedname))//'.nnkp',action='read')
+do i=1,17
+  read(50,*)
+end do
+read(50,*) nk
+if (nk.ne.kgrid%npt) call throw("CLwan%readnnkp","Wrong number of k-points in "//trim(adjustl(pars%seedname))//".nnkp")
+do i=1,nk
+  read(50,*)
+end do
+read(50,*) ; read(50,*); read(50,*)
+read(50,*) np
+do i=1,np
+ read(50,*) ; read(50,*)
+end do
+read(50,*) ; read(50,*) ; read(50,*)
+read(50,*) THIS%nnk
+allocate(THIS%nnkp(4,THIS%nnk,kgrid%npt))
+do ik=1,kgrid%npt
+  do innk=1,THIS%nnk
+    read(50,*) i,THIS%nnkp(4,innk,ik),THIS%nnkp(1,innk,ik),THIS%nnkp(2,innk,ik),THIS%nnkp(3,innk,ik)
+  end do
+end do
+close(50)
+return
+end subroutine
+
+subroutine writewin(THIS,kgrid,kpath,pars)
+class(CLwan), intent(inout) :: THIS
+class(GRID), intent(in) :: kgrid
+class(PATH), intent(in) :: kpath
+class(CLpars), intent(in) :: pars
+integer iwan,ik,ivert
+logical exs
+inquire(file=trim(adjustl(pars%seedname))//'.win',exist=exs)
+if (exs) then
+  call info("CLwan%writewin","skipping "//trim(adjustl(pars%seedname))//".win creation")
+  return
+end if
+call info("CLwan%writewin","creating "//trim(adjustl(pars%seedname))//".win")
+open(50,file=trim(adjustl(pars%seedname))//'.win',action='write')
+write(50,*) 'bands_plot        = .true.'
+write(50,*) '!dos             = .true.'
+write(50,*) '!dos_kmesh       = 150 150 1'
+write(50,*) '!dos_energy_min  = -0.01'
+write(50,*) '!dos_energy_max  =  0.01'
+write(50,*) '!dos_energy_step = 0.00001'
+write(50,*) '!dos_adpt_smr    = .true.'
+write(50,*) '!adpt_smr_max    = 0.0001'
+write(50,*) '!restart=wannierise'
+write(50,*) 'use_ws_distance   = .true.'
+write(50,*) 'write_hr          = .true.'
+write(50,*) 'write_tb          = .true.'
+write(50,*) 'write_u_matrices  = .true.'
+write(50,*) 'write_xyz         = .true.'
+write(50,*) 'trial_step        = 0.2'
+write(50,*) '!slwf_constrain    = true'
+write(50,*) '!slwf_lambda       = 200'
+
+
+write(50,*)
+write(50,*) 'dis_win_min       =',THIS%dis_win_min
+write(50,*) 'dis_win_max       =',THIS%dis_win_max
+write(50,*) 'dis_froz_min      =',THIS%dis_froz_min
+write(50,*) 'dis_froz_max      =',THIS%dis_froz_max
+write(50,*)
+
+write(50,*) '!slwf_num          = ',pars%nwan
+write(50,*) 'num_bands         = ',pars%nstates
+write(50,*) 'num_wann          = ',pars%nwan
+write(50,*) 'dis_mix_ratio     = 0.8'
+write(50,*) 'dis_num_iter      = ',THIS%dis_num_iter
+write(50,*) 'num_iter          = ',THIS%num_iter
+write(50,*) 'num_print_cycles  = 200'
+write(50,*) 'search_shells     = 1000'
+write(50,*) 'kmesh_tol         = 0.000001'
+write(50,*) 'mp_grid           = ',kgrid%ngrid
+write(50,*)
+write(50,*) 'Begin Projections'
+do iwan=1,pars%nwan
+  write(50,'("f=",G18.10,",",G18.10,",",G18.10,":",A4)') THIS%proj_centers(:,iwan),'pz'
+end do
+write(50,*) 'End Projections'
+write(50,*)
+write(50,*) 'begin kpoint_path'
+do ivert=1,kpath%nvert-1
+  write(50,'("X ",3F12.8," X ",3F12.8)') kpath%vert(:,ivert),kpath%vert(:,ivert+1)
+end do
+write(50,*) 'end kpoint_path'
+write(50,*)
+write(50,*)'Begin Unit_Cell_Cart'
+write(50,'(3G18.10)') pars%avec(1,:)
+write(50,'(3G18.10)') pars%avec(2,:)
+write(50,'(3G18.10)') pars%avec(3,:)
+write(50,*)'End Unit_Cell_Cart'
+write(50,*)
+write(50,*)'Begin Atoms_Frac'
+do iwan=1,pars%nwan
+  write(50,'(A2,3G18.10)')'XX',THIS%proj_centers(:,iwan)
+end do
+write(50,*)'End Atoms_Frac'
+write(50,*)
+write(50,*)'Begin kpoints'
+do ik=1,kgrid%npt
+  write(50,'(3F12.8)') kgrid%vpl(ik)
+end do
+write(50,*)'End kpoints'
+close(50)
+return
+end subroutine
+
+
+real(dp) function pwave_ovlp(dc)
+real(dp), intent(in) :: dc
+real(dp), parameter :: charge_pz=3.18_dp
+pwave_ovlp=( 1._dp/( 1._dp+(dc*abohr/charge_pz)**2 ) )**3
+end function
 
 end module

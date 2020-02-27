@@ -13,6 +13,7 @@ integer, parameter :: NDIM=3
 integer, parameter :: ZAXIS=3
 integer, parameter :: nmaxspec=10
 integer, parameter :: nmaxvert=100
+real(dp), parameter :: abohr=0.52917721067_dp
 real(dp), parameter :: twothrd=0.666666666666666666666666_dp
 real(dp), parameter :: onethrd=0.333333333333333333333333_dp
 real(dp), parameter :: pi=3.141592653589793115997963468544185161590576171875_dp

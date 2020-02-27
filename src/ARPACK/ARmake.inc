@@ -104,7 +104,7 @@ ALIBS =  $(ARPACKLIB) $(LAPACKLIB) $(BLASLIB)
 LDFLAGS = 
 CD      = cd
 
-F90= f77
+#F90= f77
 #F90FLAGS =-O3
 ECHO    = echo
 

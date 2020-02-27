@@ -8,8 +8,8 @@ F90 = mpif90
 #F90 = gfortran
 
 # main compiler flags
-#F90FLAGS = -O3 -funroll-loops 
-F90FLAGS = -g -Wall -fbacktrace -fbounds-check
+F90FLAGS = -O3 -funroll-loops 
+#F90FLAGS = -g -Wall -fbacktrace -fbounds-check
 
 # uncomment to use OpenMP parallisation
 OMP = -fopenmp
@@ -28,3 +28,5 @@ LAPACK = -llapack
 # Note the importanse to have a correct threading option of MKL
 #BLAS = -lmkl_intel_lp64 -lmkl_gnu_thread -lmkl_core -lm 
 
+F77=gfortran
+F77FLAGS=-O

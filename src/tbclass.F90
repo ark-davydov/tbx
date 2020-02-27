@@ -27,7 +27,7 @@ type, public :: CLtb
   real(dp), private   :: rcut_nn
   real(dp), private   :: sparse_eps=1.e-6_dp
   type(SK), private   :: skfunc
-  type(GRID), private :: rgrid
+  type(GRID), public  :: rgrid
   ! sparse indexing (isa,jsa)
   integer, allocatable, private :: lmr(:,:)
   integer, allocatable, private :: isa(:)

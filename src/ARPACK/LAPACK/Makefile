@@ -19,8 +19,8 @@
 include ../ARmake.inc
 include ../../../make.inc
 
-FC=$(F90)
-FFLAGS=$(F90FLAGS)
+FC=$(F77)
+FFLAGS=$(F77FLAGS)
  
 ############################################################################
 #  To create or add to the library, enter make followed by one or

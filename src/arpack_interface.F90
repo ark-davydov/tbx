@@ -37,7 +37,6 @@ integer(8) PT(64)
 INTEGER IPARM(64)
 INTEGER ERROR
 INTEGER, PARAMETER :: MTYPE=-4 ! HERMITIAN INDEFINITE
-INTEGER, PARAMETER :: SOLVER=0 ! SPARCE DIRECT SOLVER
 DOUBLE PRECISION DPARM(64)
 INTEGER, PARAMETER :: MAXFCT=1
 INTEGER, PARAMETER :: MNUM=1
@@ -55,7 +54,7 @@ complex*16, allocatable :: aa(:,:)
 ! set dimensions
 n      = nx
 maxn   = n
-ncv    = min(5*nev,maxn)
+ncv    = min(3*nev,maxn)
 maxnev = nev
 maxncv = ncv
 ldv    = maxn
@@ -134,7 +133,6 @@ iparam(7) = mode
             ! PARDISO
             ! Solve the system A*X = B with PARDISO
             if (counter.eq.1) then
-              PT=0
               PHASE=13
             else
               PHASE=33
@@ -185,7 +183,7 @@ iparam(7) = mode
 !        | Eigenvectors may also be computed now if  |
 !        | desired.  (indicated by rvec = .true.)    | 
 !        %-------------------------------------------%
- !        select=.true.
+         select=.true.
          call zneupd  (rvec, 'A', select, D, V, ldv, sigma, &
                       workev, bmat, n, which, nev, tol,&
                       resid, ncv, v, ldv, iparam, ipntr, workd,&

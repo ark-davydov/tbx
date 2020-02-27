@@ -164,7 +164,6 @@ if (mp_mpi) then
   end do
   call io_evec(1000,"write","_evec",tbmodel%norb_TB,pars%nstates,kgrid%npt,evec)
   call io_eval(1001,"write","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
-  call io_eval(1002,"write",trim(adjustl(pars%seedname))//'.eig',.true.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
   call kgrid%io(1003,"_grid","write",pars,tbmodel%norb_TB)
   deallocate(vkl)
 end if
@@ -299,6 +298,7 @@ real(dp), allocatable :: vkl(:,:)
 complex(dp), allocatable :: evec(:,:,:)
 complex(dp), allocatable :: chi(:,:)
 type(GRID) kgrid
+type(PATH) kpath
 type(CLtb) tbmodel
 type(CLwan) wannier
 type(CLsym) sym
@@ -310,6 +310,8 @@ integer ie
 call tbmodel%init(pars,"noham")
 ! read the k-point grid on which eigenvales/eigenvectors are computed
 call kgrid%io(1000,"_grid","read",pars,tbmodel%norb_TB)
+! init new kpath from input
+call kpath%init(pars%nvert,pars%np_per_vert,pars%vert,pars%bvec)
 ! generater spacial symmetries
 call sym%init(pars)
 ! allocate array for eigen values
@@ -331,9 +333,11 @@ call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,v
 call io_evec(1002,"read","_evec",tbmodel%norb_TB,pars%nstates,kgrid%npt,evec)
 ! shift all eigenvalues by efermi (so, it should not be changend in the input file)
 eval=eval-pars%efermi
+! init minimal wannier variables
+call wannier%init(kgrid,kpath,pars,eval)
 ! do the computation. later we will attach MPI parallelisation here 
 ! (you can see bands, eigen tasks how to do it), therefore arrays have to be zeroed
-call wannier%project(tbmodel,pars,sym,kgrid,eval,evec)
+call wannier%projection(tbmodel,pars,sym,kgrid,evec)
 !call wannier%overlap(pars,tbmodel,kgrid,eval,evec)
 if (mp_mpi) then
 end if
