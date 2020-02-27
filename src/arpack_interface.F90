@@ -82,6 +82,7 @@ allocate(ipiv(maxn))
 allocate(rwork(maxn))
 allocate(BB(NX))
 
+
 tol    = 1.d-22
 ido    = 0
 arinfo = 0
