@@ -17,6 +17,7 @@ Double precision, parameter     :: eps=1.d-6
 integer           maxn, maxnev, maxncv, ldv
 integer           iparam(11), ipntr(14)
 integer           ido, n, ncv, lworkl, arinfo, ierr, nconv, maxitr, ishfts, mode, counter
+integer           iev
 Double precision  tol
 logical, allocatable          :: select(:)
 integer, allocatable          :: ipiv(:)
@@ -37,14 +38,13 @@ integer(8) PT(64)
 INTEGER IPARM(64)
 INTEGER ERROR
 INTEGER, PARAMETER :: MTYPE=-4 ! HERMITIAN INDEFINITE
-INTEGER, PARAMETER :: SOLVER=0 ! SPARCE DIRECT SOLVER
 DOUBLE PRECISION DPARM(64)
 INTEGER, PARAMETER :: MAXFCT=1
 INTEGER, PARAMETER :: MNUM=1
 INTEGER :: PHASE=13
 INTEGER, ALLOCATABLE :: PERM(:)
 INTEGER, PARAMETER :: MSGLVL=0 ! output messages, 0 otherwise
-COMPLEX*16, ALLOCATABLE :: XX(:,:)
+COMPLEX*16, ALLOCATABLE :: XX(:)
 #else
 !!!! conventional LA variables !!!
 integer lda,ldb,ii,jj,lainfo
@@ -82,11 +82,12 @@ allocate(ipiv(maxn))
 allocate(rwork(maxn))
 allocate(BB(NX))
 
-tol    = 1.d-8
+
+tol    = 1.d-22
 ido    = 0
 arinfo = 0
 ishfts = 1
-maxitr = 800
+maxitr = 1000
 mode   = 3
 iparam(1) = ishfts 
 iparam(3) = maxitr 
@@ -97,7 +98,7 @@ iparam(7) = mode
   IPARM(3)=1
   IPARM(6)=1
   CALL PARDISOINIT(PT, MTYPE, IPARM)
-  allocate(PERM(NX),XX(NX,1))
+  allocate(PERM(NX),XX(NX))
 #else
   !!!!!!!!! conventional LAPACK  !!!!!!!!!!
   lda=nx
@@ -146,7 +147,7 @@ iparam(7) = mode
                write(strmsg,*) ERROR
                call throw("arpack_interface%PARDISO()",strmsg)
             end if
-            call zcopy ( NX, XX(1,1), 1, workd(ipntr(2)), 1)
+            call zcopy ( NX, XX(1), 1, workd(ipntr(2)), 1)
 #else
             ! CONVENTIONAL LAPACK
             call zcopy ( NX, workd(ipntr(1)), 1, BB, 1)
@@ -206,8 +207,7 @@ iparam(7) = mode
 !         | Error condition:                   | 
 !         | Check the documentation of ZNEUPD . |
 !         %------------------------------------%
-            write(strmsg,*) ierr
-            call throw("arpack_interface%zneupd()",strmsg)
+            write(*,*) "ZNEUPD gave an error: ", ierr
          else
              nconv = iparam(5) 
 #ifdef DEBUG
@@ -267,12 +267,14 @@ iparam(7) = mode
       if (nev.ne.nconv) then
          call info("arpack_interface","Warning, NEV not equal to NCONV")
       end if
-      eval(1:nev)=dble(D(1:nev))
-      if (sum(abs(eval(1:nev)-D(1:nev))).gt.1.d0) then
-         write(strmsg,*) "eigenvalues have large imaginary part ",sum(abs(eval(1:nev)-D(1:nev)))
-         call throw("arpack_interface",strmsg)
-      end if
-      if (rvec) evec(1:nx,1:nev)=V(1:nx,1:nev)
+      do iev=1,nev
+        eval(iev)=dble(D(iev))
+        if (abs(eval(iev)-D(iev)).gt.1.d0) then
+           write(strmsg,*) "eigenvalues have large imaginary part ",abs(eval(iev)-D(iev))
+           call throw("arpack_interface",strmsg)
+        end if
+        if (rvec) evec(1:nx,iev)=V(1:nx,iev)
+      end do
 
 ! ARPACK arrays
 #ifdef DEBUG
