@@ -42,7 +42,7 @@ LAPACKdir    = $(home)/LAPACK
 UTILdir      = $(home)/UTIL
 SRCdir       = $(home)/SRC
 #
-#DIRS        = $(BLASdir) $(LAPACKdir) $(UTILdir) $(SRCdir)
+DIRS        = $(BLASdir) $(LAPACKdir) $(UTILdir) $(SRCdir)
 #
 # %-------------------------------------------------------------------%
 # | Comment out the previous line and uncomment the following         |
@@ -50,7 +50,7 @@ SRCdir       = $(home)/SRC
 # | NOTE: ARPACK assumes the use of LAPACK version 2 codes.           |
 # %-------------------------------------------------------------------%
 #
-DIRS         = $(UTILdir) $(SRCdir)
+#DIRS         = $(UTILdir) $(SRCdir)
 #
 # %---------------------------------------------------%
 # | The name of the libraries to be created/linked to |
@@ -104,19 +104,19 @@ ALIBS =  $(ARPACKLIB) $(LAPACKLIB) $(BLASLIB)
 LDFLAGS = 
 CD      = cd
 
-F90= f77
+#F90= f77
 #F90FLAGS =-O3
 ECHO    = echo
 
 LN      = ln
 LNFLAGS = -s
 
-MAKE    = /bin/make
+MAKE    = make
 
 RM      = rm
 RMFLAGS = -f
 
-SHELL   = /bin/sh
+SHELL   = sh
 #
 #  %----------------------------------------------------------------%
 #  | The archiver and the flag(s) to use when building an archive   |
@@ -126,8 +126,8 @@ SHELL   = /bin/sh
 #
 AR = ar 
 ARFLAGS = rv
-#RANLIB  = touch
-RANLIB   = ranlib
+RANLIB  = touch
+#RANLIB   = ranlib
 #
 # %----------------------------------%
 # | This is the general help target. |

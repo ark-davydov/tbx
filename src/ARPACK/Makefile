@@ -16,12 +16,13 @@
 
 include ARmake.inc
 include ../../make.inc
+
 FC=$(F90)
 FFLAGS=$(F90FLAGS)
 
 
 #PRECISIONS = single double complex complex16
-PRECISIONS = double complex16
+PRECISIONS = double complex16 ddrv zdrv
 #  If LAPACK and BLAS are not installed on you system, and you are going 
 #  to use the driver programs in the EXAMPLES directory,  you need to add 
 #  sdrv(for single precision), ddrv(for double precision), 
@@ -66,7 +67,7 @@ arpacklib:
 		$(MAKE) $(PRECISIONS); \
 		$(CD) ..; \
 	done );
-	$(RANLIB) $(ARPACKLIB)
+	#$(RANLIB) $(ARPACKLIB)
 
 cleantest:
 

@@ -7,7 +7,6 @@ module geometry_library
 use modcom
 implicit none
 private
-real(dp), parameter :: twthr=0.666666666666666666666666_dp
 type, public :: geomlib
   integer nspec
   integer nmaxatm_pspec
@@ -50,13 +49,13 @@ THIS%avec(3,:)=     tbg_ab_distance*(/  0._dp,            0._dp,1._dp/)
 tvec=THIS%avec
 call dmatrix_inverse(tvec,THIS%bvec,NDIM)
 THIS%bvec=transpose(THIS%bvec)*twopi
-THIS%nspec=1
-THIS%nmaxatm_pspec=number_of_atoms
+THIS%nspec=2
+THIS%nmaxatm_pspec=1
 allocate(THIS%nat_per_spec(THIS%nspec))
-allocate(THIS%atml(3,number_of_atoms,1))
-THIS%nat_per_spec(1)=number_of_atoms
+allocate(THIS%atml(3,THIS%nmaxatm_pspec,THIS%nspec))
+THIS%nat_per_spec(:)=THIS%nmaxatm_pspec
 THIS%atml(:,1,1)=(/ 0._dp  , 0._dp ,0._dp/)
-THIS%atml(:,2,1)=(/ twthr , twthr,0._dp/)
+THIS%atml(:,1,2)=(/ twothrd , twothrd,0._dp/)
 if (mp_mpi) then
   call info("generate_structure_slg()","")
   write(*,*) "avec:"
@@ -67,7 +66,7 @@ if (mp_mpi) then
   write(*,'(10F16.6)')THIS%bvec(1,:)
   write(*,'(10F16.6)')THIS%bvec(2,:)
   write(*,'(10F16.6)')THIS%bvec(3,:)
-  write(*,'("Number of atoms: ",I6)') number_of_atoms
+  write(*,'("Number of atoms: ",I6)') THIS%nspec*THIS%nmaxatm_pspec
   write(*,*)
 end if
 #ifdef MPI
@@ -83,13 +82,15 @@ class(geomlib), intent(inout) :: THIS
 integer, intent(in) :: jstruct
 integer, parameter :: ntrans=140
 integer i,j,iat,istruct
-integer number_of_atoms,counter
+integer counter1,counter2,counter
+integer number_of_atoms,spec0(4)
 real(dp) t1,t2,t3,z,zmid,vac
 real(dp) costheta,theta,thetadeg
 real(dp) a33,tbg_interplane_dist,zlat,dvar
 real(dp) atl(3),atc(3),atl_super(3)
 real(dp) rot(3,3),atxy(4,3)
 real(dp) ave(3,3),ave2(3,3),tvec(3,3),bvect(3,3)
+integer, allocatable :: spec(:)
 real(dp), allocatable :: atmlt(:,:)
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
@@ -156,16 +157,21 @@ if (mp_mpi) then
 end if
 ! AB stacking
 atxy(1,:)=(/ 0._dp  , 0._dp ,0._dp/)
-atxy(2,:)=(/ twthr , twthr,0._dp/)
-atxy(3,:)=(/-twthr ,-twthr,zlat/)
+atxy(2,:)=(/ twothrd , twothrd,0._dp/)
+atxy(3,:)=(/-twothrd ,-twothrd,zlat/)
 atxy(4,:)=(/ 0._dp  , 0._dp ,zlat/)
 ! AA stacking
-atxy(1,:)=(/ 0._dp  , 0._dp ,0._dp/)
-atxy(2,:)=(/ twthr , twthr,0._dp/)
+atxy(1,:)=(/ 0._dp  , 0._dp ,0._dp/)  
+atxy(2,:)=(/ twothrd , twothrd,0._dp/)
 atxy(3,:)=(/ 0._dp  , 0._dp ,zlat/)
-atxy(4,:)=(/ twthr , twthr,zlat/)
+atxy(4,:)=(/ twothrd , twothrd,zlat/)
+spec0(1)=1
+spec0(2)=2
+spec0(3)=1
+spec0(4)=2
 counter=number_of_atoms*(2*ntrans+1)*(2*ntrans+1)
 allocate(atmlt(3,counter))
+allocate(spec(counter))
 counter=0
 do i=-ntrans-1,ntrans
   do j=-ntrans-1,ntrans
@@ -186,6 +192,7 @@ do i=-ntrans-1,ntrans
         ! lattice corrdinates with respect to Moire lattice vecors
         counter=counter+1
         atmlt(:,counter)=atl_super(:)
+        spec(counter)=spec0(iat)
       end if
     end do
   end do
@@ -194,15 +201,25 @@ if (number_of_atoms.ne.counter) then
   call throw("geomlib%generate_structure_tbg()","number of atoms counted is not correct")
 end if
 ! allocate geometry library arrays
-THIS%nspec=1
-THIS%nmaxatm_pspec=number_of_atoms
+THIS%nspec=2
+THIS%nmaxatm_pspec=number_of_atoms/2
 allocate(THIS%nat_per_spec(THIS%nspec))
-allocate(THIS%atml(3,number_of_atoms,1))
-THIS%nat_per_spec(1)=number_of_atoms
+allocate(THIS%atml(3,THIS%nmaxatm_pspec,THIS%nspec))
+THIS%nat_per_spec(:)=THIS%nmaxatm_pspec
 zmid=0.5_dp*tbg_ab_distance
+counter1=0
+counter2=0
 do iat=1,number_of_atoms
-  THIS%atml(:,iat,1)=atmlt(:,iat)
-  atc(:)=matmul(THIS%atml(:,iat,1),THIS%avec)
+  if (spec(iat).eq.1) then
+    counter1=counter1+1
+    THIS%atml(:,counter1,spec(iat))=atmlt(:,iat)
+  else if (spec(iat).eq.2) then
+    counter2=counter2+1
+    THIS%atml(:,counter2,spec(iat))=atmlt(:,iat)
+  else
+    call throw("geomlib%generate_structure_tbg()","unexpected species index")
+  end if
+  atc(:)=matmul(atmlt(:,iat),THIS%avec)
   if (jstruct.gt.100) then
     ! add distortion in Z
     t1=dot_product(THIS%bvec(1,:),atc)
@@ -220,9 +237,13 @@ do iat=1,number_of_atoms
     t1=0.5_dp*z
   end if
   t2=t1/a33
-  THIS%atml(3,iat,1)=t2
+  if (spec(iat).eq.1) then
+    THIS%atml(3,counter1,spec(iat))=t2
+  else if (spec(iat).eq.2) then
+    THIS%atml(3,counter2,spec(iat))=t2
+  end if
 end do
-deallocate(atmlt)
+deallocate(atmlt,spec)
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
 #endif

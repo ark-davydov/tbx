@@ -25,7 +25,7 @@ integer isymlat(48)
 real(8) symlatc(3,3,48)
 integer invmap(48)
 ! tshift is .true. if atomic basis is allowed to be shifted
-logical tshift
+logical, parameter :: tshift=.false.
 ! tsyminv is .true. if the crystal has inversion symmetry
 logical tsyminv
 ! maximum of symmetries allowed
@@ -42,8 +42,6 @@ integer lsplsymc(maxsymcrys)
 integer lspnsymc(maxsymcrys)
 ! equivalent atom index for each crystal symmetry
 integer, allocatable :: ieqatom(:,:,:)
-! equivalent atom index for inverse crystal symmetry
-integer, allocatable :: ieqatom_inv(:,:,:)
 ! eqatoms(ia,ja,is) is .true. if atoms ia and ja are equivalent
 logical, allocatable :: eqatoms(:,:,:)
 ! number of site symmetries
@@ -57,7 +55,7 @@ integer, allocatable :: lspnsyms(:,:)
 !     atomic variables     !
 !--------------------------!
 ! maximum allowed species
-integer, parameter :: maxspecies=1
+integer, parameter :: maxspecies=100
 ! species symbol
 character(256) spsymb(maxspecies)
 ! maximum allowed atoms per species

@@ -13,6 +13,9 @@ integer, parameter :: NDIM=3
 integer, parameter :: ZAXIS=3
 integer, parameter :: nmaxspec=10
 integer, parameter :: nmaxvert=100
+real(dp), parameter :: abohr=0.52917721067_dp
+real(dp), parameter :: twothrd=0.666666666666666666666666_dp
+real(dp), parameter :: onethrd=0.333333333333333333333333_dp
 real(dp), parameter :: pi=3.141592653589793115997963468544185161590576171875_dp
 real(dp), parameter :: twopi=6.283185307179586231995926937088370323181152343750_dp
 real(dp), parameter :: fourpi=12.5663706143591724639918538741767406463623046875_dp
@@ -61,7 +64,7 @@ subroutine  throw(place,what)
 #ifdef MPI
    integer error_msg_mpi
 #endif
-   if (mp_mpi) write(*,*) "ERROR[ ",place," ] ","MESSAGE: ",what
+   write(*,*) "ERROR[ ",place," ] ","MESSAGE: ",what
 #ifdef MPI
    call mpi_abort(mpi_com,error_msg_mpi,mpi_err)
 #endif
@@ -159,6 +162,23 @@ do k=1,n
   b(k)=0.0
 end do
 end subroutine dmatrix_inverse
+
+function rotation3D(phi,ax) result (rot)
+  real(dp), intent(in) :: phi,ax(3)
+  real(dp) rot(3,3)
+  real(dp) norm,ux,uy,uz,co1,si,co
+  norm=sqrt(sum(ax**2))
+  ux=ax(1)/norm
+  uy=ax(2)/norm
+  uz=ax(3)/norm
+  co=cos(phi)
+  co1=1_dp-co
+  si=sin(phi)
+  ! wiki
+  rot(1,:) = (/ co+ux**2 *co1   , ux*uy*co1-uz*si , ux*uz*co1+uy*si /)
+  rot(2,:) = (/ uy*ux*co1+uz*si , co+uy**2 *co1   , uy*uz*co1-ux*si /)
+  rot(3,:) = (/ uz*ux*co1-uy*si , uz*uy*co1+ux*si , co+uz**2 *co1   /)
+end function
 
 subroutine eigenv_problem(ndim,matrix,eval)
 integer, intent(in) :: ndim
@@ -275,7 +295,7 @@ integer, intent(out) :: idx(n)
 ! local variables
 integer i,j,k,l,m
 ! tolerance for deciding if one number is smaller than another
-real(8), parameter :: eps=1.d-14
+real(8), parameter :: eps=1.e-14_dp
 if (n.le.0) then
   write(*,*)
   write(*,'("Error(sortidx): n <= 0 : ",I8)') n
@@ -400,6 +420,15 @@ do ik=1,nkpt
 end do
 close(unt)
 end subroutine
+
+real(dp) function gauss(x,sig)
+implicit none
+real(dp), intent(in) :: x,sig
+real(dp) t1
+t1=(x/sig)**2
+gauss=exp(-t1)/sig/sqrtpi
+end function
+
 
 
 end module
