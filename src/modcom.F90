@@ -64,7 +64,7 @@ subroutine  throw(place,what)
 #ifdef MPI
    integer error_msg_mpi
 #endif
-   if (mp_mpi) write(*,*) "ERROR[ ",place," ] ","MESSAGE: ",what
+   write(*,*) "ERROR[ ",place," ] ","MESSAGE: ",what
 #ifdef MPI
    call mpi_abort(mpi_com,error_msg_mpi,mpi_err)
 #endif
