@@ -1,5 +1,5 @@
 subroutine arpack_interface(rvec,bmat,which,nev,nx,npack,ia,ja,matrix,eval,evec)
-use modcom, only : throw,info,dp
+use modcom, only : throw,info
 implicit none
 logical, intent(in)           :: rvec
 character(len=1), intent(in)  :: bmat
@@ -12,11 +12,12 @@ double precision, intent(out) :: eval(nev)
 complex*16, intent(out)       :: evec(nx,nev)
 ! local
 character(len=100) strmsg
-Complex*16, parameter  :: sigma=cmplx(0._dp,0._dp,kind=dp)
-Double precision, parameter     :: eps=1.e-6_dp
+Complex*16, parameter  :: sigma=cmplx(0.d0,0.d0,kind=8)
+Double precision, parameter     :: eps=1.d-6
 integer           maxn, maxnev, maxncv, ldv
 integer           iparam(11), ipntr(14)
 integer           ido, n, ncv, lworkl, arinfo, ierr, nconv, maxitr, ishfts, mode, counter
+integer           iev
 Double precision  tol
 logical, allocatable          :: select(:)
 integer, allocatable          :: ipiv(:)
@@ -37,13 +38,14 @@ integer(8) PT(64)
 INTEGER IPARM(64)
 INTEGER ERROR
 INTEGER, PARAMETER :: MTYPE=-4 ! HERMITIAN INDEFINITE
+INTEGER, PARAMETER :: SOLVER=0 ! SPARCE DIRECT SOLVER
 DOUBLE PRECISION DPARM(64)
 INTEGER, PARAMETER :: MAXFCT=1
 INTEGER, PARAMETER :: MNUM=1
 INTEGER :: PHASE=13
 INTEGER, ALLOCATABLE :: PERM(:)
 INTEGER, PARAMETER :: MSGLVL=0 ! output messages, 0 otherwise
-COMPLEX*16, ALLOCATABLE :: XX(:,:)
+COMPLEX*16, ALLOCATABLE :: XX(:)
 #else
 !!!! conventional LA variables !!!
 integer lda,ldb,ii,jj,lainfo
@@ -54,7 +56,7 @@ complex*16, allocatable :: aa(:,:)
 ! set dimensions
 n      = nx
 maxn   = n
-ncv    = min(3*nev,maxn)
+ncv    = min(5*nev,maxn)
 maxnev = nev
 maxncv = ncv
 ldv    = maxn
@@ -81,7 +83,7 @@ allocate(ipiv(maxn))
 allocate(rwork(maxn))
 allocate(BB(NX))
 
-tol    = 1.e-15_dp
+tol    = 1.d-8
 ido    = 0
 arinfo = 0
 ishfts = 1
@@ -96,7 +98,7 @@ iparam(7) = mode
   IPARM(3)=1
   IPARM(6)=1
   CALL PARDISOINIT(PT, MTYPE, IPARM)
-  allocate(PERM(NX),XX(NX,1))
+  allocate(PERM(NX),XX(NX))
 #else
   !!!!!!!!! conventional LAPACK  !!!!!!!!!!
   lda=nx
@@ -104,7 +106,7 @@ iparam(7) = mode
   allocate(laipiv(maxn))
   allocate(aa(nx,nx))
   ! unpack the full matrix
-  aa=0._dp
+  aa=0.d0
   do jj=1,npack
     do ii=1,nx
       if (jj.ge.ia(ii).and.jj.lt.ia(ii+1)) then
@@ -133,6 +135,7 @@ iparam(7) = mode
             ! PARDISO
             ! Solve the system A*X = B with PARDISO
             if (counter.eq.1) then
+              PT=0
               PHASE=13
             else
               PHASE=33
@@ -144,7 +147,7 @@ iparam(7) = mode
                write(strmsg,*) ERROR
                call throw("arpack_interface%PARDISO()",strmsg)
             end if
-            call zcopy ( NX, XX(1,1), 1, workd(ipntr(2)), 1)
+            call zcopy ( NX, XX(1), 1, workd(ipntr(2)), 1)
 #else
             ! CONVENTIONAL LAPACK
             call zcopy ( NX, workd(ipntr(1)), 1, BB, 1)
@@ -183,7 +186,7 @@ iparam(7) = mode
 !        | Eigenvectors may also be computed now if  |
 !        | desired.  (indicated by rvec = .true.)    | 
 !        %-------------------------------------------%
-         select=.true.
+ !        select=.true.
          call zneupd  (rvec, 'A', select, D, V, ldv, sigma, &
                       workev, bmat, n, which, nev, tol,&
                       resid, ncv, v, ldv, iparam, ipntr, workd,&
@@ -204,8 +207,7 @@ iparam(7) = mode
 !         | Error condition:                   | 
 !         | Check the documentation of ZNEUPD . |
 !         %------------------------------------%
-            write(strmsg,*) ierr
-            call throw("arpack_interface%zneupd()",strmsg)
+            write(*,*) "ZNEUPD gave an error: ", ierr
          else
              nconv = iparam(5) 
 #ifdef DEBUG
@@ -265,12 +267,14 @@ iparam(7) = mode
       if (nev.ne.nconv) then
          call info("arpack_interface","Warning, NEV not equal to NCONV")
       end if
-      eval(1:nev)=dble(D(1:nev))
-      if (sum(abs(eval(1:nev)-D(1:nev))).gt.1._dp) then
-         write(strmsg,*) "eigenvalues have large imaginary part ",sum(abs(eval(1:nev)-D(1:nev)))
-         call throw("arpack_interface",strmsg)
-      end if
-      if (rvec) evec(1:nx,1:nev)=V(1:nx,1:nev)
+      do iev=1,nev
+        eval(iev)=dble(D(iev))
+        if (abs(eval(iev)-D(iev)).gt.1.d0) then
+           write(strmsg,*) "eigenvalues have large imaginary part ",abs(eval(iev)-D(iev))
+           call throw("arpack_interface",strmsg)
+        end if
+        if (rvec) evec(1:nx,iev)=V(1:nx,iev)
+      end do
 
 ! ARPACK arrays
 #ifdef DEBUG
@@ -305,7 +309,7 @@ contains
       integer, intent(in) :: nx
       Complex*16, intent(inout)    ::    vv(:), ww(:)
       integer ii,jj
-      ww(1:nx)=0._dp
+      ww(1:nx)=0.d0
       do jj=1,npack
         do ii=1,nx
           if (jj.ge.ia(ii).and.jj.lt.ia(ii+1)) then

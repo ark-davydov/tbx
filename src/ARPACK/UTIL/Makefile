@@ -19,8 +19,8 @@
 include ../ARmake.inc
 include ../../../make.inc
 
-FC=$(F77)
-FFLAGS=$(F77FLAGS)
+FC=$(F90)
+FFLAGS=$(F90FLAGS)
  
  
 ############################################################################
