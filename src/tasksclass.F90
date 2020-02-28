@@ -12,9 +12,9 @@ use wannier_interface
 implicit none
 private
 type, public :: CLtasks
-   contains 
+   contains
    procedure, nopass :: run
-   
+
 end type
 
 contains
@@ -190,7 +190,7 @@ do ik=1,kgrid%npt
 end do
 eval=0._dp
 call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
-! shift all eigenvalues by efermi 
+! shift all eigenvalues by efermi
 eval=eval-pars%efermi
 do ik=1,kgrid%npt
   call get_dosk(pars%nstates,pars,eval(:,ik),dosk(:,ik))
@@ -245,7 +245,8 @@ allocate(evec(tbmodel%norb_TB,pars%nstates,kgrid%npt))
 ! this is needed to copy the private data of kgrid object, i.e., k-points in lattice coordinates
 allocate(vkl(NDIM,kgrid%npt))
 ! array for RPA response function which can be dynamic (on pars%negrid frequencies), and at different q-points
-allocate(chi(pars%negrid,qgrid%npt))
+allocate(chi(pars%negrid,kgrid%npt))
+! copy the private data
 do ik=1,kgrid%npt
   ! copy the private data
   vkl(:,ik)=kgrid%vpl(ik)
@@ -256,13 +257,28 @@ end do
 eval=0._dp
 ! read eigenvalues, subroutine in modcom.f90
 call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
+
 ! shift all eigenvalues by efermi (so, it should not be changend in the input file)
 eval=eval-pars%efermi
-! do the computation. later we will attach MPI parallelisation here 
+! do the computation. later we will attach MPI parallelisation here
 ! (you can see bands, eigen tasks how to do it), therefore arrays have to be zeroed
+
+print *, "Shape of eval =", SHAPE(eval)
+print *, "Shape of evec =", SHAPE(evec)
+print *, "Evec 1 =", evec(1:2,1,18)
+print *, "Number of orbitals =", tbmodel%norb_TB
+print *, "Check overlap =", DOT_PRODUCT(evec(1:tbmodel%norb_TB,1,18), evec(1:tbmodel%norb_TB,2,18))
+print *, "Number of kpoints =", kgrid%npt
+print *, "Number of qpoints =", qgrid%npt
+print *, "Chi shape =", SHAPE(chi)
+
 chi(:,:)=0._dp
 do iq=1,qgrid%npt
+! do iq=10,10
+  print *, '================='
+  print *, "q = ", qgrid%vpl(iq)
   call get_chiq(pars,kgrid,tbmodel,qgrid%vpl(iq),eval,evec,chi(:,iq))
+  print *, chi(:,iq)
 end do
 if (mp_mpi) then
   open(2000,file="chi.dat")
@@ -277,7 +293,6 @@ deallocate(eval,evec,vkl)
   call MPI_barrier(mpi_com,mpi_err)
 #endif
 end subroutine
-
 
 subroutine projection_wannier(pars)
 class(CLpars), intent(inout) :: pars
@@ -323,7 +338,7 @@ call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,v
 eval=eval-pars%efermi
 ! init minimal wannier variables
 call wannier%init(kgrid,kpath,pars,eval)
-! do the computation. later we will attach MPI parallelisation here 
+! do the computation. later we will attach MPI parallelisation here
 ! (you can see bands, eigen tasks how to do it), therefore arrays have to be zeroed
 call wannier%projection(tbmodel,pars,sym,kgrid,evec)
 !call wannier%overlap(pars,tbmodel,kgrid,eval,evec)
@@ -340,6 +355,53 @@ end subroutine
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Side subroutines, could be placed into another file
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+subroutine get_chiq(pars,kgrid,tbmodel,vpl,eval,evec,chiq)
+class(CLpars), intent(in) :: pars
+class(GRID), intent(in) :: kgrid
+class(CLtb), intent(in) :: tbmodel
+real(dp), intent(in) :: vpl(NDIM)
+real(dp), intent(in) :: eval(pars%nstates,kgrid%npt)
+complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
+complex(dp), intent(out) :: chiq(pars%negrid)
+
+! local
+integer ie,ist,jst,ikq,ik,iorb
+real(dp) vkq(NDIM),vg(NDIM)
+integer ikg(NDIM+1)
+
+real(dp) delta
+complex(dp) overlap
+complex(dp) eitq(tbmodel%norb_TB)
+! I guess, chi has to be zeroed again, since it is intent(out)
+chiq=0._dp
+eitq = EXP(CMPLX(0, 1)*MATMUL(vpl, pars%atml(1:3,1:2,1)))
+
+! to start with, one needs a subroutine to find k+q on the regular k-poit grid stored inside kgrid object
+! therefore, one should plug it in a subroutine of kgrid object, here there is an example
+do ik=1,kgrid%npt
+  vkq=vpl+kgrid%vpl(ik)
+  ikg=kgrid%find(vkq)
+  vg=kgrid%vpl(ikg(4))
+
+  if  (((eval(2, ikg(4)) - eval(1, ikg(4))) > 1e-7) .and. (eval(2, ik) - eval(1, ik) > 1e-7)) then
+    overlap = ABS(DOT_PRODUCT(evec(1:tbmodel%norb_TB,2,ikg(4)), eitq*evec(1:tbmodel%norb_TB,1,ik)))
+    delta = eval(2, ikg(4)) - eval(1, ik)
+    if (delta > 1e-7) then
+      chiq(1) = chiq(1) + overlap*overlap/delta
+    end if
+  end if
+  ! write(*,'("vkq,corresponding vk+G: ",6F10.4)') vkq,kgrid%vpl(ikg(NDIM+1))+vg
+end do
+
+! Normalise
+chiq(1) = 1 * chiq(1)
+
+! do iorb=1,tbmodel%norb_TB
+!   write(*,'("iorb, lattice coords: ",i4,6F10.4)') iorb,tbmodel%vplorb(iorb)
+! end do
+
+end subroutine
 
 
 subroutine get_dosk(nstates,pars,eval,dosk)
@@ -375,33 +437,5 @@ end do
 deallocate(idx,ekw,ee)
 end subroutine
 
-
-subroutine get_chiq(pars,kgrid,tbmodel,vpl,eval,evec,chiq)
-class(CLpars), intent(in) :: pars
-class(GRID), intent(in) :: kgrid
-class(CLtb), intent(in) :: tbmodel
-real(dp), intent(in) :: vpl(NDIM)
-real(dp), intent(in) :: eval(pars%nstates,kgrid%npt)
-complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
-complex(dp), intent(out) :: chiq(pars%negrid)
-! local
-integer ie,ist,jst,ikq,ik,iorb
-real(dp) vkq(NDIM),vg(NDIM)
-integer ikg(NDIM+1)
-! I guess, chi has to be zeroed again, since it is intent(out) 
-chiq=0._dp
-! to start with, one needs a subroutine to find k+q on the regular k-poit grid stored inside kgrid object
-! therefore, one should plug it in a subroutine of kgrid object, here there is an example
-do ik=1,kgrid%npt
-  vkq=vpl+kgrid%vpl(ik)
-  ikg=kgrid%find(vkq)
-  vg=dble(ikg(1:NDIM))
-  write(*,'("vkq,corresponding vk+G: ",6F10.4)') vkq,kgrid%vpl(ikg(NDIM+1))+vg
-end do
-do iorb=1,tbmodel%norb_TB
-  write(*,'("iorb, lattice coords: ",i4,6F10.4)') iorb,tbmodel%vplorb(iorb)
-end do
-
-end subroutine
 
 end module
