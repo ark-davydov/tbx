@@ -342,30 +342,39 @@ goto 10
 end subroutine
 !EOC
 
-subroutine io_evec(unt,action,fname,norb,nstates,nkpt,evec)
-integer, intent(in) :: unt,norb,nstates,nkpt
+subroutine io_evec(ik,action,fname,norb,nstates,evec)
+integer, intent(in) :: ik,norb,nstates
 character(len=*), intent(in) :: action,fname
-complex(dp), intent(inout) :: evec(norb,nstates,nkpt)
+complex(dp), intent(inout) :: evec(norb,nstates)
 ! local
-integer iostat,recl,ik
-if (trim(adjustl(action)).ne."write".and.trim(adjustl(action)).ne."read") &
+logical exs
+character(len=4) num
+integer iostat,recl,unt
+unt=1000+ik
+inquire(iolength=recl) evec(:,:)
+write(num,'(I4.4)') ik
+if (action.eq."write") then
+  call system("mkdir -p _evec")
+  open(unt,file="_evec/"//trim(adjustl(fname))//num,form='unformatted',access='direct',&
+    action=trim(adjustl(action)),recl=recl,iostat=iostat)
+  if (iostat.ne.0) call throw("modcom%io_evec","problem reading evec file")
+  ! write a record
+  write(unt,rec=1,iostat=iostat) evec(:,:)
+  if (iostat.ne.0) call throw("modcom%io_evec","problem writing evec file")
+  close(unt)
+else if (action.eq."read") then
+  inquire(file="_evec/",exist=exs)
+  if (.not.exs) call throw("modcom%io_evec","directory _evec does not exist")
+  open(unt,file="_evec/"//trim(adjustl(fname))//num,form='unformatted',access='direct',&
+    action=trim(adjustl(action)),recl=recl,iostat=iostat)
+  if (iostat.ne.0) call throw("modcom%io_evec","problem reading evec file")
+  ! read a record
+  read(unt,rec=1,iostat=iostat) evec(:,:)
+  if (iostat.ne.0) call throw("modcom%io_evec","problem reading evec file")
+  close(unt)
+else
   call throw("modcom%io_evec()","unknown read/write action")
-inquire(iolength=recl) evec(:,:,1)
-open(unt,file=trim(adjustl(fname)),form='unformatted',access='direct',&
-  action=trim(adjustl(action)),recl=recl,iostat=iostat)
-if (iostat.ne.0) call throw("modcom%io_evec","problem reading evec file")
-do ik=1,nkpt
-  if (action.eq."write") then
-    ! write a record
-    write(unt,rec=ik,iostat=iostat) evec(:,:,ik)
-    if (iostat.ne.0) call throw("modcom%io_evec","problem writing evec file")
-  else if (action.eq."read") then
-    ! read a record
-    read(unt,rec=ik,iostat=iostat) evec(:,:,ik)
-    if (iostat.ne.0) call throw("modcom%io_evec","problem reading evec file")
-  end if
-end do
-close(unt)
+end if
 end subroutine
 
 subroutine io_eval(unt,action,fname,wannier,nstates,nkpt,efermi,vkl,eval)

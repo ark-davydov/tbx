@@ -10,7 +10,7 @@ use gridclass
 use symmetryclass
 implicit none
 private
-real(dp), parameter :: epsr=1.e-1_dp
+real(dp), parameter :: epsr=4.e-1_dp
 
 type, public :: CLwan
   integer :: nnk=0
@@ -180,20 +180,12 @@ if (a1*b1.lt.0._dp.and.a2*b2.lt.0._dp) then
   call throw("CLwan%project","both dublet state have rotation eigenvalues in 2 or 4th quadrant")
 else if (a1*b1.gt.0._dp.and.a2*b2.gt.0._dp) then
   call throw("CLwan%project","both dublet state have rotation eigenvalues in 1 or 3d quadrant")
-else if (a1*b1.lt.0._dp) then
-  if ( ( abs(a1-cos(twopi3)).lt.epsr .and. abs(b1-sin(twopi3)).lt.epsr ) .or.&
+else if ( ( abs(a1-cos(twopi3)).lt.epsr .and. abs(b1-sin(twopi3)).lt.epsr ) .or.&
        ( abs(b1-cos(twopi3)).lt.epsr .and. abs(a1-sin(twopi3)).lt.epsr ) ) then
      eps_plus_dublet_state=ist1
-  else
-    call throw("CLwan%project","2pi/3 rotation eigenvalue is not found where expected")
-  end if
-else if (a2*b2.lt.0._dp) then
-  if ( ( abs(a2-cos(twopi3)).lt.epsr .and. abs(b2-sin(twopi3)).lt.epsr ) .or.&
+else if ( ( abs(a2-cos(twopi3)).lt.epsr .and. abs(b2-sin(twopi3)).lt.epsr ) .or.&
        ( abs(b2-cos(twopi3)).lt.epsr .and. abs(a2-sin(twopi3)).lt.epsr ) ) then
-    eps_plus_dublet_state=ist2
-  else
-    call throw("CLwan%project","2pi/3 rotation eigenvalue is not found where expected")
-  end if
+     eps_plus_dublet_state=ist2
 else
   call throw("CLwan%project","could not find state with 2pi/3 rotation eigenvalue")
 end if

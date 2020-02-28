@@ -67,7 +67,7 @@ arpacklib:
 		$(MAKE) $(PRECISIONS); \
 		$(CD) ..; \
 	done );
-	#$(RANLIB) $(ARPACKLIB)
+	$(RANLIB) $(ARPACKLIB)
 
 cleantest:
 

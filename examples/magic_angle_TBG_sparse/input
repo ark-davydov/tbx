@@ -56,3 +56,9 @@ sparse_eps
 ! type of TB model (tbgsk is the one commongly adopted)
 sktype
  tbgsk1
+
+nwan
+ 4
+
+wannier_proj_mode
+ tbg4band

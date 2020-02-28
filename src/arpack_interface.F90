@@ -95,8 +95,7 @@ iparam(7) = mode
 
 #ifdef PARDI
   !!!!!!!!! PARDISO !!!!!!!!
-  IPARM(3)=1
-  IPARM(6)=1
+  IPARM(1)=0
   CALL PARDISOINIT(PT, MTYPE, IPARM)
   allocate(PERM(NX),XX(NX))
 #else
@@ -128,6 +127,7 @@ iparam(7) = mode
          call znaupd  ( ido, bmat, n, which, nev, tol, resid, ncv,&
               v, ldv, iparam, ipntr, workd, workl, lworkl,&
               rwork,arinfo )
+      
          if (ido .eq. -1 .or. ido .eq. 1 ) then
             call zcopy ( NX, workd(ipntr(1)), 1, BB, 1)
 
@@ -158,7 +158,7 @@ iparam(7) = mode
                write(strmsg,*) lainfo
                call throw("arpack_interface%zgetrs()",strmsg)
             end if
-            call zcopy ( NX, BB, 1, workd(ipntr(2)), 1)
+            call zcopy ( NX, BB(1), 1, workd(ipntr(2)), 1)
 #endif
 !           %-----------------------------------------%
 !           | L O O P   B A C K to call ZNAUPD  again. |
@@ -186,7 +186,7 @@ iparam(7) = mode
 !        | Eigenvectors may also be computed now if  |
 !        | desired.  (indicated by rvec = .true.)    | 
 !        %-------------------------------------------%
- !        select=.true.
+         select=.true.
          call zneupd  (rvec, 'A', select, D, V, ldv, sigma, &
                       workev, bmat, n, which, nev, tol,&
                       resid, ncv, v, ldv, iparam, ipntr, workd,&

@@ -64,7 +64,7 @@ integer ik,iq,ist
   integer nn
 #endif
 real(dp), allocatable :: eval(:,:)
-complex(dp), allocatable :: evec(:,:,:)
+complex(dp), allocatable :: evec(:,:)
 call kpath%init(pars%nvert,pars%np_per_vert,pars%vert,pars%bvec)
 call message("  initialise TB model ..")
 call message("")
@@ -73,7 +73,7 @@ call message("  initialise symmetries ..")
 call message("")
 call sym%init(pars)
 allocate(eval(pars%nstates,kpath%npt))
-allocate(evec(tbmodel%norb_TB,pars%nstates,kpath%npt))
+allocate(evec(tbmodel%norb_TB,pars%nstates))
 eval=0._dp
 evec=0._dp
 call message("  Eigenproblem calculation. some k-points progress below ..")
@@ -83,14 +83,11 @@ call message("  Eigenproblem calculation. some k-points progress below ..")
 do ik=1,kpath%npt
    if (mod(ik-1,np_mpi).ne.lp_mpi) cycle
    if (mod(ik-1,max(np_mpi,kpath%npt/10)).eq.0) write(*,*) "ik, of: ",ik,kpath%npt
-   call tbmodel%evalk(.false.,pars,kpath%vpl(ik),eval(:,ik),evec(:,:,ik))
+   call tbmodel%evalk(.false.,pars,kpath%vpl(ik),eval(:,ik),evec)
 end do
 #ifdef MPI
   nn=pars%nstates*kpath%npt
   call mpi_allreduce(mpi_in_place,eval,nn,mpi_double_precision,mpi_sum, &
-   mpi_com,mpi_err)
-  nn=tbmodel%norb_TB*pars%nstates*kpath%npt
-  call mpi_allreduce(mpi_in_place,evec,nn,mpi_double_complex,mpi_sum, &
    mpi_com,mpi_err)
 #endif
 if (mp_mpi) then
@@ -128,7 +125,7 @@ real(dp), allocatable :: vkl(:,:)
   integer nn
 #endif
 real(dp), allocatable :: eval(:,:)
-complex(dp), allocatable :: evec(:,:,:)
+complex(dp), allocatable :: evec(:,:)
 call kgrid%init(pars%ngrid,pars%bvec,centered_kgrid,.true.)
 call message("  initialise TB model ..")
 call message("")
@@ -137,7 +134,7 @@ call message("  initialise symmetries ..")
 call message("")
 call sym%init(pars)
 allocate(eval(pars%nstates,kgrid%npt))
-allocate(evec(tbmodel%norb_TB,pars%nstates,kgrid%npt))
+allocate(evec(tbmodel%norb_TB,pars%nstates))
 eval=0._dp
 evec=0._dp
 call message("  Eigenproblem calculation. some k-points progress below ..")
@@ -147,14 +144,12 @@ call message("  Eigenproblem calculation. some k-points progress below ..")
 do ik=1,kgrid%npt
    if (mod(ik-1,np_mpi).ne.lp_mpi) cycle
    if (mod(ik-1,max(np_mpi,kgrid%npt/10)).eq.0) write(*,*) "ik, of: ",ik,kgrid%npt
-   call tbmodel%evalk(.true.,pars,kgrid%vpl(ik),eval(:,ik),evec(:,:,ik))
+   call tbmodel%evalk(.true.,pars,kgrid%vpl(ik),eval(:,ik),evec)
+   call io_evec(ik,"write","_evec",tbmodel%norb_TB,pars%nstates,evec)
 end do
 #ifdef MPI
   nn=pars%nstates*kgrid%npt
   call mpi_allreduce(mpi_in_place,eval,nn,mpi_double_precision,mpi_sum, &
-   mpi_com,mpi_err)
-  nn=tbmodel%norb_TB*pars%nstates*kgrid%npt
-  call mpi_allreduce(mpi_in_place,evec,nn,mpi_double_complex,mpi_sum, &
    mpi_com,mpi_err)
 #endif
 if (mp_mpi) then
@@ -162,7 +157,6 @@ if (mp_mpi) then
   do ik=1,kgrid%npt
     vkl(:,ik)=kgrid%vpl(ik)
   end do
-  call io_evec(1000,"write","_evec",tbmodel%norb_TB,pars%nstates,kgrid%npt,evec)
   call io_eval(1001,"write","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
   call kgrid%io(1003,"_grid","write",pars,tbmodel%norb_TB)
   deallocate(vkl)
@@ -180,7 +174,6 @@ integer ik
 real(dp), allocatable :: eval(:,:)
 real(dp), allocatable :: vkl(:,:)
 real(dp), allocatable :: tdos(:),dosk(:,:)
-complex(dp), allocatable :: evec(:,:,:)
 type(GRID) kgrid
 type(CLtb) tbmodel
 integer ie
@@ -190,16 +183,13 @@ integer ie
 call tbmodel%init(pars,"noham")
 call kgrid%io(100,"_grid","read",pars,tbmodel%norb_TB)
 allocate(eval(pars%nstates,kgrid%npt))
-allocate(evec(tbmodel%norb_TB,pars%nstates,kgrid%npt))
 allocate(vkl(NDIM,kgrid%npt))
 allocate(tdos(pars%negrid),dosk(pars%negrid,kgrid%npt))
 do ik=1,kgrid%npt
  vkl(:,ik)=kgrid%vpl(ik)
 end do
 eval=0._dp
-evec=0._dp
 call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
-call io_evec(1002,"read","_evec",tbmodel%norb_TB,pars%nstates,kgrid%npt,evec)
 ! shift all eigenvalues by efermi 
 eval=eval-pars%efermi
 do ik=1,kgrid%npt
@@ -216,7 +206,7 @@ if (mp_mpi) then
   end do
 end if
 deallocate(dosk,tdos)
-deallocate(eval,evec,vkl)
+deallocate(eval,vkl)
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
 #endif
@@ -256,17 +246,16 @@ allocate(evec(tbmodel%norb_TB,pars%nstates,kgrid%npt))
 allocate(vkl(NDIM,kgrid%npt))
 ! array for RPA response function which can be dynamic (on pars%negrid frequencies), and at different q-points
 allocate(chi(pars%negrid,qgrid%npt))
-! copy the private data
 do ik=1,kgrid%npt
- vkl(:,ik)=kgrid%vpl(ik)
+  ! copy the private data
+  vkl(:,ik)=kgrid%vpl(ik)
+  ! read eigenvectors, subroutine in modcom.f90
+  call io_evec(ik,"read","_evec",tbmodel%norb_TB,pars%nstates,evec(:,:,ik))
 end do
 ! zero the arrays for security reasons
 eval=0._dp
-evec=0._dp
 ! read eigenvalues, subroutine in modcom.f90
 call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
-! read eigenvectors, subroutine in modcom.f90
-call io_evec(1002,"read","_evec",tbmodel%norb_TB,pars%nstates,kgrid%npt,evec)
 ! shift all eigenvalues by efermi (so, it should not be changend in the input file)
 eval=eval-pars%efermi
 ! do the computation. later we will attach MPI parallelisation here 
@@ -320,17 +309,16 @@ allocate(eval(pars%nstates,kgrid%npt))
 allocate(evec(tbmodel%norb_TB,pars%nstates,kgrid%npt))
 ! this is needed to copy the private data of kgrid object, i.e., k-points in lattice coordinates
 allocate(vkl(NDIM,kgrid%npt))
-! copy the private data
 do ik=1,kgrid%npt
- vkl(:,ik)=kgrid%vpl(ik)
+  ! copy the private data
+  vkl(:,ik)=kgrid%vpl(ik)
+  ! read eigenvectors, subroutine in modcom.f90
+  call io_evec(ik,"read","_evec",tbmodel%norb_TB,pars%nstates,evec(:,:,ik))
 end do
 ! zero the arrays for security reasons
 eval=0._dp
-evec=0._dp
 ! read eigenvalues, subroutine in modcom.f90
 call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
-! read eigenvectors, subroutine in modcom.f90
-call io_evec(1002,"read","_evec",tbmodel%norb_TB,pars%nstates,kgrid%npt,evec)
 ! shift all eigenvalues by efermi (so, it should not be changend in the input file)
 eval=eval-pars%efermi
 ! init minimal wannier variables
