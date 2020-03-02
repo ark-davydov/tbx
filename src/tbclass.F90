@@ -12,7 +12,7 @@ use wannier_supplementary
 implicit none
 private
 integer, parameter :: maxallowd_orbs=46340
-integer, parameter :: maxallowd_nn=1000
+integer, parameter :: maxallowd_nn=14400
 
 type, public :: CLtb
   ! private
@@ -55,7 +55,7 @@ type, public :: CLtb
   procedure, private :: tij=>tij_function
   procedure, private :: findnn=>run_findnn
   procedure, private :: inquire_hamsize=>calc_hamsize
-  
+
 endtype CLtb
 
 
@@ -171,7 +171,7 @@ complex(dp), allocatable :: ztmp(:,:)
 complex(dp), allocatable :: ham(:)
 allocate(ham(THIS%hamsize))
 call THIS%hK(vpl,ham)
-! Extract the Fermi level from diagonal, 
+! Extract the Fermi level from diagonal,
 ! ir is needed to simplify Sparse solver interface (i.e. avoid using explicit shift)
 do nn=1,THIS%hamsize
   do ii=1,THIS%norb_TB
@@ -229,7 +229,7 @@ eval=eval+pars%efermi
 deallocate(ham)
 end subroutine
 
-subroutine give_hK(THIS,vpl,hamk) 
+subroutine give_hK(THIS,vpl,hamk)
 class(CLtb), intent(in) :: THIS
 real(dp), intent(in) :: vpl(NDIM)
 complex(dp), intent(out) :: hamk(THIS%hamsize)
@@ -249,7 +249,7 @@ end do
 deallocate(hamr)
 end subroutine
 
-subroutine give_hR(THIS,itr,ham) 
+subroutine give_hR(THIS,itr,ham)
 class(CLtb), intent(in) :: THIS
 integer, intent(in) :: itr
 complex(dp), intent(out) :: ham(THIS%hamsize)
@@ -445,7 +445,7 @@ complex(dp), intent(inout) :: wfinout(THIS%norb_TB)
 complex(dp), allocatable :: wftemp(:)
 ! local
 integer iat,jat,jspec
-integer ic,jc,iorb,jorb,ios,jos 
+integer ic,jc,iorb,jorb,ios,jos
 real(dp) t1
 allocate(wftemp(THIS%norb_TB))
 wftemp(:)=wfinout(:)
