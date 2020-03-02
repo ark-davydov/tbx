@@ -108,7 +108,7 @@ do iline=1,nlines_max
       read(50,*,iostat=iostat) THIS%avec(ii,:)
       if (iostat.ne.0) call throw("paramters%read_input()","problem with avec block")
       if(mp_mpi) write(*,'(i6,": ",5F10.6)') jline,THIS%avec(ii,:)
-    end do 
+    end do
     tvec=THIS%avec
     call dmatrix_inverse(tvec,THIS%bvec,NDIM)
     THIS%bvec=transpose(THIS%bvec)*twopi
@@ -118,7 +118,7 @@ do iline=1,nlines_max
         call throw("paramters%read_input()","could not construct reciprocal lattice vectors")
       end if
     end do
-  
+
   ! atoms coordinates and species
   else if (trim(block).eq."atoms") then
     atoms_block_found=.true.
@@ -254,7 +254,7 @@ do iline=1,nlines_max
         read(50,'(A)',iostat=iostat) THIS%wannier_proj_mode
         if (iostat.ne.0) call throw("paramters%read_input()","problem with wannier_proj_mode data")
         if (mp_mpi) write(*,'(i6,": ",A)') jline,trim(adjustl(THIS%wannier_proj_mode))
-  
+
   ! number of disired wannier projection
   else if (trim(block).eq."nwan") then
     jline=jline+1
@@ -263,7 +263,7 @@ do iline=1,nlines_max
     if (mp_mpi) write(*,'(i6,": ",I6)') jline,THIS%nwan
 
   end if
-  
+
 end do
 100 continue
 close(50)
@@ -297,7 +297,7 @@ if (trim(adjustl(THIS%geometry_source)).eq."tbg".or.&
             allocate(THIS%norb_per_center(THIS%natmtot))
             allocate(THIS%wannier_axis(NDIM,2,THIS%natmtot))
             THIS%norb_per_center=1
-            if (NDIM.eq.3) then 
+            if (NDIM.eq.3) then
               ! X and Z axis
               do iat=1,THIS%natmtot
                 THIS%wannier_axis(:,1,iat)=(/1._dp,0._dp,0._dp/)
@@ -352,6 +352,10 @@ if (mp_mpi) then
   write(100,*)"avec"
   do ii=1,NDIM
     write(100,'(5G18.10)') THIS%avec(ii,:)
+  end do
+  write(100,*)"bvec"
+  do ii=1,NDIM
+    write(100,'(5G18.10)') THIS%bvec(ii,:)
   end do
   write(100,'("atoms ",I6)') THIS%nspec
   do ispec=1,THIS%nspec
