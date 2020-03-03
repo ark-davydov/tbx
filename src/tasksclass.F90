@@ -223,6 +223,9 @@ complex(dp), allocatable :: chi(:,:)
 type(GRID) kgrid,qgrid
 type(CLtb) tbmodel
 integer ch
+#ifdef MPI
+  integer nn
+#endif
 
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
@@ -264,31 +267,42 @@ eval=eval-pars%efermi
 ! do the computation. later we will attach MPI parallelisation here
 ! (you can see bands, eigen tasks how to do it), therefore arrays have to be zeroed
 
-print *, "Shape of eval =", SHAPE(eval)
-print *, "Shape of evec =", SHAPE(evec)
-print *, "Evec 1 =", evec(1:2,1,18)
-print *, "Number of orbitals =", tbmodel%norb_TB
-print *, "Atom Positions =", pars%atml(1:3,1:2,1)
-print *, "Eval order is ", eval(1,101), eval(2,101)
-print *, "Check overlap =", DOT_PRODUCT(evec(1:tbmodel%norb_TB,1,18), evec(1:tbmodel%norb_TB,2,18))
-print *, "Number of kpoints =", kgrid%npt
-print *, "Number of qpoints =", qgrid%npt
-print *, "Negrid =", pars%negrid
-print *, "Chi shape =", SHAPE(chi)
-
-print *, "***** Checking Wavefunctions ******"
-ch = 400
-print *, "k =", kgrid%vpl(ch)
-print *, "Evals =", eval(1,ch), eval(2,ch)
-write(*,*), "Evec 1 = ", REAL(evec(1,2,390)), AIMAG(evec(1,2,390)) ,REAL(evec(2,2,390)), AIMAG(evec(2,2,390))
-write(*,*), "Evec 2 = ", REAL(evec(1,1,ch)), AIMAG(evec(1,1,ch)) ,REAL(evec(2,1,ch)), AIMAG(evec(2,1,ch))
-write(*,*), "Overlap =", ABS(DOT_PRODUCT(evec(1:2,2,390), evec(1:2,1,ch)))
-print *, "***** Checking Wavefunctions ******"
+! print *, "Shape of eval =", SHAPE(eval)
+! print *, "Shape of evec =", SHAPE(evec)
+! print *, "Evec 1 =", evec(1:2,1,18)
+! print *, "Number of orbitals =", tbmodel%norb_TB
+! print *, "Atom Positions =", pars%atml(1:3,1:2,1)
+! print *, "Eval order is ", eval(1,101), eval(2,101)
+! print *, "Check overlap =", DOT_PRODUCT(evec(1:tbmodel%norb_TB,1,18), evec(1:tbmodel%norb_TB,2,18))
+! print *, "Number of kpoints =", kgrid%npt
+! print *, "Number of qpoints =", qgrid%npt
+! print *, "Negrid =", pars%negrid
+! print *, "Chi shape =", SHAPE(chi)
+! print *, "N Valence =", pars%n_valence
+! print *, "N States =", pars%nstates
+! print *, "N grid =", pars%ngrid
+!
+! print *, "***** Checking Wavefunctions ******"
+! ch = 400
+! print *, "k =", kgrid%vpl(ch)
+! print *, "Evals =", eval(1,ch), eval(2,ch)
+! write(*,*), "Evec 1 = ", REAL(evec(1,2,390)), AIMAG(evec(1,2,390)) ,REAL(evec(2,2,390)), AIMAG(evec(2,2,390))
+! write(*,*), "Evec 2 = ", REAL(evec(1,1,ch)), AIMAG(evec(1,1,ch)) ,REAL(evec(2,1,ch)), AIMAG(evec(2,1,ch))
+! write(*,*), "Overlap =", ABS(DOT_PRODUCT(evec(1:2,2,390), evec(1:2,1,ch)))
+! print *, "***** Checking Wavefunctions ******"
 
 chi(:,:)=0._dp
 do iq=1,qgrid%npt
+  if (mod(iq-1,np_mpi).ne.lp_mpi) cycle
   call get_chiq(pars,kgrid,tbmodel,qgrid%vpl(iq),eval,evec,chi(:,iq))
 end do
+
+#ifdef MPI
+  nn=pars%negrid*qgrid%npt
+  call mpi_allreduce(mpi_in_place,chi,nn,MPI_DOUBLE_COMPLEX,mpi_sum, &
+   mpi_com,mpi_err)
+#endif
+
 if (mp_mpi) then
   open(2000,file="chi.dat")
   do iq=1,qgrid%npt
@@ -296,16 +310,8 @@ if (mp_mpi) then
       write(2000,*) qgrid%vpl(iq), pars%egrid(ie),REAL(chi(ie,iq)), AIMAG(chi(ie,iq))
     end do
   end do
-
-  open(3000,file="evec.dat")
-  do ik=1,kgrid%npt
-    do ie=1,tbmodel%norb_TB
-      do iq=1,tbmodel%norb_TB
-        write(3000,*) kgrid%vpl(ik),REAL(evec(iq,ie,ik)), AIMAG(evec(iq,ie,ik))
-      end do
-    end do
-  end do
 end if
+
 deallocate(eval,evec,vkl)
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
@@ -387,6 +393,7 @@ complex(dp), intent(out) :: chiq(pars%negrid)
 integer ie,ist,jst,ikq,ik,iorb
 real(dp) vkq(NDIM),vg(NDIM)
 integer ikg(NDIM+1)
+integer ic, iv
 
 real(dp) delta
 complex(dp) overlap
@@ -401,18 +408,34 @@ do ik=1,kgrid%npt
   ikg=kgrid%find(vkq)
   vg=kgrid%vpl(ikg(4))
 
-  if  (((eval(2, ikg(4)) - eval(1, ikg(4))) > 1e-7) .and. (eval(2, ik) - eval(1, ik) > 1e-7)) then
-    overlap = ABS(DOT_PRODUCT(evec(1:tbmodel%norb_TB,2,ikg(4)), eitq*evec(1:tbmodel%norb_TB,1,ik)))
-    delta = eval(2, ikg(4)) - eval(1, ik)
-    if (delta > 1e-7) then
-      chiq(1) = chiq(1) + overlap*overlap/delta
-    end if
-  end if
-  ! write(*,'("vkq,corresponding vk+G: ",6F10.4)') vkq,kgrid%vpl(ikg(NDIM+1))+vg
+  ! if  (((eval(2, ikg(4)) - eval(1, ikg(4))) > 1e-7) .and. (eval(2, ik) - eval(1, ik) > 1e-7)) then
+  !   overlap = ABS(DOT_PRODUCT(evec(1:tbmodel%norb_TB,2,ikg(4)), eitq*evec(1:tbmodel%norb_TB,1,ik)))
+  !   delta = eval(2, ikg(4)) - eval(1, ik)
+  !   if (delta > 1e-7) then
+  !     chiq(1) = chiq(1) + overlap*overlap/delta
+  !   end if
+  ! end if
+
+  do iv=1, pars%n_valence
+    do ic=pars%n_valence+1, pars%nstates
+      if (MAXVAL(eval(1:pars%n_valence, ikg(4))) < MINVAL(eval(pars%n_valence+1:pars%nstates,ikg(4))) - 1e-7) then
+        if (MAXVAL(eval(1:pars%n_valence, ik)) < MINVAL(eval(pars%n_valence+1:pars%nstates,ik)) - 1e-7) then
+          overlap = ABS(DOT_PRODUCT(evec(1:tbmodel%norb_TB,ic,ikg(4)), eitq*evec(1:tbmodel%norb_TB,iv,ik)))
+          delta = eval(ic, ikg(4)) - eval(iv, ik)
+          if (delta > 1e-7) then
+            chiq(1) = chiq(1) + overlap*overlap/delta
+          end if
+        end if
+      end if
+
+    end do
+  end do
+
+
 end do
 
 ! Normalise
-chiq = 0.0019080913120167076 * chiq
+chiq = (4/(pars%ngrid(1)*pars%ngrid(2)*pars%ngrid(3)*SQRT(3.0)*(SUM(pars%avec(1,:)**2))/2)) * chiq
 
 ! do iorb=1,tbmodel%norb_TB
 !   write(*,'("iorb, lattice coords: ",i4,6F10.4)') iorb,tbmodel%vplorb(iorb)
