@@ -215,14 +215,15 @@ end subroutine
 subroutine calc_chi(pars,opt)
 class(CLpars), intent(inout) :: pars
 character(len=*), intent(in) :: opt
-integer ik,iq
+integer ik,iq,ie
 real(dp), allocatable :: eval(:,:)
 real(dp), allocatable :: vkl(:,:)
 complex(dp), allocatable :: evec(:,:,:)
 complex(dp), allocatable :: chi(:,:)
 type(GRID) kgrid,qgrid
 type(CLtb) tbmodel
-integer ie
+integer ch
+
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
 #endif
@@ -267,24 +268,41 @@ print *, "Shape of eval =", SHAPE(eval)
 print *, "Shape of evec =", SHAPE(evec)
 print *, "Evec 1 =", evec(1:2,1,18)
 print *, "Number of orbitals =", tbmodel%norb_TB
+print *, "Atom Positions =", pars%atml(1:3,1:2,1)
+print *, "Eval order is ", eval(1,101), eval(2,101)
 print *, "Check overlap =", DOT_PRODUCT(evec(1:tbmodel%norb_TB,1,18), evec(1:tbmodel%norb_TB,2,18))
 print *, "Number of kpoints =", kgrid%npt
 print *, "Number of qpoints =", qgrid%npt
+print *, "Negrid =", pars%negrid
 print *, "Chi shape =", SHAPE(chi)
+
+print *, "***** Checking Wavefunctions ******"
+ch = 400
+print *, "k =", kgrid%vpl(ch)
+print *, "Evals =", eval(1,ch), eval(2,ch)
+write(*,*), "Evec 1 = ", REAL(evec(1,2,390)), AIMAG(evec(1,2,390)) ,REAL(evec(2,2,390)), AIMAG(evec(2,2,390))
+write(*,*), "Evec 2 = ", REAL(evec(1,1,ch)), AIMAG(evec(1,1,ch)) ,REAL(evec(2,1,ch)), AIMAG(evec(2,1,ch))
+write(*,*), "Overlap =", ABS(DOT_PRODUCT(evec(1:2,2,390), evec(1:2,1,ch)))
+print *, "***** Checking Wavefunctions ******"
 
 chi(:,:)=0._dp
 do iq=1,qgrid%npt
-! do iq=10,10
-  print *, '================='
-  print *, "q = ", qgrid%vpl(iq)
   call get_chiq(pars,kgrid,tbmodel,qgrid%vpl(iq),eval,evec,chi(:,iq))
-  print *, chi(:,iq)
 end do
 if (mp_mpi) then
   open(2000,file="chi.dat")
   do iq=1,qgrid%npt
     do ie=1,pars%negrid
-      write(2000,'(2G18.10)') pars%egrid(ie),chi(ie,iq)
+      write(2000,*) qgrid%vpl(iq), pars%egrid(ie),REAL(chi(ie,iq)), AIMAG(chi(ie,iq))
+    end do
+  end do
+
+  open(3000,file="evec.dat")
+  do ik=1,kgrid%npt
+    do ie=1,tbmodel%norb_TB
+      do iq=1,tbmodel%norb_TB
+        write(3000,*) kgrid%vpl(ik),REAL(evec(iq,ie,ik)), AIMAG(evec(iq,ie,ik))
+      end do
     end do
   end do
 end if
@@ -375,8 +393,7 @@ complex(dp) overlap
 complex(dp) eitq(tbmodel%norb_TB)
 ! I guess, chi has to be zeroed again, since it is intent(out)
 chiq=0._dp
-eitq = EXP(CMPLX(0, 1)*MATMUL(vpl, pars%atml(1:3,1:2,1)))
-
+eitq = EXP(CMPLX(0, 1)*8 * atan (1.0_16)*MATMUL(vpl, pars%atml(1:3,1:2,1)))
 ! to start with, one needs a subroutine to find k+q on the regular k-poit grid stored inside kgrid object
 ! therefore, one should plug it in a subroutine of kgrid object, here there is an example
 do ik=1,kgrid%npt
@@ -395,7 +412,7 @@ do ik=1,kgrid%npt
 end do
 
 ! Normalise
-chiq(1) = 1 * chiq(1)
+chiq = 0.0019080913120167076 * chiq
 
 ! do iorb=1,tbmodel%norb_TB
 !   write(*,'("iorb, lattice coords: ",i4,6F10.4)') iorb,tbmodel%vplorb(iorb)
