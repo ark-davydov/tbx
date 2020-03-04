@@ -266,31 +266,6 @@ call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,v
 eval=eval-pars%efermi
 ! do the computation. later we will attach MPI parallelisation here
 ! (you can see bands, eigen tasks how to do it), therefore arrays have to be zeroed
-
-! print *, "Shape of eval =", SHAPE(eval)
-! print *, "Shape of evec =", SHAPE(evec)
-! print *, "Evec 1 =", evec(1:2,1,18)
-! print *, "Number of orbitals =", tbmodel%norb_TB
-! print *, "Atom Positions =", pars%atml(1:3,1:2,1)
-! print *, "Eval order is ", eval(1,101), eval(2,101)
-! print *, "Check overlap =", DOT_PRODUCT(evec(1:tbmodel%norb_TB,1,18), evec(1:tbmodel%norb_TB,2,18))
-! print *, "Number of kpoints =", kgrid%npt
-! print *, "Number of qpoints =", qgrid%npt
-! print *, "Negrid =", pars%negrid
-! print *, "Chi shape =", SHAPE(chi)
-! print *, "N Valence =", pars%n_valence
-! print *, "N States =", pars%nstates
-! print *, "N grid =", pars%ngrid
-!
-! print *, "***** Checking Wavefunctions ******"
-! ch = 400
-! print *, "k =", kgrid%vpl(ch)
-! print *, "Evals =", eval(1,ch), eval(2,ch)
-! write(*,*), "Evec 1 = ", REAL(evec(1,2,390)), AIMAG(evec(1,2,390)) ,REAL(evec(2,2,390)), AIMAG(evec(2,2,390))
-! write(*,*), "Evec 2 = ", REAL(evec(1,1,ch)), AIMAG(evec(1,1,ch)) ,REAL(evec(2,1,ch)), AIMAG(evec(2,1,ch))
-! write(*,*), "Overlap =", ABS(DOT_PRODUCT(evec(1:2,2,390), evec(1:2,1,ch)))
-! print *, "***** Checking Wavefunctions ******"
-
 chi(:,:)=0._dp
 do iq=1,qgrid%npt
   if (mod(iq-1,np_mpi).ne.lp_mpi) cycle
@@ -394,6 +369,9 @@ integer ie,ist,jst,ikq,ik,iorb
 real(dp) vkq(NDIM),vg(NDIM)
 integer ikg(NDIM+1)
 integer ic, iv
+integer fermi_index_kq(1)
+integer fermi_index_k(1)
+integer testing
 
 real(dp) delta
 complex(dp) overlap
@@ -408,26 +386,19 @@ do ik=1,kgrid%npt
   ikg=kgrid%find(vkq)
   vg=kgrid%vpl(ikg(4))
 
-  ! if  (((eval(2, ikg(4)) - eval(1, ikg(4))) > 1e-7) .and. (eval(2, ik) - eval(1, ik) > 1e-7)) then
-  !   overlap = ABS(DOT_PRODUCT(evec(1:tbmodel%norb_TB,2,ikg(4)), eitq*evec(1:tbmodel%norb_TB,1,ik)))
-  !   delta = eval(2, ikg(4)) - eval(1, ik)
-  !   if (delta > 1e-7) then
-  !     chiq(1) = chiq(1) + overlap*overlap/delta
-  !   end if
-  ! end if
+  ! Get the index corresponding to fermi level
+  fermi_index_kq =  minloc(eval(:,ikg(4)), mask=(eval(:,ikg(4)) > 0))
+  fermi_index_k =  minloc(eval(:,ik), mask=(eval(:,ik) > 0))
+  fermi_index_kq(1) = merge(fermi_index_kq(1)-1,pars%nstates, fermi_index_kq(1) > 0)
+  fermi_index_k(1) = merge(fermi_index_k(1)-1,pars%nstates, fermi_index_k(1) > 0)
 
-  do iv=1, pars%n_valence
-    do ic=pars%n_valence+1, pars%nstates
-      if (MAXVAL(eval(1:pars%n_valence, ikg(4))) < MINVAL(eval(pars%n_valence+1:pars%nstates,ikg(4))) - 1e-7) then
-        if (MAXVAL(eval(1:pars%n_valence, ik)) < MINVAL(eval(pars%n_valence+1:pars%nstates,ik)) - 1e-7) then
-          overlap = ABS(DOT_PRODUCT(evec(1:tbmodel%norb_TB,ic,ikg(4)), eitq*evec(1:tbmodel%norb_TB,iv,ik)))
-          delta = eval(ic, ikg(4)) - eval(iv, ik)
-          if (delta > 1e-7) then
-            chiq(1) = chiq(1) + overlap*overlap/delta
-          end if
-        end if
+  do iv=1, fermi_index_k(1)
+    do ic=fermi_index_kq(1)+1, pars%nstates
+      overlap = ABS(DOT_PRODUCT(evec(1:tbmodel%norb_TB,ic,ikg(4)), eitq*evec(1:tbmodel%norb_TB,iv,ik)))
+      delta = eval(ic, ikg(4)) - eval(iv, ik)
+      if (delta > 1e-7) then
+        chiq(1) = chiq(1) + overlap*overlap/delta
       end if
-
     end do
   end do
 
