@@ -32,7 +32,6 @@ type, public :: CLpars
   integer :: natmtot
   integer :: nmaxatm_pspec
   integer :: ngrid(NDIM)
-  integer :: n_valence=1
   real(dp) :: gauss_sigma=0.1_dp
   real(dp) :: sparse_eps=0.e-6_dp
   real(dp) :: efermi=0._dp
@@ -188,13 +187,6 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%rcut_nn
     if (iostat.ne.0) call throw("paramters%read_input()","problem with rcut_nn data")
     if (mp_mpi) write(*,'(i6,": ",F10.6)') jline,THIS%rcut_nn
-
-  ! Number of valence orbitals
-  else if (trim(block).eq."n_valence") then
-    jline=jline+1
-    read(50,*,iostat=iostat) THIS%n_valence
-    if (iostat.ne.0) call throw("paramters%read_input()","problem with n_valence data")
-    if (mp_mpi) write(*,'(i6,": ",i6)') jline,THIS%n_valence
 
   ! gauss_sigma for smearing of the DOS, for example
   else if (trim(block).eq."gauss_sigma") then
