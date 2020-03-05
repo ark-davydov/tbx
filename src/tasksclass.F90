@@ -264,6 +264,14 @@ call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,v
 
 ! shift all eigenvalues by efermi (so, it should not be changend in the input file)
 eval=eval-pars%efermi
+
+if (mp_mpi) then
+  print *, "Calculating RPA Chi"
+  print *, "Using ", pars%nstates, "states"
+  print *, "with", tbmodel%norb_TB, "orbitals per unit cell"
+end if
+
+
 ! do the computation. later we will attach MPI parallelisation here
 ! (you can see bands, eigen tasks how to do it), therefore arrays have to be zeroed
 chi(:,:)=0._dp
@@ -378,7 +386,8 @@ complex(dp) overlap
 complex(dp) eitq(tbmodel%norb_TB)
 ! I guess, chi has to be zeroed again, since it is intent(out)
 chiq=0._dp
-eitq = EXP(CMPLX(0, 1)*8 * atan (1.0_16)*MATMUL(vpl, pars%atml(1:3,1:2,1)))
+eitq = EXP(CMPLX(0, 1)*8 * atan (1.0_16)*MATMUL(vpl, pars%atml(1:3,1:tbmodel%norb_TB,1)))
+
 ! to start with, one needs a subroutine to find k+q on the regular k-poit grid stored inside kgrid object
 ! therefore, one should plug it in a subroutine of kgrid object, here there is an example
 do ik=1,kgrid%npt
@@ -391,6 +400,7 @@ do ik=1,kgrid%npt
   fermi_index_k =  minloc(eval(:,ik), mask=(eval(:,ik) > 0))
   fermi_index_kq(1) = merge(fermi_index_kq(1)-1,pars%nstates, fermi_index_kq(1) > 0)
   fermi_index_k(1) = merge(fermi_index_k(1)-1,pars%nstates, fermi_index_k(1) > 0)
+
 
   do iv=1, fermi_index_k(1)
     do ic=fermi_index_kq(1)+1, pars%nstates
@@ -406,7 +416,7 @@ do ik=1,kgrid%npt
 end do
 
 ! Normalise
-chiq = (4/(pars%ngrid(1)*pars%ngrid(2)*pars%ngrid(3)*SQRT(3.0)*(SUM(pars%avec(1,:)**2))/2)) * chiq
+chiq = (4/(pars%ngrid(1)*pars%ngrid(2)*pars%ngrid(3)*(ABS(pars%avec(1,1)*pars%avec(2,2) - pars%avec(1,2)*pars%avec(2,1))))) * chiq
 
 ! do iorb=1,tbmodel%norb_TB
 !   write(*,'("iorb, lattice coords: ",i4,6F10.4)') iorb,tbmodel%vplorb(iorb)
