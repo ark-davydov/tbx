@@ -123,7 +123,7 @@ do ispec=1,pars%nspec
   end do
 end do
 ! init real space grid
-call THIS%rgrid%init(pars%ngrid,pars%avec,.true.,.false.)
+call THIS%rgrid%init(pars%ngrid,pars%ngrid,pars%avec,.true.,.false.)
 ! Fix the parameters for bottom and top states to calculate
 if (pars%istop.gt.THIS%norb_TB) then
   pars%istop=THIS%norb_TB

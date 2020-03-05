@@ -126,7 +126,7 @@ real(dp), allocatable :: vkl(:,:)
 #endif
 real(dp), allocatable :: eval(:,:)
 complex(dp), allocatable :: evec(:,:)
-call kgrid%init(pars%ngrid,pars%bvec,centered_kgrid,.true.)
+call kgrid%init(pars%ngrid,pars%ngrid,pars%bvec,centered_kgrid,.true.)
 call message("  initialise TB model ..")
 call message("")
 call tbmodel%init(pars,"SK")
@@ -241,7 +241,7 @@ call kgrid%io(1000,"_grid","read",pars,tbmodel%norb_TB)
 ! However, the grid dimensions will have to be commensurate with original k-grid dimensions, because
 ! in RPA one needs to find kp=k+q, and kp has to be found in the original k-point grid.
 ! Finally, below there is an example how one should proceed when qgrid is equal to kgrid
-call qgrid%init(kgrid%ngrid,pars%bvec,centered_qgrid,.true.)
+call qgrid%init(pars%qgrid,kgrid%grid_extent,pars%bvec,centered_qgrid,.true.)
 ! allocate array for eigen values
 allocate(eval(pars%nstates,kgrid%npt))
 ! allocate array for eigen vectors
@@ -267,6 +267,8 @@ eval=eval-pars%efermi
 
 if (mp_mpi) then
   print *, "Calculating RPA Chi"
+  print *, "on a q grid of", qgrid%ngrid
+  print *, "with BZ grid of", kgrid%grid_extent
   print *, "Using ", pars%nstates, "states"
   print *, "with", tbmodel%norb_TB, "orbitals per unit cell"
 end if
