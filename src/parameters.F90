@@ -32,6 +32,7 @@ type, public :: CLpars
   integer :: natmtot
   integer :: nmaxatm_pspec
   integer :: ngrid(NDIM)
+  integer :: qgrid(NDIM)
   real(dp) :: gauss_sigma=0.1_dp
   real(dp) :: sparse_eps=0.e-6_dp
   real(dp) :: efermi=0._dp
@@ -155,6 +156,12 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%ngrid(:)
     if (iostat.ne.0) call throw("paramters%read_input()","problem with ngrid data")
     if (mp_mpi) write(*,'(i6,": ",5I6)') jline,THIS%ngrid(:)
+
+  else if (trim(block).eq."qgrid") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%qgrid(:)
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with qgrid data")
+    if (mp_mpi) write(*,'(i6,": ",5I6)') jline,THIS%qgrid(:)
 
   ! BZ k-papth block
   else if (trim(block).eq."path") then
