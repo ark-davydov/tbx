@@ -249,7 +249,7 @@ allocate(evec(tbmodel%norb_TB,pars%nstates,kgrid%npt))
 ! this is needed to copy the private data of kgrid object, i.e., k-points in lattice coordinates
 allocate(vkl(NDIM,kgrid%npt))
 ! array for RPA response function which can be dynamic (on pars%negrid frequencies), and at different q-points
-allocate(chi(pars%negrid,kgrid%npt))
+allocate(chi(pars%negrid,qgrid%npt))
 ! copy the private data
 do ik=1,kgrid%npt
   ! copy the private data
@@ -389,7 +389,6 @@ complex(dp) eitq(tbmodel%norb_TB)
 ! I guess, chi has to be zeroed again, since it is intent(out)
 chiq=0._dp
 eitq = EXP(CMPLX(0, 1)*8 * atan (1.0_16)*MATMUL(vpl, pars%atml(1:3,1:tbmodel%norb_TB,1)))
-
 ! to start with, one needs a subroutine to find k+q on the regular k-poit grid stored inside kgrid object
 ! therefore, one should plug it in a subroutine of kgrid object, here there is an example
 do ik=1,kgrid%npt
@@ -413,13 +412,10 @@ do ik=1,kgrid%npt
       end if
     end do
   end do
-
-
 end do
 
 ! Normalise
 chiq = (4/(pars%ngrid(1)*pars%ngrid(2)*pars%ngrid(3)*(ABS(pars%avec(1,1)*pars%avec(2,2) - pars%avec(1,2)*pars%avec(2,1))))) * chiq
-
 ! do iorb=1,tbmodel%norb_TB
 !   write(*,'("iorb, lattice coords: ",i4,6F10.4)') iorb,tbmodel%vplorb(iorb)
 ! end do
