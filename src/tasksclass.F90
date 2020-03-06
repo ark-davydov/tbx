@@ -402,7 +402,6 @@ do ik=1,kgrid%npt
   fermi_index_kq(1) = merge(fermi_index_kq(1)-1,pars%nstates, fermi_index_kq(1) > 0)
   fermi_index_k(1) = merge(fermi_index_k(1)-1,pars%nstates, fermi_index_k(1) > 0)
 
-
   do iv=1, fermi_index_k(1)
     do ic=fermi_index_kq(1)+1, pars%nstates
       overlap = ABS(DOT_PRODUCT(evec(1:tbmodel%norb_TB,ic,ikg(4)), eitq*evec(1:tbmodel%norb_TB,iv,ik)))
@@ -415,10 +414,7 @@ do ik=1,kgrid%npt
 end do
 
 ! Normalise
-chiq = (4/(pars%ngrid(1)*pars%ngrid(2)*pars%ngrid(3)*(ABS(pars%avec(1,1)*pars%avec(2,2) - pars%avec(1,2)*pars%avec(2,1))))) * chiq
-! do iorb=1,tbmodel%norb_TB
-!   write(*,'("iorb, lattice coords: ",i4,6F10.4)') iorb,tbmodel%vplorb(iorb)
-! end do
+chiq = (4/(pars%ngrid(1)*pars%ngrid(2)*(ABS(pars%avec(1,1)*pars%avec(2,2) - pars%avec(1,2)*pars%avec(2,1))))) * chiq
 
 end subroutine
 
