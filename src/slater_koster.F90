@@ -41,12 +41,14 @@ end subroutine
 
 !real(dp) function tij_sk(THIS,dvec)
 
-real(dp) function tij(option,idxi,idxj,dvec)
+real(dp) function tij(option,lmr1,lmr2,dvec)
 !class(SK), intent(in) :: THIS
 character(len=*), intent(in) :: option
-integer, intent(in)  :: idxi,idxj
+integer, intent(in)  :: lmr1(2),lmr2(2)
 real(dp), intent(in) :: dvec(NDIM)
 real(dp) rr,zz
+if (lmr1(1).ne.1.or.lmr2(2).ne.1) call throw("SK%tij_sk","this subroutine is currently for pz-pz hoppings only")
+if (lmr2(1).ne.1.or.lmr2(2).ne.1) call throw("SK%tij_sk","this subroutine is currently for pz-pz hoppings only")
 if (NDIM.ne.3) call throw("SK%tij_sk","this subroutine is for 3D case only")
 rr=sqrt(sum(dvec(:)**2))
 if (abs(rr).gt.epslat) then

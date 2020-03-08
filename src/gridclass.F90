@@ -2,6 +2,7 @@
 module gridclass
 use modcom
 use parameters
+use symmetryclass
 implicit none
 private
 
@@ -18,13 +19,19 @@ type, public :: CLgrid
 endtype CLgrid
 
 type, public, extends(CLgrid) :: GRID
+  logical :: syminit_done=.false.
   logical centered
   logical fractional
   integer ngrid(NDIM)
+  integer nir
+  integer, allocatable :: iks2k(:,:)
+  integer, allocatable :: ik2ir(:)
+  integer, allocatable :: ir2ik(:)
   contains 
   procedure :: init=>init_grid
   procedure :: io=>io_grid
   procedure :: find=>find_grid_point
+  procedure :: sym_init
 endtype GRID
 
 type, public, extends(CLgrid) :: PATH
@@ -150,6 +157,77 @@ do ivert=2,THIS%nvert
 end do
 end subroutine
 
+subroutine sym_init(THIS,sym)
+class(GRID), intent(inout) :: THIS
+class(CLsym), intent(in) :: sym
+! local
+integer ik,ikp,isym
+integer igk(NDIM+1)
+logical lfound(THIS%npt)
+real(dp) sv(NDIM)
+real(dp) avec(NDIM,NDIM),tvec(NDIM,NDIM)
+real(dp) v1(NDIM),v2(NDIM),v3(NDIM),v4(NDIM)
+if (THIS%syminit_done) call throw("gridclass%sym_init","second call of sym_init")
+THIS%syminit_done=.true.
+allocate(THIS%iks2k(THIS%npt,sym%nsym))
+tvec=THIS%vecs
+call dmatrix_inverse(tvec,avec,NDIM)
+THIS%iks2k=-999 !Sym.op.(isym) moves k(iks2k(ik,isym)) to k(ik) + G(iks2g(ik,isym)).
+do isym=1,sym%nsym
+   do ik=1,THIS%npt
+     sv=matmul(sym%car(:,:,isym),THIS%vpc(ik))
+     sv=matmul(sv,avec)
+     igk=THIS%find(sv)
+     THIS%iks2k(ik,isym)=igk(NDIM+1)
+   end do
+end do
+if (.false.) then
+! origican code from QE
+do isym=1,sym%nsym
+   lfound=.false.
+   do ik=1,THIS%npt
+      !v1=THIS%vpc(ik)
+      v1=THIS%vpc(ik)
+      !v2=matmul(transpose(sym%lat(:,:,isym)),v1)
+      v2=matmul(sym%car(:,:,isym),v1)
+      v2=matmul(v2,avec)
+      do ikp=1,THIS%npt
+         if(lfound(ikp)) cycle
+         v3=THIS%vpl(ikp)
+         !v3=THIS%vpc(ikp)
+         !v4=matmul(v2-v3,THIS%vecs)
+         v4=v2-v3
+         write(*,*) v4
+         if(sum(abs(nint(v4)-v4)).lt.1d-5) then
+            THIS%iks2k(ik,isym)=ikp
+            lfound(ikp)=.true.
+         end if
+         if(THIS%iks2k(ik,isym).ge.1) exit
+      end do
+   end do
+end do
+end if
+allocate(THIS%ik2ir(THIS%npt))
+allocate(THIS%ir2ik(THIS%npt))
+THIS%ik2ir=-999 !Gives irreducible-k points from regular-k points.
+THIS%ir2ik=-999 !Gives regular-k points from irreducible-k points.
+lfound=.false.
+THIS%nir=0
+do ik=1,THIS%npt
+   if(lfound(ik)) cycle
+   lfound(ik)=.true.
+   THIS%nir=THIS%nir+1
+   THIS%ir2ik(THIS%nir)=ik
+   THIS%ik2ir(ik)=THIS%nir
+   do isym=1,sym%nsym
+      ikp=THIS%iks2k(ik,isym)
+      if(lfound(ikp)) cycle
+      lfound(ikp)=.true.
+      THIS%ik2ir(ikp)=THIS%nir
+   end do
+end do
+end subroutine
+
 subroutine io_grid(THIS,unt,fname,action,pars,norb)
 class(GRID), intent(inout) :: THIS
 integer, intent(in) :: unt
@@ -226,13 +304,21 @@ real(dp), intent(in) :: vpl(NDIM)
 integer ikg(NDIM+1)
 real(dp) vchk(NDIM)
 if (THIS%centered) then
-  ! centered grid is defined differently, this complicated construct is becase THIS%ngrid/2 
-  ! action was used in the creation of the grid, and the result is different for odd and even grids
-  ! so here we just plug exactly the same as was used in the initialisation
-  ikg(1:NDIM)=nint( (vpl+dble(THIS%ngrid/2)/dble(THIS%ngrid))*dble(THIS%ngrid) )
-  ikg(1:NDIM)=modulo(ikg(1:NDIM),THIS%ngrid)
+  if (THIS%fractional) then
+    ! centered grid is defined differently, this complicated construct is becase THIS%ngrid/2 
+    ! action was used in the creation of the grid, and the result is different for odd and even grids
+    ! so here we just plug exactly the same as was used in the initialisation
+    ikg(1:NDIM)=nint( (vpl+dble(THIS%ngrid/2)/dble(THIS%ngrid))*dble(THIS%ngrid) )
+    ikg(1:NDIM)=modulo(ikg(1:NDIM),THIS%ngrid)
+  else
+    ikg(1:NDIM)=nint(vpl+dble(THIS%ngrid/2))
+  end if
 else
-  ikg(1:NDIM)=modulo(nint(vpl*dble(THIS%ngrid)),THIS%ngrid)
+  if (THIS%fractional) then
+    ikg(1:NDIM)=modulo(nint(vpl*dble(THIS%ngrid)),THIS%ngrid)
+  else
+    ikg(1:NDIM)=nint(vpl)
+  end if
 end if
 if (NDIM.eq.1) then
   ikg(NDIM+1)=ikg(NDIM)
@@ -247,12 +333,17 @@ if (THIS%centered) then
   ! return back to orgiginal values
   ikg(1:NDIM)=ikg(1:NDIM)-THIS%ngrid/2
 end if
-! finally, redefine ikg(1:NDIM) such that they return translation vectors
-ikg(1:NDIM)=nint(vpl-THIS%vpl(ikg(NDIM+1)))
-! do the check
-vchk=dble(ikg(1:3))+THIS%vpl(ikg(NDIM+1))
-if (sum(abs(vchk-vpl)).gt.epslat) then
-  call throw("GRID%find_grid_point()","grid point not found")
+if (ikg(NDIM+1).gt.THIS%npt) then
+  ikg(NDIM+1)=-ikg(NDIM+1)
+  ikg(1:NDIM)=0
+else
+  ! finally, redefine ikg(1:NDIM) such that they return translation vectors
+  ikg(1:NDIM)=nint(vpl-THIS%vpl(ikg(NDIM+1)))
+  ! do the check
+  vchk=dble(ikg(1:3))+THIS%vpl(ikg(NDIM+1))
+  if (sum(abs(vchk-vpl)).gt.epslat) then
+    call throw("GRID%find_grid_point()","grid point not found")
+  end if
 end if
 
 end function

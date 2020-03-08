@@ -23,6 +23,7 @@ real(dp), parameter :: pihalf=1.570796326794896557998981734272092580795288085937
 real(dp), parameter :: sqrtpi=1.77245385091_dp
 real(dp), parameter :: epslat=1.e-6_dp
 real(dp), parameter :: epsengy=1.e-6_dp
+real(dp) :: lattice_shift(NDIM)
 real(dp) :: graphene_lvec_length=2.46_dp
 real(dp) :: graphene_cc_distance=1.42_dp
 real(dp) :: tbg_aa_distance=3.60_dp
@@ -438,6 +439,134 @@ t1=(x/sig)**2
 gauss=exp(-t1)/sig/sqrtpi
 end function
 
+function string_to_lmr(str_orbital) result(lmr)
+character(len=*), intent(in) :: str_orbital
+integer lmr(2)
+select case(trim(adjustl(str_orbital))) 
+case('s')          ;  lmr=(/0,1/)
+case('pz')         ;  lmr=(/1,1/)
+case('px')         ;  lmr=(/1,2/)
+case('py')         ;  lmr=(/1,3/)
+case('dz2')        ;  lmr=(/2,1/)
+case('dxz')        ;  lmr=(/2,2/)
+case('dyz')        ;  lmr=(/2,3/)
+case('dx2-y2')     ;  lmr=(/2,4/)
+case('dxy')        ;  lmr=(/2,5/)
+case('fz3')        ;  lmr=(/3,1/)
+case('fxz2')       ;  lmr=(/3,2/)
+case('fyz2')       ;  lmr=(/3,3/)
+case('fz(x2-y2)')  ;  lmr=(/3,4/)
+case('fxyz')       ;  lmr=(/3,5/)
+case('fx(x2-3y2)') ;  lmr=(/3,6/)
+case('fy(3x2-y2)') ;  lmr=(/3,7/)
+! hybridized
+case('sp-1')       ;  lmr=(/-1,1/)
+case('sp-2')       ;  lmr=(/-1,2/)
+case('sp2-1')      ;  lmr=(/-2,1/)
+case('sp2-2')      ;  lmr=(/-2,2/)
+case('sp2-3')      ;  lmr=(/-2,3/)
+case('sp3-1')      ;  lmr=(/-3,1/)
+case('sp3-2')      ;  lmr=(/-3,2/)
+case('sp3-3')      ;  lmr=(/-3,3/)
+case('sp3-4')      ;  lmr=(/-3,4/)
+case('sp3d-1')     ;  lmr=(/-4,1/)
+case('sp3d-2')     ;  lmr=(/-4,2/)
+case('sp3d-3')     ;  lmr=(/-4,3/)
+case('sp3d-4')     ;  lmr=(/-4,4/)
+case('sp3d-5')     ;  lmr=(/-4,5/)
+case('sp3d2-1')    ;  lmr=(/-5,1/)
+case('sp3d2-2')    ;  lmr=(/-5,2/)
+case('sp3d2-3')    ;  lmr=(/-5,3/)
+case('sp3d2-4')    ;  lmr=(/-5,4/)
+case('sp3d2-5')    ;  lmr=(/-5,5/)
+case('sp3d2-6')    ;  lmr=(/-5,6/)
+case default       ;  call throw("wannier_supplementary%string_to_lmr","unknown orbital string")
+end select
+end function
+
+function lmr_to_string(lmr) result(str_orbital)
+integer, intent(in) :: lmr(2)
+character(len=10) str_orbital
+integer ll,mr
+ll=lmr(1)
+mr=lmr(2)
+select case(ll)
+case(0)
+  select case(mr)
+  case(1)          ; str_orbital='s'
+  case default     ; call throw("wannier_supplementary%lmr_to_string","unknown mr")
+  end select
+case(1)
+  select case(mr)
+  case(1)          ; str_orbital='pz'
+  case(2)          ; str_orbital='px'
+  case(3)          ; str_orbital='py'
+  case default     ; call throw("wannier_supplementary%lmr_to_string","unknown mr")
+  end select
+case(2)
+  select case(mr)
+  case(1)          ; str_orbital='dz2'
+  case(2)          ; str_orbital='dxz'
+  case(3)          ; str_orbital='dyz'
+  case(4)          ; str_orbital='dx2-y2'
+  case(5)          ; str_orbital='dxy'
+  case default     ; call throw("wannier_supplementary%lmr_to_string","unknown mr")
+  end select
+case(3)
+  select case(mr)
+  case(1)          ; str_orbital='fz3'
+  case(2)          ; str_orbital='fxz2'
+  case(3)          ; str_orbital='fyz2'
+  case(4)          ; str_orbital='fz(x2-y2)'
+  case(5)          ; str_orbital='fxyz'
+  case(6)          ; str_orbital='fx(x2-3y2)'
+  case(7)          ; str_orbital='fy(3x2-y2)'
+  case default     ; call throw("wannier_supplementary%lmr_to_string","unknown mr")
+  end select
+case(-1)
+  select case(mr)
+  case(1)          ; str_orbital='sp-1'
+  case(2)          ; str_orbital='sp-2'
+  case default     ; call throw("wannier_supplementary%lmr_to_string","unknown mr")
+  end select
+case(-2)
+  select case(mr)
+  case(1)          ; str_orbital='sp2-1'
+  case(2)          ; str_orbital='sp2-2'
+  case(3)          ; str_orbital='sp2-3'
+  case default     ; call throw("wannier_supplementary%lmr_to_string","unknown mr")
+  end select
+case(-3)
+  select case(mr)
+  case(1)          ; str_orbital='sp3-1'
+  case(2)          ; str_orbital='sp3-2'
+  case(3)          ; str_orbital='sp3-3'
+  case(4)          ; str_orbital='sp3-4'
+  case default     ; call throw("wannier_supplementary%lmr_to_string","unknown mr")
+  end select
+case(-4)
+  select case(mr)
+  case(1)          ; str_orbital='sp3d-1'
+  case(2)          ; str_orbital='sp3d-2'
+  case(3)          ; str_orbital='sp3d-3'
+  case(4)          ; str_orbital='sp3d-4'
+  case(5)          ; str_orbital='sp3d-5'
+  case default     ; call throw("wannier_supplementary%lmr_to_string","unknown mr")
+  end select
+case(-5)
+  select case(mr)
+  case(1)          ; str_orbital='sp3d2-1'
+  case(2)          ; str_orbital='sp3d2-2'
+  case(3)          ; str_orbital='sp3d2-3'
+  case(4)          ; str_orbital='sp3d2-4'
+  case(5)          ; str_orbital='sp3d2-5'
+  case(6)          ; str_orbital='sp3d2-6'
+  case default     ; call throw("wannier_supplementary%lmr_to_string","unknown mr")
+  end select
+case default 
+  call throw("wannier_supplementary%lmr_to_string","unknown l ")
+end select
+end function
 
 
 end module

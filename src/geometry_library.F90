@@ -49,13 +49,13 @@ THIS%avec(3,:)=     tbg_ab_distance*(/  0._dp,            0._dp,1._dp/)
 tvec=THIS%avec
 call dmatrix_inverse(tvec,THIS%bvec,NDIM)
 THIS%bvec=transpose(THIS%bvec)*twopi
-THIS%nspec=2
-THIS%nmaxatm_pspec=1
+THIS%nspec=1
+THIS%nmaxatm_pspec=2
 allocate(THIS%nat_per_spec(THIS%nspec))
 allocate(THIS%atml(3,THIS%nmaxatm_pspec,THIS%nspec))
 THIS%nat_per_spec(:)=THIS%nmaxatm_pspec
 THIS%atml(:,1,1)=(/ 0._dp  , 0._dp ,0._dp/)
-THIS%atml(:,1,2)=(/ twothrd , twothrd,0._dp/)
+THIS%atml(:,2,1)=(/ twothrd , twothrd,0._dp/)
 if (mp_mpi) then
   call info("generate_structure_slg()","")
   write(*,*) "avec:"

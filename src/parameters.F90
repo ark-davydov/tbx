@@ -10,6 +10,19 @@ logical :: atoms_block_found=.false.
 integer, parameter :: nmaxtasks=10
 integer, parameter :: nlines_max=100000
 !integer, parameter :: dp = SELECTED_REAL_KIND (15,300)
+type :: CLproj
+  logical :: allocatd=.false.
+  logical :: shifted=.false.
+  integer :: norb=0
+  integer :: ncenters=0
+  integer, allocatable :: iw2ic(:)
+  integer, allocatable :: norb_ic(:)
+  integer, allocatable :: lmr(:,:)
+  real(dp), allocatable :: waxis(:,:,:)
+  real(dp), allocatable :: centers(:,:)
+  contains
+  procedure :: shift_centers
+endtype 
 
 type, public :: CLpars
   character(len=100) :: input_file
@@ -18,10 +31,13 @@ type, public :: CLpars
   character(len=100) :: geometry_source=""
   character(len=100) :: seedname="seedname"
   character(len=100) :: sktype="sk"
+  character(len=100) :: tbfile=""
+  character(len=2) :: tbftype=""
+  logical :: shifted=.false.
+  logical :: writetb=.false.
   logical :: sparse=.false.
-  integer :: nwan=0
   integer :: geometry_index=0
-  integer :: symtype=0
+  integer :: symtype=1
   integer :: nvert
   integer :: nspec
   integer :: istart=1
@@ -40,18 +56,20 @@ type, public :: CLpars
   real(dp) :: rcut_nn=100._dp
   real(dp) :: avec(NDIM,NDIM)
   real(dp) :: bvec(NDIM,NDIM)
+  type(CLproj) :: proj
+  type(CLproj) :: base
   integer, allocatable :: nat_per_spec(:)
-  integer, allocatable :: norb_per_center(:)
   integer, allocatable :: np_per_vert(:)
   integer, allocatable :: tot_iais(:,:)
   integer, allocatable :: iais_tot(:,:)
   real(dp), allocatable :: egrid(:)
   real(dp), allocatable :: atml(:,:,:)
-  real(dp), allocatable :: wannier_axis(:,:,:)
   real(dp), allocatable :: vert(:,:)
   contains
   procedure :: init=>read_input
   procedure :: atmc=>calc_atmc
+  procedure :: shift_atml
+  procedure :: write_geometry
 endtype CLpars
 
 contains
@@ -63,10 +81,15 @@ class(CLpars), intent(inout) :: THIS
 type(geomlib) geometry
 integer iostat,iline,jline,ii
 integer ispec,iat,ivert,igrid
+integer ic,iw,jw
 integer, parameter :: nmaxatm_pspec=40000
 real(dp) t1,tvec(NDIM,NDIM)
 character(len=256) block,arg,line
+character(len=10) symbol
 real(dp), allocatable :: atml_temp(:,:,:)
+real(dp), allocatable :: xaxis(:,:)
+real(dp), allocatable :: zaxis(:,:)
+integer, allocatable :: lmr(:,:)
 
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
@@ -209,12 +232,19 @@ do iline=1,nlines_max
     if (iostat.ne.0) call throw("paramters%read_input()","problem with sparse_eps data")
     if (mp_mpi) write(*,'(i6,": ",F18.10)') jline,THIS%sparse_eps
 
-  ! .true. to use the sparse algorithms
+  ! .true. to use the sparse algorithms 
   else if (trim(block).eq."sparse") then
     jline=jline+1
     read(50,*,iostat=iostat) THIS%sparse
     if (iostat.ne.0) call throw("paramters%read_input()","problem with sparse data")
     if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%sparse
+
+  ! .true. to write tight binding hamiltonian
+  else if (trim(block).eq."writetb") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%writetb
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with writetb data")
+    if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%writetb
 
 
   ! energy grid for DOS or spectral functions
@@ -254,13 +284,101 @@ do iline=1,nlines_max
         read(50,'(A)',iostat=iostat) THIS%wannier_proj_mode
         if (iostat.ne.0) call throw("paramters%read_input()","problem with wannier_proj_mode data")
         if (mp_mpi) write(*,'(i6,": ",A)') jline,trim(adjustl(THIS%wannier_proj_mode))
+
+  ! file with tight-binding hamiltonian
+  else if (trim(block).eq."tbfile") then
+        jline=jline+1
+        read(arg,*,iostat=iostat) THIS%tbftype
+        if (iostat.ne.0) call throw("paramters%read_input()","problem with tbfile argumet")
+        read(50,*,iostat=iostat) THIS%tbfile
+        if (mp_mpi) write(*,'(i6,": ",A)') jline,THIS%tbfile
   
-  ! number of disired wannier projection
-  else if (trim(block).eq."nwan") then
-    jline=jline+1
-    read(50,*,iostat=iostat) THIS%nwan
-    if (iostat.ne.0) call throw("paramters%read_input()","problem with nwan data")
-    if (mp_mpi) write(*,'(i6,": ",I6)') jline,THIS%nwan
+  ! projection mode for wannier export
+  else if (trim(block).eq."projections") then
+        THIS%proj%allocatd=.true.
+        ! temporary
+        allocate(lmr(2,45000))
+        allocate(xaxis(NDIM,45000))
+        allocate(zaxis(NDIM,45000))
+        read(arg,*,iostat=iostat) THIS%proj%ncenters
+        if (iostat.ne.0) call throw("paramters%read_input()","problem with projections argumet")
+        allocate(THIS%proj%norb_ic(THIS%proj%ncenters))
+        allocate(THIS%proj%centers(NDIM,THIS%proj%ncenters))
+        THIS%proj%norb=0
+        do ic=1,THIS%proj%ncenters
+           jline=jline+1
+           read(50,*,iostat=iostat) THIS%proj%norb_ic(ic),THIS%proj%centers(:,ic)
+           if (iostat.ne.0) call throw("paramters%read_input()","problem with wannier_proj_mode data")
+           if (mp_mpi) write(*,'(i6,": ",i6,10F10.6)') jline,THIS%proj%norb_ic(ic),THIS%proj%centers(:,ic)
+           do iw=1,THIS%proj%norb_ic(ic)
+             jline=jline+1
+             THIS%proj%norb=THIS%proj%norb+1
+             read(50,*,iostat=iostat) symbol,xaxis(:,THIS%proj%norb),zaxis(:,THIS%proj%norb)
+             if (iostat.ne.0) call throw("paramters%read_input()","problem with wannier_proj_mode data")
+             if (mp_mpi) write(*,'(i6,": ",A,10F10.6)') jline, symbol,xaxis(:,THIS%proj%norb),zaxis(:,THIS%proj%norb)
+             lmr(:,THIS%proj%norb)=string_to_lmr(symbol)
+           end do
+        end do
+        allocate(THIS%proj%lmr(2,THIS%proj%norb))
+        allocate(THIS%proj%waxis(NDIM,2,THIS%proj%norb))
+        allocate(THIS%proj%iw2ic(THIS%proj%norb))
+        THIS%proj%lmr=lmr
+        do iw=1,THIS%proj%norb
+          THIS%proj%waxis(:,1,iw)=xaxis(:,iw)
+          THIS%proj%waxis(:,2,iw)=zaxis(:,iw)
+        end do
+        jw=0
+        do ic=1,THIS%proj%ncenters
+           do iw=1,THIS%proj%norb_ic(ic)
+             jw=jw+1
+             THIS%proj%iw2ic(jw)=ic
+           end do 
+        end do
+        deallocate(lmr,xaxis,zaxis)  
+
+  ! the same block is projection, but now it defines a base for TB hamiltonian
+  else if (trim(block).eq."basis") then
+        THIS%base%allocatd=.true.
+        ! temporary
+        allocate(lmr(2,45000))
+        allocate(xaxis(NDIM,45000))
+        allocate(zaxis(NDIM,45000))
+        read(arg,*,iostat=iostat) THIS%base%ncenters
+        if (iostat.ne.0) call throw("paramters%read_input()","problem with projections argumet")
+        allocate(THIS%base%norb_ic(THIS%base%ncenters))
+        allocate(THIS%base%centers(NDIM,THIS%base%ncenters))
+        THIS%base%norb=0
+        do ic=1,THIS%base%ncenters
+           jline=jline+1
+           read(50,*,iostat=iostat) THIS%base%norb_ic(ic),THIS%base%centers(:,ic)
+           if (iostat.ne.0) call throw("paramters%read_input()","problem with wannier_proj_mode data")
+           if (mp_mpi) write(*,'(i6,": ",i6,10F10.6)') jline,THIS%base%norb_ic(ic),THIS%base%centers(:,ic)
+           do iw=1,THIS%base%norb_ic(ic)
+             jline=jline+1
+             THIS%base%norb=THIS%base%norb+1
+             read(50,*,iostat=iostat) symbol,xaxis(:,THIS%base%norb),zaxis(:,THIS%base%norb)
+             if (iostat.ne.0) call throw("paramters%read_input()","problem with wannier_proj_mode data")
+             if (mp_mpi) write(*,'(i6,": ",A,10F10.6)') jline, symbol,xaxis(:,THIS%base%norb),zaxis(:,THIS%base%norb)
+             lmr(:,THIS%base%norb)=string_to_lmr(symbol)
+           end do
+        end do
+        allocate(THIS%base%lmr(2,THIS%base%norb))
+        allocate(THIS%base%waxis(NDIM,2,THIS%base%norb))
+        allocate(THIS%base%iw2ic(THIS%base%norb))
+        THIS%base%lmr=lmr
+        do iw=1,THIS%base%norb
+          THIS%base%waxis(:,1,iw)=xaxis(:,iw)
+          THIS%base%waxis(:,2,iw)=zaxis(:,iw)
+        end do
+        jw=0
+        do ic=1,THIS%base%ncenters
+           do iw=1,THIS%base%norb_ic(ic)
+             jw=jw+1
+             THIS%base%iw2ic(jw)=ic
+           end do 
+        end do
+        deallocate(lmr,xaxis,zaxis)  
+  
 
   end if
   
@@ -271,7 +389,20 @@ if (mp_mpi) write(*,*)
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
 #endif
+
+! initialise basis for TB calculation
 if (trim(adjustl(THIS%geometry_source)).ne."") then
+   if (THIS%base%allocatd) then
+     call throw("parameters%read_input",&
+         "base is already allocataed, either remove 'basis' block or use only geometry_library")
+   end if
+   if (trim(adjustl(THIS%geometry_source)).ne."tbg".and.&
+      trim(adjustl(THIS%geometry_source)).ne."slg") then
+      call throw("paramters%read_input()","unknown geometry structure option")
+   end if
+   
+   ! exclude translation vectors from symmetry analyser it will take too long to compute that
+   THIS%symtype=2
    call geometry%init(THIS%geometry_index,THIS%geometry_source)
    if (allocated(THIS%nat_per_spec)) deallocate(THIS%nat_per_spec)
    if (allocated(THIS%atml)) deallocate(THIS%atml)
@@ -283,6 +414,40 @@ if (trim(adjustl(THIS%geometry_source)).ne."") then
    THIS%nmaxatm_pspec=geometry%nmaxatm_pspec
    THIS%nat_per_spec=geometry%nat_per_spec
    THIS%atml=geometry%atml
+   THIS%natmtot=sum(THIS%nat_per_spec)
+   ! BASIS
+   THIS%base%ncenters=THIS%natmtot
+   THIS%base%norb=THIS%base%ncenters
+   allocate(THIS%base%norb_ic(THIS%base%ncenters))
+   allocate(THIS%base%centers(NDIM,THIS%base%ncenters))
+   allocate(THIS%base%lmr(2,THIS%base%norb))
+   allocate(THIS%base%waxis(NDIM,2,THIS%base%norb))
+   allocate(THIS%base%iw2ic(THIS%base%norb))
+   THIS%base%norb_ic=1
+   THIS%base%lmr=1
+   do iw=1,THIS%base%norb
+     THIS%base%waxis(:,1,iw)=(/1._dp,0._dp,0._dp/)
+     THIS%base%waxis(:,2,iw)=(/0._dp,0._dp,1._dp/)
+   end do
+   ic=0
+   do ispec=1,THIS%nspec
+     do iat=1,THIS%nat_per_spec(ispec)
+       ic=ic+1
+       THIS%base%centers(:,ic)=THIS%atml(:,iat,ispec)
+     end do
+   end do
+   jw=0
+   do ic=1,THIS%base%ncenters
+      do iw=1,THIS%base%norb_ic(ic)
+        jw=jw+1
+        THIS%base%iw2ic(jw)=ic
+      end do 
+   end do
+else
+   if (.not.THIS%base%allocatd) then
+     call throw("parameters%read_input",&
+         "if geometry library is not used, introduce the basis via the 'basis' input block")
+   end if
 end if
 ! compute total number of atoms, and construct mapping to/from total index
 THIS%natmtot=0
@@ -291,24 +456,6 @@ do ispec=1,THIS%nspec
     THIS%natmtot=THIS%natmtot+1
   end do
 end do
-if (trim(adjustl(THIS%geometry_source)).eq."tbg".or.&
-    trim(adjustl(THIS%geometry_source)).eq."slg") then
-
-            allocate(THIS%norb_per_center(THIS%natmtot))
-            allocate(THIS%wannier_axis(NDIM,2,THIS%natmtot))
-            THIS%norb_per_center=1
-            if (NDIM.eq.3) then 
-              ! X and Z axis
-              do iat=1,THIS%natmtot
-                THIS%wannier_axis(:,1,iat)=(/1._dp,0._dp,0._dp/)
-                THIS%wannier_axis(:,2,iat)=(/0._dp,0._dp,1._dp/)
-              end do
-            else
-               call throw("paramters%read_input()","wannier axis assignemt works in 3D case only")
-            end if
-else
-   call throw("paramters%read_input()","unknown geometry structure option")
-end if
 allocate(THIS%tot_iais(THIS%natmtot,2))
 allocate(THIS%iais_tot(THIS%nmaxatm_pspec,THIS%nspec))
 THIS%natmtot=0
@@ -346,6 +493,47 @@ if (THIS%sparse) then
    call message("However, it is still very fast")
 #endif
 end if
+
+#ifdef MPI
+  call MPI_barrier(mpi_com,mpi_err)
+#endif
+
+end subroutine
+
+function calc_atmc(THIS,iat,ispec) result(vpc)
+class(CLpars), intent(in) :: THIS
+integer, intent(in) :: iat,ispec
+real(dp) vpc(NDIM)
+vpc=matmul(THIS%atml(:,iat,ispec),THIS%avec)
+end function
+
+subroutine shift_centers(THIS,shift)
+class(CLproj), intent(inout) :: THIS
+real(dp), intent(in) :: shift(NDIM)
+integer ic
+if (THIS%shifted) call throw("CLpars%CLproj%shift_centers","shift can be applied only onse")
+THIS%shifted=.true.
+do ic=1,THIS%ncenters
+  THIS%centers(:,ic)=THIS%centers(:,ic)+shift(:)
+  THIS%centers(:,ic)=THIS%centers(:,ic)-nint(THIS%centers(:,ic))
+end do
+end subroutine
+subroutine shift_atml(THIS,shift)
+class(CLpars), intent(inout) :: THIS
+real(dp), intent(in) :: shift(NDIM)
+integer ispec,iat
+if (THIS%shifted) call throw("CLpars%shift_atml","shift can be applied only onse")
+THIS%shifted=.true.
+do ispec=1,THIS%nspec
+  do iat=1,THIS%nat_per_spec(ispec)
+    THIS%atml(:,iat,ispec)=THIS%atml(:,iat,ispec)+shift(:)
+    THIS%atml(:,iat,ispec)=THIS%atml(:,iat,ispec)-nint(THIS%atml(:,iat,ispec))
+  end do
+end do
+end subroutine
+subroutine write_geometry(THIS)
+class(CLpars), intent(inout) :: THIS
+integer ii,ispec,iat
 ! write atoms geometry to a file
 if (mp_mpi) then
   open(100,file="geometry.dat",action="write")
@@ -363,18 +551,6 @@ if (mp_mpi) then
   close(100)
   write(*,*)
 end if
-
-#ifdef MPI
-  call MPI_barrier(mpi_com,mpi_err)
-#endif
-
 end subroutine
-
-function calc_atmc(THIS,iat,ispec) result(vpc)
-class(CLpars), intent(in) :: THIS
-integer, intent(in) :: iat,ispec
-real(dp) vpc(NDIM)
-vpc=matmul(THIS%atml(:,iat,ispec),THIS%avec)
-end function
 
 end module

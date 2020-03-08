@@ -6,7 +6,7 @@
 !BOP
 ! !ROUTINE: findsymcrys
 ! !INTERFACE:
-subroutine findsymcrys
+subroutine findsymcrys(lwrite)
 ! !USES:
 use modelk
 ! !DESCRIPTION:
@@ -30,6 +30,7 @@ use modelk
 !EOP
 !BOC
 implicit none
+logical, intent(in) :: lwrite
 ! local variables
 integer ia,ja,is,js
 integer isym,nsym,i,n
@@ -171,7 +172,7 @@ if (tsyminv.and.tshift) then
          +symlat(:,2,ilspl)*v1(2) &
          +symlat(:,3,ilspl)*v1(3)
     vtlsymc(:,isym)=vtlsymc(:,isym)-v1(:)+v2(:)
-    call r3fracz05(epslat,vtlsymc(:,isym))
+    call r3frac(epslat,vtlsymc(:,isym))
   end do
 end if
 ! set flag for zero translation vector
@@ -190,10 +191,10 @@ end if
 if (natmtot.gt.0) then
   v1(:)=atposl(:,1,1)-v0(:)
   t1=abs(v1(1))+abs(v1(2))+abs(v1(3))
-  if (t1.gt.epslat) then
+  if (t1.gt.epslat.and.lwrite) then
     write(*,'("Info(findsymcrys): atomic basis shift (lattice) :")')
     write(*,'(3G18.10)') v1(:)
-    write(*,'("See GEOMETRY.OUT for new atomic positions")')
+    write(*,'("See geometry.dat for new atomic positions")')
   end if
 end if
 deallocate(iea,vtl,apl)

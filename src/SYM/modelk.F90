@@ -25,7 +25,7 @@ integer isymlat(48)
 real(8) symlatc(3,3,48)
 integer invmap(48)
 ! tshift is .true. if atomic basis is allowed to be shifted
-logical, parameter :: tshift=.false.
+logical, parameter :: tshift=.true.
 ! tsyminv is .true. if the crystal has inversion symmetry
 logical tsyminv
 ! maximum of symmetries allowed

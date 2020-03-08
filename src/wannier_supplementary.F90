@@ -1,7 +1,9 @@
 module wannier_supplementary
-use modcom, only : throw
+use modcom, only : throw,NDIM
+use parameters, only : CLpars
 implicit none
 private
+integer, parameter :: maxallowd_orbs=46340
 integer, parameter :: stdout=6
 integer, parameter :: dp=kind(0.d0)
 real(dp), parameter :: eps6=1.e-6_dp
@@ -11,82 +13,167 @@ real(dp), parameter :: pi=3.141592653589793115997963468544185161590576171875_dp
 real(dp), parameter :: tpi=6.283185307179586231995926937088370323181152343750_dp
 real(dp), parameter :: fpi=12.5663706143591724639918538741767406463623046875_dp
 
-type, public :: interface_wovlp
-  contains 
-  procedure, public, nopass :: wws=>wwsij
-endtype interface_wovlp
+
+type, public :: wbase
+   integer :: norb
+   integer :: ncenters
+   integer :: nmaxorb_pcent
+   integer, allocatable :: lmr(:,:)
+   integer, allocatable :: norb_ic(:)
+   integer, allocatable :: orb_icio(:,:)
+   integer, allocatable :: icio_orb(:,:)
+   real(dp), allocatable :: waxis(:,:,:)
+   real(dp), allocatable :: centers(:,:)
+   real(dp), allocatable :: centers_cart(:,:)
+   contains 
+   procedure :: init
+   procedure :: wws
+   procedure :: wws_full
+endtype
 
 contains
 
-real(dp) function wwsij(sr,l_w1,mr_w1,l_w2,mr_w2,xaxis1,zaxis1,xaxis2,zaxis2)
-   integer, intent(in) :: l_w1,mr_w1,l_w2,mr_w2
-   real(dp), intent(in) :: sr(3,3),xaxis1(3),zaxis1(3),xaxis2(3),zaxis2(3)
-   real(dp), parameter :: p12(3,12)=reshape(                            &
-      (/0d0, 0d0, 1.00000000000000d0,                                   &
-        0.894427190999916d0, 0d0, 0.447213595499958d0,                  &
-        0.276393202250021d0, 0.850650808352040d0, 0.447213595499958d0,  &
-       -0.723606797749979d0, 0.525731112119134d0, 0.447213595499958d0,  &
-       -0.723606797749979d0, -0.525731112119134d0, 0.447213595499958d0, &
-        0.276393202250021d0, -0.850650808352040d0, 0.447213595499958d0, &
-        0.723606797749979d0, 0.525731112119134d0, -0.447213595499958d0, &
-       -0.276393202250021d0, 0.850650808352040d0, -0.447213595499958d0, &
-       -0.894427190999916d0, 0d0, -0.447213595499958d0,                 &
-       -0.276393202250021d0, -0.850650808352040d0, -0.447213595499958d0,&
-        0.723606797749979d0, -0.525731112119134d0, -0.447213595499958d0,&
-        0d0, 0d0, -1.00000000000000d0/),(/3,12/))
-   real(dp), parameter :: p20(3,20)=reshape(                            &
-      (/0.525731112119134d0, 0.381966011250105d0, 0.850650808352040d0,  &
-       -0.200811415886227d0, 0.618033988749895d0, 0.850650808352040d0,  &
-       -0.649839392465813d0, 0d0, 0.850650808352040d0,                  &
-       -0.200811415886227d0, -0.618033988749895d0, 0.850650808352040d0, &
-        0.525731112119134d0, -0.381966011250105d0, 0.850650808352040d0, &
-        0.850650808352040d0, 0.618033988749895d0, 0.200811415886227d0,  &
-       -0.324919696232906d0, 1.00000000000000d0, 0.200811415886227d0,   &
-       -1.05146222423827d0, 0d0, 0.200811415886227d0,                   &
-      -0.324919696232906d0, -1.00000000000000d0, 0.200811415886227d0,   &
-       0.850650808352040d0, -0.618033988749895d0, 0.200811415886227d0,  &
-       0.324919696232906d0, 1.00000000000000d0, -0.200811415886227d0,   &
-      -0.850650808352040d0, 0.618033988749895d0, -0.200811415886227d0,  &
-      -0.850650808352040d0, -0.618033988749895d0, -0.200811415886227d0, &
-       0.324919696232906d0, -1.00000000000000d0, -0.200811415886227d0,  &
-       1.05146222423827d0, 0d0, -0.200811415886227d0,                   &
-       0.200811415886227d0, 0.618033988749895d0, -0.850650808352040d0,  &
-      -0.525731112119134d0, 0.381966011250105d0, -0.850650808352040d0,  &
-      -0.525731112119134d0, -0.381966011250105d0, -0.850650808352040d0, &
-       0.200811415886227d0, -0.618033988749895d0, -0.850650808352040d0, &
-      0.649839392465813d0, 0d0, -0.850650808352040d0/),(/3,20/))
-   real(dp), parameter :: pwg(2)=(/2.976190476190479d-2,3.214285714285711d-2/)
-   
-   integer ip,jp,ir
-   real(DP) dvec(3,32),dwgt(32),dvec2(3,32),dmat(3,3),dylm(32,5),vaxis1(3,3),vaxis2(3,3)
+subroutine init(THIS,pars,ncenters,norb,norb_ic,lmr,waxis,centers)
+! allocate a basis for TB model
+class(wbase), intent(inout) :: THIS
+class(CLpars), intent(in) :: pars
+integer, intent(in) :: ncenters,norb,norb_ic(ncenters)
+integer, optional, intent(in) :: lmr(2,norb)
+real(dp), optional, intent(in) :: waxis(NDIM,2,norb)
+real(dp), optional, intent(in) :: centers(NDIM,ncenters)
+! local
+integer iorb,ic,ios
+integer iat,ispec
+THIS%ncenters=ncenters
+allocate(THIS%norb_ic(ncenters))
+THIS%norb_ic=norb_ic
+THIS%nmaxorb_pcent=maxval(THIS%norb_ic(:))
+allocate(THIS%icio_orb(THIS%ncenters,THIS%nmaxorb_pcent))
+! compute the total number of orbitals
+THIS%norb=0
+do ic=1,THIS%ncenters
+  do ios=1,THIS%norb_ic(ic)
+     THIS%norb=THIS%norb+1
+     if(THIS%norb.gt.maxallowd_orbs) then
+       call throw("wbase%init()","maximum allowed basis orbitals exceeded (integer overflow in NxN value)")
+     end if
+     ! map: center,orbialindex to the final basis orbital
+     THIS%icio_orb(ic,ios)=THIS%norb
+  end do
+end do
+allocate(THIS%orb_icio(THIS%norb,2))
+do ic=1,THIS%ncenters
+  do ios=1,THIS%norb_ic(ic)
+     iorb=THIS%icio_orb(ic,ios)
+     ! map:  final basis orbital to center,orbialindex
+     THIS%orb_icio(iorb,1)=ic
+     THIS%orb_icio(iorb,2)=ios
+  end do
+end do
+allocate(THIS%lmr(2,THIS%norb))
+allocate(THIS%waxis(NDIM,2,THIS%norb))
+allocate(THIS%centers(NDIM,THIS%ncenters))
+allocate(THIS%centers_cart(NDIM,THIS%ncenters))
+if (THIS%norb.ne.norb) call throw("wbase%init","input orbital list has unexpected size")
+do iorb=1,THIS%norb
+  THIS%lmr(:,iorb)=lmr(:,iorb)
+  THIS%waxis(:,:,iorb)=waxis(:,:,iorb)
+end do
+do ic=1,THIS%ncenters
+  THIS%centers(:,ic)=centers(:,ic)
+  THIS%centers_cart(:,ic)=matmul(centers(:,ic),pars%avec)
+end do
+end subroutine
+
+real(dp) function wws(THIS,sr,iorb,jorb)
+class(wbase), intent(in) :: THIS
+real(dp), intent(in) :: sr(3,3)
+integer, intent(in) :: iorb,jorb
+integer l_w1,mr_w1,l_w2,mr_w2
+real(dp) xaxis1(3),zaxis1(3),xaxis2(3),zaxis2(3)
+! assign l,mr,xaxis,zaxis from orbital indices
+l_w1=THIS%lmr(1,iorb)
+l_w2=THIS%lmr(1,jorb)
+mr_w1=THIS%lmr(2,iorb)
+mr_w2=THIS%lmr(2,jorb)
+xaxis1=THIS%waxis(:,1,iorb)
+xaxis2=THIS%waxis(:,1,jorb)
+zaxis1=THIS%waxis(:,2,iorb)
+zaxis2=THIS%waxis(:,2,jorb)
+wws=wws_full(THIS,sr,l_w1,mr_w1,l_w2,mr_w2,xaxis1,zaxis1,xaxis2,zaxis2)
+end function
+
+real(dp) function wws_full(THIS,sr,l_w1,mr_w1,l_w2,mr_w2,xaxis1,zaxis1,xaxis2,zaxis2)
+class(wbase), intent(in) :: THIS
+real(dp), intent(in) :: sr(3,3)
+integer, intent(in) ::  l_w1,mr_w1,l_w2,mr_w2
+real(dp), intent(in) :: xaxis1(3),zaxis1(3),xaxis2(3),zaxis2(3)
+! local
+real(dp), parameter :: pwg(2)=(/2.976190476190479d-2,3.214285714285711d-2/)
+integer ip,jp,ir
+real(DP) dvec(3,32),dwgt(32),dvec2(3,32),dmat(3,3),dylm(32,5),vaxis1(3,3),vaxis2(3,3)
+real(dp), parameter :: p12(3,12)=reshape(                            &
+   (/0d0, 0d0, 1.00000000000000d0,                                   &
+     0.894427190999916d0, 0d0, 0.447213595499958d0,                  &
+     0.276393202250021d0, 0.850650808352040d0, 0.447213595499958d0,  &
+    -0.723606797749979d0, 0.525731112119134d0, 0.447213595499958d0,  &
+    -0.723606797749979d0, -0.525731112119134d0, 0.447213595499958d0, &
+     0.276393202250021d0, -0.850650808352040d0, 0.447213595499958d0, &
+     0.723606797749979d0, 0.525731112119134d0, -0.447213595499958d0, &
+    -0.276393202250021d0, 0.850650808352040d0, -0.447213595499958d0, &
+    -0.894427190999916d0, 0d0, -0.447213595499958d0,                 &
+    -0.276393202250021d0, -0.850650808352040d0, -0.447213595499958d0,&
+     0.723606797749979d0, -0.525731112119134d0, -0.447213595499958d0,&
+     0d0, 0d0, -1.00000000000000d0/),(/3,12/))
+real(dp), parameter :: p20(3,20)=reshape(                            &
+   (/0.525731112119134d0, 0.381966011250105d0, 0.850650808352040d0,  &
+    -0.200811415886227d0, 0.618033988749895d0, 0.850650808352040d0,  &
+    -0.649839392465813d0, 0d0, 0.850650808352040d0,                  &
+    -0.200811415886227d0, -0.618033988749895d0, 0.850650808352040d0, &
+     0.525731112119134d0, -0.381966011250105d0, 0.850650808352040d0, &
+     0.850650808352040d0, 0.618033988749895d0, 0.200811415886227d0,  &
+    -0.324919696232906d0, 1.00000000000000d0, 0.200811415886227d0,   &
+    -1.05146222423827d0, 0d0, 0.200811415886227d0,                   &
+   -0.324919696232906d0, -1.00000000000000d0, 0.200811415886227d0,   &
+    0.850650808352040d0, -0.618033988749895d0, 0.200811415886227d0,  &
+    0.324919696232906d0, 1.00000000000000d0, -0.200811415886227d0,   &
+   -0.850650808352040d0, 0.618033988749895d0, -0.200811415886227d0,  &
+   -0.850650808352040d0, -0.618033988749895d0, -0.200811415886227d0, &
+    0.324919696232906d0, -1.00000000000000d0, -0.200811415886227d0,  &
+    1.05146222423827d0, 0d0, -0.200811415886227d0,                   &
+    0.200811415886227d0, 0.618033988749895d0, -0.850650808352040d0,  &
+   -0.525731112119134d0, 0.381966011250105d0, -0.850650808352040d0,  &
+   -0.525731112119134d0, -0.381966011250105d0, -0.850650808352040d0, &
+    0.200811415886227d0, -0.618033988749895d0, -0.850650808352040d0, &
+   0.649839392465813d0, 0d0, -0.850650808352040d0/),(/3,20/))
 
 
-   ! code
-   dvec(:,1:12)=p12
-   dvec(:,13:32)=p20
-   do ip=1,32
-      dvec(:,ip)=dvec(:,ip)/sqrt(sum(dvec(:,ip)**2))
-   end do
-   dwgt(1:12)=pwg(1)
-   dwgt(13:32)=pwg(2)
-   !write(stdout,*) sum(dwgt) !Checking the weight sum to be 1.
-   dylm=0d0
-   vaxis1=0d0
-   vaxis2=0d0
-   do ip=1,5
-      CALL ylm_wannier(dylm(1,ip),2,ip,dvec,32)
-   end do
-   !do ip=1,5
-   !   write(stdout,"(5f25.15)") (sum(dylm(:,ip)*dylm(:,jp)*dwgt)*2d0*tpi,jp=1,5)
-   !end do !Checking spherical integral.
-   call set_u_matrix(xaxis1,zaxis1,vaxis1)
-   call set_u_matrix(xaxis2,zaxis2,vaxis2)
-   CALL ylm_wannier(dylm(1,1),l_w1,mr_w1,matmul(vaxis1,dvec),32)
-   do ir=1,32
-      dvec2(:,ir)=matmul(sr,dvec(:,ir))
-   end do
-   CALL ylm_wannier(dylm(1,2),l_w2,mr_w2,matmul(vaxis2,dvec2),32)
-   wwsij=sum(dylm(:,1)*dylm(:,2)*dwgt)*2d0*tpi !<Rotated Y(jw)|Not rotated Y(iw)> for sym.op.(isym).
+! code
+dvec(:,1:12)=p12
+dvec(:,13:32)=p20
+do ip=1,32
+   dvec(:,ip)=dvec(:,ip)/sqrt(sum(dvec(:,ip)**2))
+end do
+dwgt(1:12)=pwg(1)
+dwgt(13:32)=pwg(2)
+!write(stdout,*) sum(dwgt) !Checking the weight sum to be 1.
+dylm=0d0
+vaxis1=0d0
+vaxis2=0d0
+do ip=1,5
+   CALL ylm_wannier(dylm(1,ip),2,ip,dvec,32)
+end do
+!do ip=1,5
+!   write(stdout,"(5f25.15)") (sum(dylm(:,ip)*dylm(:,jp)*dwgt)*2d0*tpi,jp=1,5)
+!end do !Checking spherical integral.
+call set_u_matrix(xaxis1,zaxis1,vaxis1)
+call set_u_matrix(xaxis2,zaxis2,vaxis2)
+CALL ylm_wannier(dylm(1,1),l_w1,mr_w1,matmul(vaxis1,dvec),32)
+do ir=1,32
+   dvec2(:,ir)=matmul(sr,dvec(:,ir))
+end do
+CALL ylm_wannier(dylm(1,2),l_w2,mr_w2,matmul(vaxis2,dvec2),32)
+wws_full=sum(dylm(:,1)*dylm(:,2)*dwgt)*2d0*tpi !<Rotated Y(jw)|Not rotated Y(iw)> for sym.op.(isym).
 end function
 
 SUBROUTINE set_u_matrix(x,z,u)
@@ -756,7 +843,6 @@ SUBROUTINE herman_skillman_int(mesh,func,rab,asum)
   !
   RETURN
 END SUBROUTINE herman_skillman_int
-
 
 
 

@@ -11,7 +11,7 @@ use symmetryclass
 use wannier_supplementary
 implicit none
 private
-integer, parameter :: maxallowd_orbs=46340
+!integer, parameter :: maxallowd_orbs=46340
 integer, parameter :: maxallowd_nn=1000
 
 type, public :: CLtb
@@ -21,30 +21,24 @@ type, public :: CLtb
   integer :: norb_TB
   integer, private    :: nspec
   integer, private    :: hamsize
-  integer, public     :: ncenters
   integer, private    :: nmaxatm_pspec
-  integer, private    :: nmaxorb_pspec
   real(dp), private   :: rcut_nn
   real(dp), private   :: sparse_eps=1.e-6_dp
   type(SK), private   :: skfunc
   type(GRID), public  :: rgrid
   ! sparse indexing (isa,jsa)
-  integer, allocatable, private :: lmr(:,:)
   integer, allocatable, private :: isa(:)
   integer, allocatable, private :: jsa(:)
-  integer, allocatable, public  :: norb_ic(:)
   integer, allocatable, private :: norb_nn(:)
   integer, allocatable, private :: nn_idx(:,:,:)
   integer, allocatable, private :: ic_ispec(:)
-  integer, allocatable, public  :: orb_icio(:,:)
-  integer, allocatable, public  :: icio_orb(:,:)
+  integer, allocatable, public  :: orb_ispec(:)
   integer, allocatable, private :: ncenters_nn(:)
   integer, allocatable, private :: jcjr_nn(:,:,:)
-  real(dp), allocatable, private :: centers(:,:)
-  real(dp), allocatable, private :: centers_cart(:,:)
-  real(dp), allocatable, private :: deg_hr(:)
-  real(dp), allocatable, private :: waxis(:,:,:)
-  complex(dp), allocatable, private :: ham_hr(:,:)
+  real(dp), allocatable, private :: dege(:)
+  complex(dp), allocatable, private :: hame(:,:)
+  complex(dp), allocatable, private :: hame_file(:,:,:)
+  type(wbase) :: wbase
   contains
   procedure, public :: init=>init_variables
   procedure, public :: evalk=>calc_eigenvalues_at_K
@@ -55,6 +49,9 @@ type, public :: CLtb
   procedure, private :: tij=>tij_function
   procedure, private :: findnn=>run_findnn
   procedure, private :: inquire_hamsize=>calc_hamsize
+  procedure, private :: read_tb_file
+  procedure, private :: write_nonzeros_hame
+  procedure, private :: write_tb_file
   
 endtype CLtb
 
@@ -66,64 +63,32 @@ subroutine init_variables(THIS,pars,mode)
 class(CLtb), intent(out) :: THIS
 class(CLpars), intent(inout) :: pars
 character(len=*), intent(in) :: mode
-integer iat,ispec,ios,iorb,ic
+integer ispec,ios,iorb,ic
 call info ("CLtb%init_variables","")
-THIS%mode=trim(adjustl(mode))
+if (trim(adjustl(mode)).eq.'noham') then
+  THIS%mode='noham'
+else
+  THIS%mode=trim(adjustl(pars%tbftype))
+end if
 THIS%sparse_eps=pars%sparse_eps
 THIS%rcut_nn=pars%rcut_nn
 THIS%nspec=pars%nspec
 THIS%nmaxatm_pspec=pars%nmaxatm_pspec
-THIS%nmaxorb_pspec=maxval(pars%norb_per_center(:))
-! this can be changed later
-THIS%ncenters=pars%natmtot
 THIS%sktype=pars%sktype
-allocate(THIS%lmr(2,THIS%ncenters))
-allocate(THIS%norb_ic(THIS%ncenters))
-allocate(THIS%waxis(NDIM,2,THIS%ncenters))
-allocate(THIS%icio_orb(THIS%ncenters,THIS%nmaxorb_pspec))
-! this corresponds to PZ orbitals:
-THIS%lmr(1,:)=1 !l
-THIS%lmr(2,:)=1 !mr
-THIS%norb_ic=pars%norb_per_center
-THIS%waxis=pars%wannier_axis
-! compute first the total number of orbitals
-THIS%norb_TB=0
-do ic=1,THIS%ncenters
-  do ios=1,THIS%norb_ic(ic)
-     THIS%norb_TB=THIS%norb_TB+1
-     if(THIS%norb_TB.gt.maxallowd_orbs) then
-       call throw("CLtb%init_variables()","maximum allowed basis orbitals exceeded (integer overflow in NxN value)")
-     end if
-     ! map: center,orbialindex to the final basis orbital
-     THIS%icio_orb(ic,ios)=THIS%norb_TB
-  end do
-end do
-allocate(THIS%ic_ispec(THIS%ncenters))
-allocate(THIS%orb_icio(THIS%norb_TB,3))
-do ic=1,THIS%ncenters
+! allocate basis indices
+call THIS%wbase%init(pars,pars%base%ncenters,pars%base%norb,pars%base%norb_ic,&
+                 pars%base%lmr,pars%base%waxis,pars%base%centers)
+THIS%norb_TB=THIS%wbase%norb
+allocate(THIS%ic_ispec(THIS%norb_TB))
+allocate(THIS%orb_ispec(THIS%norb_TB))
+do ic=1,THIS%wbase%ncenters
   ispec=pars%tot_iais(ic,2)
   THIS%ic_ispec(ic)=ispec
-  do ios=1,THIS%norb_ic(ic)
-     iorb=THIS%icio_orb(ic,ios)
-     ! map:  final basis orbital to center,orbialindex
-     THIS%orb_icio(iorb,1)=ic
-     THIS%orb_icio(iorb,2)=ios
-     THIS%orb_icio(iorb,3)=ispec
+  do ios=1,THIS%wbase%norb_ic(ic)
+     iorb=THIS%wbase%icio_orb(ic,ios)
+     THIS%orb_ispec(iorb)=ispec
   end do
 end do
-! compute the actual centers
-allocate(THIS%centers(NDIM,THIS%ncenters))
-allocate(THIS%centers_cart(NDIM,THIS%ncenters))
-ic=0
-do ispec=1,pars%nspec
-  do iat=1,pars%nat_per_spec(ispec)
-    ic=ic+1
-    THIS%centers(:,ic)=pars%atml(:,iat,ispec)
-    THIS%centers_cart(:,ic)=pars%atmc(iat,ispec)
-  end do
-end do
-! init real space grid
-call THIS%rgrid%init(pars%ngrid,pars%avec,.true.,.false.)
 ! Fix the parameters for bottom and top states to calculate
 if (pars%istop.gt.THIS%norb_TB) then
   pars%istop=THIS%norb_TB
@@ -134,15 +99,21 @@ if (pars%istart.gt.pars%istop) then
   call message("bottom state to compute was changed")
 end if
 pars%nstates=pars%istop-pars%istart+1
-if (trim(adjustl(THIS%mode)).eq.'tbfile'.or.&
-  trim(adjustl(THIS%mode)).eq.'hrfile'.or.&
-  trim(adjustl(THIS%mode)).eq.'datfile') then
-  call throw("CLtb%init_variables()","reading TB hamiltonian from file is not implemented yet")
-else if (trim(adjustl(THIS%mode)).eq.'SK') then
+if (trim(adjustl(THIS%mode)).eq.'tb') then
+  call THIS%read_tb_file(pars)
+  call THIS%findnn()
+  call THIS%inquire_hamsize()
+  call THIS%write_nonzeros_hame()
+  if (pars%writetb.and.mp_mpi) call THIS%write_tb_file(pars)
+else if (trim(adjustl(THIS%mode)).eq.'') then
+  ! init real space grid
+  call THIS%rgrid%init(pars%ngrid,pars%avec,.true.,.false.)
   call THIS%skfunc%init(THIS%sktype)
   call THIS%findnn()
   call THIS%inquire_hamsize()
+  if (pars%writetb.and.mp_mpi) call THIS%write_tb_file(pars)
 else if (trim(adjustl(THIS%mode)).eq.'noham') then
+   call THIS%rgrid%init(pars%ngrid,pars%avec,.true.,.false.)
    return
 else
   call throw("CLtb%init_variables()","unknown TB initialization mode")
@@ -223,7 +194,6 @@ else
   end if
   deallocate(ztmp)
 end if
-!write(*,*) abs(dot_product(evec(:,1),evec(:,4))),abs(dot_product(evec(:,1),evec(:,1))),sum(abs(evec(:,1)))
 ! add back the Fermi level
 eval=eval+pars%efermi
 deallocate(ham)
@@ -253,39 +223,28 @@ subroutine give_hR(THIS,itr,ham)
 class(CLtb), intent(in) :: THIS
 integer, intent(in) :: itr
 complex(dp), intent(out) :: ham(THIS%hamsize)
-integer iorb,jorb,ic,jc,jr,ispec,jspec,ios,jos,nn,idx,ii
+integer iorb,jorb,ic,jc,jr,ios,jos,nn,idx,ii
 ham=0._dp
-if (THIS%mode.eq."hr") then
-  do iorb=1,THIS%norb_TB
-    do jorb=iorb,THIS%norb_TB
-      ! sparse index of the first non-zero element in the row iorb
-      ii=THIS%isa(iorb)
-      do idx=ii,THIS%hamsize
-        ! jsa is a map from sparse index to the column one
-        if (THIS%jsa(idx).eq.jorb) then
-          ham(idx)=THIS%ham_hr(idx,itr)/THIS%deg_hr(itr)
-        end if
-      end do
-    end do
-  end do
+if (trim(adjustl(THIS%mode)).eq.'tb'.or.&
+  trim(adjustl(THIS%mode)).eq.'hr'.or.&
+  trim(adjustl(THIS%mode)).eq.'dt') then
+  ham(:)=THIS%hame(:,itr)/THIS%dege(itr)
 else
-  do ic=1,THIS%ncenters
-    ispec=THIS%ic_ispec(ic)
+  do ic=1,THIS%wbase%ncenters
     do nn=1,THIS%ncenters_nn(ic)
       jc=THIS%jcjr_nn(ic,nn,1)
       jr=THIS%jcjr_nn(ic,nn,2)
-      jspec=THIS%ic_ispec(jc)
       if (itr.ne.jr) cycle
-      do ios=1,THIS%norb_ic(ic)
-        iorb=THIS%icio_orb(ic,ios)
+      do ios=1,THIS%wbase%norb_ic(ic)
+        iorb=THIS%wbase%icio_orb(ic,ios)
         ! sparse index of the first non-zero element in the row iorb
         ii=THIS%isa(iorb)
-        do jos=1,THIS%norb_ic(jc)
-          jorb=THIS%icio_orb(jc,jos)
+        do jos=1,THIS%wbase%norb_ic(jc)
+          jorb=THIS%wbase%icio_orb(jc,jos)
           do idx=ii,min(THIS%isa(iorb+1),THIS%hamsize)
              ! jsa is a map from sparse index to the column one
              if(THIS%jsa(idx).eq.jorb) then
-               ham(idx)=THIS%tij(ic,jc,ios,jos,jr)
+               ham(idx)=THIS%tij(iorb,jorb,jr)
                exit
              end if
           end do
@@ -302,19 +261,26 @@ integer iorb,jorb,ic,jc,jr,ispec,jspec,ios,jos,nn
 logical, allocatable :: nonzero_indices(:,:)
 allocate(nonzero_indices(THIS%norb_TB,THIS%norb_TB))
 nonzero_indices=.false.
-do ic=1,THIS%ncenters
+do ic=1,THIS%wbase%ncenters
   ispec=THIS%ic_ispec(ic)
   do nn=1,THIS%ncenters_nn(ic)
     jc=THIS%jcjr_nn(ic,nn,1)
     jr=THIS%jcjr_nn(ic,nn,2)
     jspec=THIS%ic_ispec(jc)
-    do ios=1,THIS%norb_ic(ic)
-      iorb=THIS%icio_orb(ic,ios)
-      do jos=1,THIS%norb_ic(jc)
-        jorb=THIS%icio_orb(jc,jos)
-        if (abs(THIS%tij(ic,jc,ios,jos,jr)).gt.THIS%sparse_eps.or.&
-           iorb.eq.jorb) then
-           nonzero_indices(iorb,jorb)=.true.
+    do ios=1,THIS%wbase%norb_ic(ic)
+      iorb=THIS%wbase%icio_orb(ic,ios)
+      do jos=1,THIS%wbase%norb_ic(jc)
+        jorb=THIS%wbase%icio_orb(jc,jos)
+        if (THIS%mode.eq."") then
+           if (abs(THIS%tij(iorb,jorb,jr)).gt.THIS%sparse_eps.or.&
+              iorb.eq.jorb) then
+              nonzero_indices(iorb,jorb)=.true.
+           end if
+        else
+           if (abs(THIS%hame_file(iorb,jorb,jr)).gt.THIS%sparse_eps.or.&
+              iorb.eq.jorb) then
+              nonzero_indices(iorb,jorb)=.true.
+           end if
         end if
       end do
     end do
@@ -358,8 +324,8 @@ class(CLtb), intent(inout) :: THIS
 integer ic,jc,jr,ios,jos,ispec,jspec,iorb,jorb,nsize
 real(dp) t1,dv(NDIM)
 logical, allocatable :: centers_visited(:,:)
-allocate(THIS%ncenters_nn(THIS%ncenters))
-allocate(THIS%jcjr_nn(THIS%ncenters,maxallowd_nn,2))
+allocate(THIS%ncenters_nn(THIS%wbase%ncenters))
+allocate(THIS%jcjr_nn(THIS%wbase%ncenters,maxallowd_nn,2))
 THIS%ncenters_nn(:)=0
 THIS%jcjr_nn(:,:,:)=0
 #ifdef MPI
@@ -369,22 +335,22 @@ THIS%jcjr_nn(:,:,:)=0
 !$OMP PRIVATE(jc,jR,dv,t1)&
 !$OMP PRIVATE(ispec,jspec,ios,jos,iorb,jorb,centers_visited)
 !$OMP DO
-do ic=1,THIS%ncenters
+do ic=1,THIS%wbase%ncenters
   if (mod(ic-1,np_mpi).ne.lp_mpi) cycle
-  allocate(centers_visited(THIS%ncenters,THIS%rgrid%npt))
+  allocate(centers_visited(THIS%wbase%ncenters,THIS%rgrid%npt))
   centers_visited=.false.
   ispec=THIS%ic_ispec(ic)
-  do jc=1,THIS%ncenters
+  do jc=1,THIS%wbase%ncenters
     jspec=THIS%ic_ispec(jc)
     do jR=1,THIS%rgrid%npt
-      dv=THIS%centers_cart(:,jc)+THIS%rgrid%vpc(jR)-THIS%centers_cart(:,ic)
+      dv=THIS%wbase%centers_cart(:,jc)+THIS%rgrid%vpc(jR)-THIS%wbase%centers_cart(:,ic)
       t1=sqrt(dot_product(dv,dv))
       if (t1.lt.THIS%rcut_nn) then
-        do ios=1,THIS%norb_ic(ic)
-          iorb=THIS%icio_orb(ic,ios)
-          do jos=1,THIS%norb_ic(jc)
-            jorb=THIS%icio_orb(jc,jos)
-            if (abs(THIS%tij(ic,jc,ios,jos,jR)).gt.THIS%sparse_eps.or.&
+        do ios=1,THIS%wbase%norb_ic(ic)
+          iorb=THIS%wbase%icio_orb(ic,ios)
+          do jos=1,THIS%wbase%norb_ic(jc)
+            jorb=THIS%wbase%icio_orb(jc,jos)
+            if (abs(THIS%tij(iorb,jorb,jR)).gt.THIS%sparse_eps.or.&
                 iorb.eq.jorb) then
               if (.not.centers_visited(jc,jR)) then
                 centers_visited(jc,jR)=.true.
@@ -406,23 +372,26 @@ end do
 !$OMP END DO
 !$OMP END PARALLEL
 #ifdef MPI
-  nsize=THIS%ncenters
+  nsize=THIS%wbase%ncenters
   call mpi_allreduce(mpi_in_place,THIS%ncenters_nn,nsize,mpi_integer,mpi_sum, &
    mpi_com,mpi_err)
-  nsize=THIS%ncenters*maxallowd_nn*2
+  nsize=THIS%wbase%ncenters*maxallowd_nn*2
   call mpi_allreduce(mpi_in_place,THIS%jcjr_nn,nsize,mpi_integer,mpi_sum, &
    mpi_com,mpi_err)
 #endif
 
 end subroutine
 
-complex(dp) function tij_function(THIS,ic,jc,ios,jos,jr)
+complex(dp) function tij_function(THIS,iorb,jorb,jr)
 class(CLtb), intent(in) :: THIS
-integer, intent(in) :: ic,jc,ios,jos,jr
+integer, intent(in) :: iorb,jorb,jr
+! local
+integer ic,jc
 real(dp) dvec(NDIM)
-dvec(:)=THIS%centers_cart(:,jc)+THIS%rgrid%vpc(jr)-THIS%centers_cart(:,ic)
-if (ios.gt.1.or.jos.gt.1) call throw("CLtb%tij_function()","this function is currently for pz-pz hoppings only")
-tij_function=THIS%skfunc%tij(THIS%sktype,0,0,dvec)
+ic=THIS%wbase%orb_icio(iorb,1)
+jc=THIS%wbase%orb_icio(jorb,1)
+dvec(:)=THIS%wbase%centers_cart(:,jc)+THIS%rgrid%vpc(jr)-THIS%wbase%centers_cart(:,ic)
+tij_function=THIS%skfunc%tij(THIS%sktype,THIS%wbase%lmr(:,iorb),THIS%wbase%lmr(:,jorb),dvec)
 end function
 
 
@@ -432,8 +401,8 @@ class(CLtb), intent(in) :: THIS
 integer, intent(in) :: iorb
 integer ic
 real(dp) vpl(NDIM)
-ic=THIS%orb_icio(iorb,1)
-vpl=THIS%centers(:,ic)
+ic=THIS%wbase%orb_icio(iorb,1)
+vpl=THIS%wbase%centers(:,ic)
 end function
 
 subroutine bloch_wf_transform_at_gamma(THIS,pars,sym,isym,wfinout)
@@ -450,19 +419,19 @@ real(dp) t1
 allocate(wftemp(THIS%norb_TB))
 wftemp(:)=wfinout(:)
 wfinout(:)=0._dp
-do jc=1,THIS%ncenters
+do jc=1,THIS%wbase%ncenters
   ! iatom/specie index of jc cite
   jat=pars%tot_iais(jc,1)
   jspec=pars%tot_iais(jc,2)
-  ! equivalent atom to jat,jspec at the jsym operation
+  ! equivalent atom to jat,jspec at the isym operation
   iat=sym%ieqat(jat,jspec,isym)
   ! cite index of iat,ispec=jspec
   ic=pars%iais_tot(iat,jspec)
-  do ios=1,THIS%norb_ic(ic)
-    iorb=THIS%icio_orb(ic,ios)
-    do jos=1,THIS%norb_ic(jc)
-      t1=give_symrep_me(sym%car(:,:,isym),THIS%waxis(:,:,ios),THIS%waxis(:,:,jos),THIS%lmr(:,ios),THIS%lmr(:,jos))
-      jorb=THIS%icio_orb(jc,jos)
+  do ios=1,THIS%wbase%norb_ic(ic)
+    iorb=THIS%wbase%icio_orb(ic,ios)
+    do jos=1,THIS%wbase%norb_ic(jc)
+      jorb=THIS%wbase%icio_orb(jc,jos)
+      t1=THIS%wbase%wws(sym%car(:,:,isym),iorb,jorb)
       wfinout(iorb)=wfinout(iorb)+t1*wftemp(jorb)
     end do
   end do
@@ -472,14 +441,168 @@ return
 end subroutine
 
 
-! overlap of the basis wannier functions rotatated on a cite
-real(dp) function give_symrep_me(symcar,axis1,axis2,lmr1,lmr2)
-real(dp), intent(in) :: symcar(NDIM,NDIM)
-integer, intent(in) :: lmr1(2),lmr2(2)
-real(dp), intent(in) :: axis1(NDIM,2),axis2(NDIM,2)
-type(interface_wovlp) :: wovlp
-give_symrep_me=wovlp%wws(symcar,lmr1(1),lmr1(2),lmr2(1),lmr2(2),&
-                         axis1(:,1),axis1(:,2),axis2(:,1),axis2(:,2))
-end function
+subroutine read_tb_file(THIS,pars)
+class(CLtb), intent(inout) :: THIS
+class(CLpars), intent(in) :: pars
+integer i,j,ii,jj
+integer nrpt,nwan,ir
+integer ngrid(3),ivp(4)
+real(dp) aa,bb,vpl(3),avec(3,3)
+logical exs
+integer, allocatable :: ivr(:,:)
+integer, allocatable :: deg(:)
+complex(dp), allocatable :: ham(:,:,:)
+if (NDIM.ne.3) call throw("CLtb%read_tb_file","this subroutine works only in 3D case")
+inquire(file=trim(adjustl(pars%TBfile)),exist=exs)
+if (.not.exs) call throw("CLtb%read_tb_file"," file "//trim(adjustl(pars%TBfile))//" missing")
+open(50,file=trim(adjustl(pars%TBfile)),action='read')
+read(50,*)
+read(50,*) avec(1,:)
+read(50,*) avec(2,:)
+read(50,*) avec(3,:)
+if (sum(abs(avec-pars%avec)).gt.epslat) then
+  call throw("CLtb%read_tb_file",&
+  "lattice vectors in _tb file are different from ones in input. it can be resolved by writing more digits")
+end if
+read(50,*) nwan
+read(50,*) nrpt
+if (nwan.ne.THIS%wbase%norb) then
+  call throw("CLtb%read_tb_file","number of basis orbitals in _tb file is different from one derived from the input")
+end if
+allocate(ivr(3,nrpt))
+allocate(deg(nrpt))
+allocate(ham(nwan,nwan,nrpt))
+read(50,'(15I5)') (deg(ir),ir=1,nrpt)
+do ir=1,nrpt
+  read(50,*)
+  read(50,*) ivr(:,ir)
+  do j=1,nwan
+    do i=1,nwan
+      read(50,*) ii,jj,aa,bb
+      ham(ii,jj,ir)=cmplx(aa,bb,kind=dp)
+    end do
+  end do
+end do
+close(50)
+ngrid(1)=max(2*maxval(abs(ivr(1,:))),1)
+ngrid(2)=max(2*maxval(abs(ivr(2,:))),1)
+ngrid(3)=max(2*maxval(abs(ivr(3,:))),1)
+call THIS%rgrid%init(ngrid,avec,.true.,.false.)
+allocate(THIS%dege(THIS%rgrid%npt))
+allocate(THIS%hame_file(nwan,nwan,THIS%rgrid%npt))
+THIS%dege=1._dp
+THIS%hame_file=0._dp
+do ir=1,nrpt
+  vpl=dble(ivr(:,ir))
+  ivp=THIS%rgrid%find(vpl)
+  THIS%dege(ivp(4))=dble(deg(ir))
+  THIS%hame_file(:,:,ivp(4))=ham(:,:,ir)
+end do
+deallocate(ivr,deg,ham)
+return
+end subroutine
+
+subroutine write_tb_file(THIS,pars)
+class(CLtb), intent(inout) :: THIS
+class(CLpars), intent(in) :: pars
+integer ii,jj,nn,ir,ivp(4)
+integer iorb,jorb,jr,ios,jos
+integer ic,jc,idx
+real(dp) vpl(3)
+complex(dp), allocatable :: ham(:,:,:)
+if (NDIM.ne.3) call throw("CLtb%write_tb_file","this subroutine works only in 3D case")
+call system("mkdir -p _ham")
+open(50,file="_ham/ham_tb.dat",action='write')
+write(50,*)
+write(50,*) pars%avec(1,:)
+write(50,*) pars%avec(2,:)
+write(50,*) pars%avec(3,:)
+write(50,*) THIS%norb_TB
+write(50,*) THIS%rgrid%npt
+if (THIS%mode.eq."") then
+  write(50,'(15I5)') (1,ir=1,THIS%rgrid%npt)
+else
+  write(50,'(15I5)') (nint(THIS%dege(ir)),ir=1,THIS%rgrid%npt)
+end if
+allocate(ham(THIS%norb_TB,THIS%norb_TB,THIS%rgrid%npt))
+ham=0._dp
+if (THIS%mode.ne."") then
+  do ir=1,THIS%rgrid%npt
+    do nn=1,THIS%hamsize
+      do ii=1,THIS%norb_TB
+        if (nn.ge.THIS%isa(ii).and.nn.lt.THIS%isa(ii+1)) then
+          ham(ii,THIS%jsa(nn),ir)=THIS%hame(nn,ir)
+        end if
+      end do
+    end do
+    vpl=-THIS%rgrid%vpl(ir)
+    ivp=THIS%rgrid%find(vpl)
+    if (ivp(4).lt.0) then
+      ham(:,:,ir)=0._dp
+    else
+      do ii=1,THIS%norb_TB
+        do jj=ii+1,THIS%norb_TB
+          ham(jj,ii,ivp(4))=conjg(ham(ii,jj,ir))
+        end do
+      end do
+    end if
+  end do
+else
+  do ir=1,THIS%rgrid%npt
+    do ic=1,THIS%wbase%ncenters
+      do nn=1,THIS%ncenters_nn(ic)
+        jc=THIS%jcjr_nn(ic,nn,1)
+        jr=THIS%jcjr_nn(ic,nn,2)
+        if (ir.ne.jr) cycle
+        do ios=1,THIS%wbase%norb_ic(ic)
+          iorb=THIS%wbase%icio_orb(ic,ios)
+          ! sparse index of the first non-zero element in the row iorb
+          ii=THIS%isa(iorb)
+          do jos=1,THIS%wbase%norb_ic(jc)
+            jorb=THIS%wbase%icio_orb(jc,jos)
+            do idx=ii,min(THIS%isa(iorb+1),THIS%hamsize)
+               ! jsa is a map from sparse index to the column one
+               if(THIS%jsa(idx).eq.jorb) then
+                 ham(iorb,jorb,jr)=THIS%tij(iorb,jorb,jr)
+                 exit
+               end if
+            end do
+          end do
+        end do
+      end do
+    end do
+  end do
+end if
+do ir=1,THIS%rgrid%npt
+  write(50,*)
+  write(50,'(3I5)') THIS%rgrid%vpi(ir)
+  do jj=1,THIS%norb_TB
+    do ii=1,THIS%norb_TB
+      write(50,'(2I5,3x,2(E15.8,1x))') ii,jj,ham(ii,jj,ir)
+    end do
+  end do
+end do
+close(50)
+deallocate(ham)
+return
+end subroutine
+
+subroutine write_nonzeros_hame(THIS)
+class(CLtb), intent(inout) :: THIS
+integer nn,ii,ir
+allocate(THIS%hame(THIS%hamsize,THIS%rgrid%npt))
+THIS%hame=0._dp
+do ir=1,THIS%rgrid%npt
+  do nn=1,THIS%hamsize
+    do ii=1,THIS%norb_TB
+      if (nn.ge.THIS%isa(ii).and.nn.lt.THIS%isa(ii+1)) then
+        THIS%hame(nn,ir)=THIS%hame_file(ii,THIS%jsa(nn),ir)
+      end if
+    end do
+  end do
+end do
+deallocate(THIS%hame_file)
+end subroutine
+
 
 end module
