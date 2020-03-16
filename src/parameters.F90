@@ -33,6 +33,7 @@ type, public :: CLpars
   character(len=100) :: sktype="sk"
   character(len=100) :: tbfile=""
   character(len=2) :: tbftype=""
+  logical :: shifted=.false.
   logical :: symtshift=.true.
   logical :: writetb=.false.
   logical :: sparse=.false.
@@ -40,6 +41,7 @@ type, public :: CLpars
   integer :: symtype=1
   integer :: nvert
   integer :: nspec
+  integer :: iflat_band=0
   integer :: istart=1
   integer :: istop=1000
   integer :: nstates=1000
@@ -219,6 +221,13 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%symtype
     if (iostat.ne.0) call throw("paramters%read_input()","problem with symtype data")
     if (mp_mpi) write(*,'(i6,": ",i4)') jline,THIS%symtype
+ 
+  ! index of the first flat band of TBG
+  else if (trim(block).eq."iflat_band") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%iflat_band
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with symtype data")
+    if (mp_mpi) write(*,'(i6,": ",i6)') jline,THIS%iflat_band
 
   ! gauss_sigma for smearing of the DOS, for example
   else if (trim(block).eq."gauss_sigma") then
@@ -456,6 +465,7 @@ if (trim(adjustl(THIS%geometry_source)).ne."") then
         THIS%base%iw2ic(jw)=ic
       end do 
    end do
+   THIS%base%allocatd=.true.
 else
    if (.not.THIS%base%allocatd) then
      call throw("parameters%read_input",&
@@ -537,8 +547,8 @@ class(CLpars), intent(inout) :: THIS
 real(dp), intent(in) :: shift(NDIM,THIS%nmaxatm_pspec,THIS%nspec)
 real(dp) dv(NDIM)
 integer ispec,iat,ic
-!if (THIS%shifted) call throw("CLpars%shift_atml","shift can be applied only onse")
-!THIS%shifted=.true.
+if (THIS%shifted) call throw("CLpars%shift_atml","shift can be applied only once")
+THIS%shifted=.true.
 do ispec=1,THIS%nspec
   do iat=1,THIS%nat_per_spec(ispec)
     if (THIS%proj%allocatd) then
@@ -568,12 +578,13 @@ end do
 THIS%atml=THIS%atml+shift
 end subroutine
 
-subroutine write_geometry(THIS)
+subroutine write_geometry(THIS,fname)
 class(CLpars), intent(inout) :: THIS
+character(len=*) fname
 integer ii,ispec,iat
 ! write atoms geometry to a file
 if (mp_mpi) then
-  open(100,file="geometry.dat",action="write")
+  open(100,file=trim(adjustl(fname)),action="write")
   write(100,*)"avec"
   do ii=1,NDIM
     write(100,'(5G18.10)') THIS%avec(ii,:)

@@ -327,8 +327,6 @@ end do
 eval=0._dp
 ! read eigenvalues, subroutine in modcom.f90
 call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
-! shift all eigenvalues by efermi (so, it should not be changend in the input file)
-eval=eval-pars%efermi
 ! init minimal wannier variables
 call wannier%init(kgrid,kpath,pars,eval)
 ! do the computation. later we will attach MPI parallelisation here 

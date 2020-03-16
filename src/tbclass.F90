@@ -407,13 +407,13 @@ ic=THIS%wbase%orb_icio(iorb,1)
 vpl=THIS%wbase%centers(:,ic)
 end function
 
-subroutine bloch_wf_transform(THIS,kgrid,ik,sym,isym,wfinout,wfsk)
+subroutine bloch_wf_transform(THIS,kgrid,ik,sym,isym,wfout,wfin)
 class(CLtb), intent(in) :: THIS
 class(GRID), intent(in) :: kgrid
 class(CLsym), intent(in) :: sym
 integer, intent(in) :: isym
-complex(dp), intent(out) :: wfinout(THIS%norb_TB)
-complex(dp), intent(in) :: wfsk(THIS%norb_TB)
+complex(dp), intent(out) :: wfout(THIS%norb_TB)
+complex(dp), intent(in) :: wfin(THIS%norb_TB)
 ! local
 integer ik
 integer iw,jw
@@ -421,7 +421,7 @@ integer ic,jc
 real(dp) t1,t2,err
 real(dp) :: v1(NDIM),v2(NDIM)
 complex(dp) :: zz
-complex(dp), allocatable :: wws(:,:)
+real(dp), allocatable :: wws(:,:)
 allocate(wws(THIS%wbase%norb,THIS%wbase%norb))
 wws=0._dp
 do iw=1,THIS%wbase%norb
@@ -429,18 +429,10 @@ do iw=1,THIS%wbase%norb
    jc=THIS%wbase%ics2c(ic,isym)
    do jw=1,THIS%wbase%norb
       if(THIS%wbase%orb_icio(jw,1).ne.jc) cycle
-      wws(jw,iw)=cmplx(THIS%wbase%wws(sym%car(:,:,isym),iw,jw),0._dp,kind=dp)
+      wws(jw,iw)=THIS%wbase%wws(sym%car(:,:,isym),iw,jw)
    end do
 end do
-do iw=1,THIS%wbase%norb
-   err=abs((sum(wws(:,iw)**2)+sum(wws(iw,:)**2))*.5_dp-1._dp)
-   if(err.gt.1.e-3_dp) then
-      write(*,*) "wannier_interface%generate_dmn_orb","compute_dmn: Symmetry operator (",isym, &
-              ") could not transform Wannier function (",iw,")."
-      write(*,*) "The error is ",err,"."
-      call throw("wannier_interface%generate_dmn_orb", "missing Wannier functions, see the output.")
-   end if
-end do
+wfout=0._dp
 do iw=1,THIS%wbase%norb
    ic=THIS%wbase%orb_icio(iw,1)
    jc=THIS%wbase%ics2c(ic,sym%inv(isym))
@@ -450,10 +442,9 @@ do iw=1,THIS%wbase%norb
    t2=dot_product(sym%vtc(:,isym),v2)
    zz=cmplx(cos(t1),sin(t1),kind=dp)*cmplx(cos(t2),sin(t2),kind=dp)
    do jw=1,THIS%wbase%norb
-     wws(iw,jw)=wws(iw,jw)*zz
+     wfout(iw)=wfout(iw)+wws(iw,jw)*wfin(jw)*zz
    end do
 end do
-wfinout=matmul(wws,wfsk)
 deallocate(wws)
 return
 end subroutine

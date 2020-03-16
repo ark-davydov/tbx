@@ -5,6 +5,7 @@ use parameters
 use symm_base
 implicit none
 private
+logical, save :: shifted
 integer, parameter :: nsmax=48
 type, public :: CLsym
   logical :: defined=.false.
@@ -39,27 +40,32 @@ real(dp), allocatable :: tau(:,:)
 integer, allocatable :: ityp(:)
 integer itot,iat,jat,ispec
 real(dp) v1(NDIM),v2(NDIM),dmat(NDIM,NDIM)
-logical shifted
 real(dp), allocatable :: lattice_shift(:,:,:)
 
 THIS%typ=pars%symtype
 if (NDIM.ne.3) call throw("symmetryclass%find_symmetries()","this subroutine assumes NDIM=3")
 allocate(lattice_shift(NDIM,pars%nmaxatm_pspec,pars%nspec))
+
+
 call symmetry(THIS%typ, pars%nspec, pars%nat_per_spec,&
               pars%nmaxatm_pspec, pars%natmtot, pars%avec, pars%atml,&
               THIS%nsym, THIS%lspl, THIS%lspn, THIS%inv, THIS%slat,&
               THIS%vtl, lattice_shift, shifted, pars%symtshift, mp_mpi)
 
 
-call pars%write_geometry()
 
 if (shifted) then
   call info("symmetryclass%find_symmetries()","lattice was shifted by symmetry analyser")  
   call info("","basis, projections were shifted by the same amount")  
+  call info("","to make code working, be sure that your basis set")  
+  call info("","and wannier projections (if needed) at positions compatible with atoms in 'geometry0.dat'")  
+  call pars%write_geometry('geometry0.dat')
   call pars%shift_all(lattice_shift)
   if (pars%base%allocatd) call pars%base%write_base('base.dat')
   if (pars%proj%allocatd) call pars%proj%write_base('proj.dat')
 end if
+
+call pars%write_geometry('geometry.dat')
 
 THIS%defined=.true.
 

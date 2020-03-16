@@ -46,6 +46,7 @@ real(dp), allocatable :: vkl(:,:)
 if (.not.pars%proj%allocatd) call throw("wannier_interface%projection",&
  "projection block must be allocated with correct number of porjections")
 if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band'.or.&
+    trim(adjustl(pars%wannier_proj_mode)).eq.'tbg12band'.or.&
     trim(adjustl(pars%wannier_proj_mode)).eq.'input_file') then
   allocate(vkl(NDIM,kgrid%npt))
   do ik=1,kgrid%npt
@@ -71,10 +72,10 @@ class(GRID), intent(inout) :: kgrid
 complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
 ! local
 character(len=200) :: message
-integer iR,iw,jw
+integer iR,iw,jw,i1
 integer iorb,jorb,ispec
 integer ipro,ic,jc,ios,l1,m1,l2,m2
-integer isym1,isym2,ik_gamma,ikg(NDIM+1)
+integer isym1,isym2,ik_gamma,iR_zero,ikg(NDIM+1)
 integer nr,pm_val(2),pm_con(2)
 type(wbase) proj
 real(dp) sigma
@@ -83,18 +84,52 @@ real(dp) t1,dd,dv(NDIM),dc(NDIM)
 !complex(dp), allocatable :: wf_t(:)
 complex(dp), allocatable :: wftrial(:,:,:)
 complex(dp), allocatable :: wws(:,:,:)
+if (NDIM.ne.3) call throw("wannier_interface%generate_trial_wavefunctions()","this subroutine assumes NDIM=3")
+if (pars%proj%norb.le.0) then
+   call throw("wannier_interface%generate_trial_wavefunctions()",&
+              "apparently 'projections' block was not specified, wannier projections not found")
+else
+  if (pars%nstates.lt.pars%proj%norb) then
+    call throw("wannier_interface%generate_trial_wavefunctions()",&
+               "number of bands is less than the number of requested projections")
+  end if
+end if
 call proj%init(pars,pars%proj%ncenters,pars%proj%norb,pars%proj%norb_ic,&
                    pars%proj%lmr,pars%proj%waxis,pars%proj%centers)
 call proj%init_smap(sym,pars)
+! find gamma point via general k-point finder subroutine 
+vpl=0._dp
+ikg=kgrid%find(vpl)
+ik_gamma=ikg(NDIM+1)
+! find home unit cell
+ikg=tbmodel%rgrid%find(vpl)
+iR_zero=ikg(NDIM+1)
 allocate(wws(proj%norb,proj%norb,sym%nsym))
 call kgrid%sym_init(sym)
-if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band') then
-  if (NDIM.ne.3) call throw("wannier_interface%generate_trial_wavefunctions()","this subroutine assumes NDIM=3")
-  if (pars%nstates.ne.4) call throw("wannier_interface%generate_trial_wavefunctions()",&
-    & "this subroutine assumes num_bands=4, but another number is given &
-    & (to resolve the issue, recompute eigen values/vectors with 'states' block providing nstates=4)")
-  if (pars%proj%norb.ne.4) call throw("wannier_interface%generate_trial_wavefunctions()",&
-                      "one needs to put 4 trial orbitals in 'projections' block")
+if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band'.or.&
+    trim(adjustl(pars%wannier_proj_mode)).eq.'tbg12band') then
+  if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band') then
+    if (pars%nstates.ne.4) then
+        call throw("wannier_interface%generate_trial_wavefunctions()",&
+      & "wannier_proj_mode='tbg4band' assumes num_bands=4, but another number is given &
+      & (to resolve the issue, recompute eigen values/vectors with 'states' block providing nstates=4)")
+    end if
+    if (pars%proj%norb.ne.4) then
+       call throw("wannier_interface%generate_trial_wavefunctions()",&
+                  "one needs to put 4 trial orbitals in 'projections' block for wannier_proj_mode='tbg4band'")
+    end if
+  else if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg12band') then
+    if (pars%proj%norb.ne.12) then
+       call throw("wannier_interface%generate_trial_wavefunctions()",&
+                  "one needs to put 12 trial orbitals in 'projections' block for wannier_proj_mode='tbg12band'")
+    end if
+    if (pars%iflat_band.le.0) then
+       call throw("wannier_interface%generate_trial_wavefunctions()",&
+                  "in 12-bands projection mode, one needs to specify the index of the "//&
+                  "flat band ('iflat_band' block) with respect to the lowest available state"//&
+                  "it can be deduced from eval.dat file")
+    end if
+  end if
   ! PHYSICAL REVIEW X 8, 031088 (2018)
   ! first we find \psi_{\Gamma,E+,\epsilon} and \psi_{\Gamma,E-,\epsilon} 
   ! where E+ is dublet above Ef and E- is dublet below Ef
@@ -102,10 +137,6 @@ if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band') then
   ! are dublet wavefunction; under a C3 rotation, which we will find from the symmetry operations table, \epsilon
   ! is + or - 2pi/3
   !
-  ! find gamma point via general k-point finder subroutine 
-  vpl=0._dp
-  ikg=kgrid%find(vpl)
-  ik_gamma=ikg(NDIM+1)
   isym1=2
   isym2=4
   if (mp_mpi) then
@@ -114,8 +145,10 @@ if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band') then
     write(message,*)"assiming isym=",isym2,"to be C2' from the paper, which generates w3 "
     call info("CLwan%project",trim(message))
   end if
-  pm_val=eps_pm_dublet_state(tbmodel,pars,kgrid,ik_gamma,sym,isym1,1,2,evec(:,:,ik_gamma))
-  pm_con=eps_pm_dublet_state(tbmodel,pars,kgrid,ik_gamma,sym,isym1,3,4,evec(:,:,ik_gamma))
+  i1=pars%iflat_band
+  if (i1.le.0) i1=1
+  pm_val=eps_pm_dublet_state(tbmodel,pars,kgrid,ik_gamma,sym,isym1,i1  ,i1+1,evec(:,:,ik_gamma))
+  pm_con=eps_pm_dublet_state(tbmodel,pars,kgrid,ik_gamma,sym,isym1,i1+2,i1+3,evec(:,:,ik_gamma))
   allocate(wftrial(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt))
   do iorb=1,tbmodel%norb_TB
     ispec=tbmodel%orb_ispec(iorb)
@@ -147,15 +180,19 @@ if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band') then
   ! sinse we are at gamme WF is the same at all UCells (we will compy values from wftrial(:,*,1) to everywhere)
   call tbmodel%bloch_wf_transform(kgrid,ik_gamma,sym,isym2,wftrial(:,3,1),wftrial(:,1,1))
   call tbmodel%bloch_wf_transform(kgrid,ik_gamma,sym,isym2,wftrial(:,4,1),wftrial(:,2,1))
+  if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg12band') then
+    wftrial(:,5,1)= wftrial(:,1,1)
+    wftrial(:,6,1)= wftrial(:,2,1)
+    wftrial(:,7,1)= wftrial(:,3,1)
+    wftrial(:,8,1)= wftrial(:,4,1)
+    wftrial(:,9,1)= wftrial(:,1,1)
+    wftrial(:,10,1)=wftrial(:,2,1)
+    wftrial(:,11,1)=wftrial(:,1,1)
+    wftrial(:,12,1)=wftrial(:,2,1)
+  end if
   do iR=2,tbmodel%rgrid%npt
     wftrial(:,:,iR)=wftrial(:,:,iR-1)
   end do
-  do iw=1,proj%norb
-    do jw=1,proj%norb
-      write(*,*) iw,jw,dot_product(wftrial(:,iw,1),wftrial(:,jw,1))
-    end do
-  end do
-  ! 0.7 of lattice constant as in the paper of Johannes Lischner
   sigma=0.4_dp*sqrt(dot_product(pars%avec(1,:),pars%avec(1,:)))
   do iR=1,tbmodel%rgrid%npt
     do iw=1,proj%norb
@@ -168,8 +205,13 @@ if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band') then
       end do
     end do
   end do
+  if (mp_mpi) write(*,*) "wannier_interface%projection","overlap between trial orbitals"
+  do iw=1,proj%norb
+    do jw=iw,proj%norb
+      if (mp_mpi) write(*,'(2I5,2F10.6)') iw,jw,dot_product(wftrial(:,iw,iR_zero),wftrial(:,jw,iR_zero))
+    end do
+  end do
   call generate_amn_overlap(tbmodel,pars,kgrid,evec,tbmodel%rgrid%npt,wftrial,sigma)
-  call generate_dmn_orb(tbmodel,proj,sym,pars,kgrid,evec,.false.,wws)
   nr=0
   do iR=1,tbmodel%rgrid%npt
     if (sum(abs(tbmodel%rgrid%vpl(iR))).le.6) then
@@ -181,12 +223,12 @@ if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band') then
       end do
     end if
   end do
-  call write_wf_universe(tbmodel,pars,nr,wftrial(:,:,1:nr),'wftrial','')
+  !if (mp_mpi) call write_wf_universe(tbmodel,pars,nr,wftrial(:,:,1:nr),'wftrial','')
+  call generate_dmn_orb(tbmodel,proj,sym,pars,kgrid,evec,.false.,wws)
   deallocate(wftrial)
 else if (trim(adjustl(pars%wannier_proj_mode)).eq.'input_file') then
-   if (NDIM.ne.3) call throw("wannier_interface%generate_trial_wavefunctions()","this subroutine assumes NDIM=3")
    ! find the home unit cel
-   allocate(wftrial(tbmodel%norb_TB,pars%proj%norb,1))
+   allocate(wftrial(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt))
    wftrial(:,:,:)=0._dp
    do ic=1,proj%ncenters
      do ios=1,proj%norb_ic(ic)
@@ -203,16 +245,11 @@ else if (trim(adjustl(pars%wannier_proj_mode)).eq.'input_file') then
          m2=proj%lmr(2,ipro)
          x2=proj%waxis(:,1,ipro)
          z2=proj%waxis(:,2,ipro)
-         wftrial(jorb,ipro,1)=tbmodel%wbase%wws_full(sym%car(:,:,1),l1,m1,l2,m2,x1,z1,x2,z2)
+         wftrial(jorb,ipro,iR_zero)=tbmodel%wbase%wws_full(sym%car(:,:,1),l1,m1,l2,m2,x1,z1,x2,z2)
        end do
      end do
    end do
-   call generate_amn_overlap(tbmodel,pars,kgrid,evec,1,wftrial,sigma)
-   do ipro=1,proj%norb
-       do jorb=1,tbmodel%norb_TB
-         write(*,*) ipro,jorb,dble( wftrial(jorb,ipro,1)),aimag( wftrial(jorb,ipro,1))
-       end do
-   end do
+   call generate_amn_overlap(tbmodel,pars,kgrid,evec,tbmodel%rgrid%npt,wftrial,1.e2_dp)
    call generate_dmn_orb(tbmodel,proj,sym,pars,kgrid,evec,.false.,wws)
    deallocate(wftrial)
 else
@@ -233,13 +270,13 @@ logical, intent(in) :: lwws
 complex(dp), intent(inout) :: wws(base%norb,base%norb,sym%nsym)
 ! local
 integer isym,iw,jw,ic,jc,ir,ik
-integer ikp,ist,jst
+integer ikp,ist,jst,nn
 logical exs
 real(dp) err,t1,t2
 real(dp) v1(NDIM),v2(NDIM)
 complex(dp), allocatable :: phs(:,:)
 complex(dp), allocatable :: wf_t(:)
-complex(dp), allocatable :: ovlp(:,:)
+complex(dp), allocatable :: ovlp(:,:,:,:)
 inquire(file=trim(adjustl(pars%seedname))//'.dmn',exist=exs)
 if (exs) then
   call info("CLwan%generate_dmn_orb","skipping "//trim(adjustl(pars%seedname))//".dmn creation")
@@ -311,41 +348,58 @@ end do
 if (mp_mpi) then
   write(1001,*)
   write(*,'(/)')
-  write(*,'(a,i8)') '  DMN(d_matrix_band): nir = ',kgrid%nir
+  write(*,'(a,i8)') '  DMN(d_matrix_band) [could be not ordered]: nir = ',kgrid%nir
 end if
-allocate(ovlp(pars%nstates,pars%nstates))
+allocate(ovlp(pars%nstates,pars%nstates,sym%nsym,kgrid%nir))
+ovlp=0._dp
+#ifdef MPI
+  call MPI_barrier(mpi_com,mpi_err)
+#endif
+!$OMP PARALLEL DEFAULT(SHARED)&
+!$OMP PRIVATE(ist,jst,ik,ikp,isym,wf_t)
+!$OMP DO
 do ir=1,kgrid%nir
-  if (mp_mpi) then
-    WRITE (*,'(i8)',advance='no') ir
-    IF( MOD(ir,10) == 0 ) WRITE (*,*)
-  end if
+  if (mod(ir-1,np_mpi).ne.lp_mpi) cycle
+  WRITE (*,'(i8)',advance='no') ir
+  IF( MOD(ir,10) == 0 ) WRITE (*,*)
+  allocate(wf_t(tbmodel%norb_TB))
   ik=kgrid%ir2ik(ir)
   do isym=1,sym%nsym
     ikp=kgrid%iks2k(ik,isym)
-    !$OMP PARALLEL DEFAULT(SHARED)&
-    !$OMP PRIVATE(jst,ist,wf_t)
-    !$OMP DO
     do jst=1,pars%nstates
-      allocate(wf_t(tbmodel%norb_TB))
       call tbmodel%bloch_wf_transform(kgrid,ik,sym,isym,wf_t,evec(:,jst,ik))
       do ist=1,pars%nstates
-         ovlp(ist,jst)=dot_product(evec(:,ist,ikp),wf_t)
-      end do
-      deallocate(wf_t)
-    end do
-    !$OMP END DO
-    !$OMP END PARALLEL
-    do jst=1,pars%nstates
-      do ist=1,pars%nstates
-        if (mp_mpi) write(1001,"(1p,(' (',e18.10,',',e18.10,')'))") ovlp(ist,jst)
+         ovlp(ist,jst,isym,ir)=dot_product(evec(:,ist,ikp),wf_t)
       end do
     end do
-    if (mp_mpi) write(1001,*) 
   end do
+  deallocate(wf_t)
 end do
-if (mp_mpi) close(1001)
-if (mp_mpi) write(*,*)
+!$OMP END DO
+!$OMP END PARALLEL
+#ifdef MPI
+  nn=pars%nstates*pars%nstates*sym%nsym*kgrid%nir
+  call mpi_allreduce(mpi_in_place,ovlp,nn,mpi_double_complex,mpi_sum, &
+   mpi_com,mpi_err)
+#endif
+if (mp_mpi) then
+  do ir=1,kgrid%nir
+    do isym=1,sym%nsym
+      do jst=1,pars%nstates
+        do ist=1,pars%nstates
+          write(1001,"(1p,(' (',e18.10,',',e18.10,')'))") ovlp(ist,jst,isym,ir)
+        end do
+      end do
+      write(1001,*) 
+    end do
+  end do
+  close(1001)
+  write(*,*)
+end if
 deallocate(phs,ovlp)
+#ifdef MPI
+  call MPI_barrier(mpi_com,mpi_err)
+#endif
 end subroutine
 
 function eps_pm_dublet_state(tbmodel,pars,kgrid,ik_gamma,sym,isym,ist1,ist2,evec_G) result (pm)
@@ -403,10 +457,8 @@ real(dp), intent(in) :: sigma
 ! local
 logical exs
 integer ik,iwan,ist,iR,iorb
-integer ivr(NDIM+1)
-real(dp) t1,dd,t2
-real(dp) dv(NDIM),dc(NDIM),vrl(NDIM)
-complex(dp) z2
+real(dp) t1
+complex(dp) z1
 complex(dp), allocatable :: amn(:,:)
 ! A_mn(k)=<\psi_m(k)|g_n>
 inquire(file=trim(adjustl(pars%seedname))//'.amn',exist=exs)
@@ -420,18 +472,15 @@ if (mp_mpi) then
   write(50,*) pars%nstates,kgrid%npt,pars%proj%norb
 end if
 allocate(amn(pars%nstates,pars%proj%norb))
-! find home UC
-vrl=0._dp
-ivr=tbmodel%rgrid%find(vrl)
 do ik=1,kgrid%npt
   amn=0._dp
-  do iwan=1,pars%proj%norb
-    do iR=1,tbmodel%rgrid%npt
-      t2=dot_product(kgrid%vpl(ik),tbmodel%rgrid%vpl(iR))*twopi
-      z2=cmplx(cos(t2),-sin(t2),kind=dp)
-      if ( sqrt(sum(tbmodel%rgrid%vpc(iR)**2)) .gt. 3*sigma) cycle
+  do iR=1,tbmodel%rgrid%npt
+    if ( sqrt(sum(tbmodel%rgrid%vpc(iR)**2)) .gt. 3._dp*sigma) cycle
+    t1=dot_product(kgrid%vpl(ik),tbmodel%rgrid%vpl(iR))*twopi
+    z1=cmplx(cos(t1),-sin(t1),kind=dp)
+    do iwan=1,pars%proj%norb
       do iorb=1,tbmodel%norb_TB
-        amn(:,iwan)=amn(:,iwan)+conjg(evec(iorb,:,ik))*wftrial(iorb,iwan,iR)*z2
+        amn(:,iwan)=amn(:,iwan)+conjg(evec(iorb,:,ik))*wftrial(iorb,iwan,iR)*z1
       end do
     end do
   end do

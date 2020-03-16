@@ -1,5 +1,4 @@
-tasks 2
- eigen
+tasks 1
  projection_wannier
 
 ! important, this defines not only the k-grid, but also the R-grid fot TB hamiltonian
@@ -9,20 +8,23 @@ ngrid
 ! k-path conntecting vertices. format "x y z npoints"
 path 4
 0.666666 0.333333 0. 0
-0.5 0. 0. 50
-0.0 0. 0. 50
-0.333333 0.666666 0. 50
+0.5 0. 0. 10
+0.0 0. 0. 10
+0.333333 0.666666 0. 10
 
 ! generate the atoms and vectors from the geometry library for TBG
 ! angle defined by an integer of the next line 
 ! one can set the geometry vectors and atoms positions as well
-geometry_source slg
- 104
+geometry_source tbg
+ 131
 
 ! impose Fermi level on the resulting bandstucture
 efermi
- 0.7911
+ -0.4527
 
+! grid for the DOS, maybe for the frequency in the future (RPA)
+egrid 100
+ -1 1 
 
 ! desired lower, uppare states to compute, note that (1) sparse eigensolver
 ! can not give give exactly that states, but it gives states closed to efermi 
@@ -32,7 +34,7 @@ efermi
 ! eigensolver fail to converge some eigen states, one should choos to compute
 ! the full spectrum
 states
- 1 2
+  5943 5966 ! N/2-100+1 N/2+100, ie., 200 bands around the Fermi level
 
 ! set .true. to use sparse eigen solver. Eigesolver, which always works with sparse
 ! matrices is available only via MKL linking of the code. Otherwise
@@ -40,29 +42,44 @@ states
 sparse
  .false.
 
-! neglect all Hamiltonian terms smaller than sparse_eps
-sparse_eps
- 1.d-5
-
 ! seedname for wannier90 interface
 seedname
   wannier
 
+! neglect all Hamiltonian terms smaller than sparse_eps
+sparse_eps
+ 1.d-5
+
+! type of TB model (tbgsk is the one commongly adopted)
 sktype
  tbgsk1
 
-! grid for the DOS, maybe for the frequency in the future (RPA)
-egrid 1000
--13 9
-
-gauss_sigma
- 0.2
 
 wannier_proj_mode
- input_file
+ tbg12band
 
-projections 2
-1 0.000000000 0.000000000 0.0
-pz 1.0 0.0 0.0 0.0 0.0 1.0
-1 0.666666666 0.666666666 0.0
-pz 1.0 0.0 0.0 0.0 0.0 1.0
+projections 6
+2 0.25 0.0 0.0
+		px 1.0 0.0 0.0 0.0 0.0 1.0
+		py 1.0 0.0 0.0 0.0 0.0 1.0
+2 0.25 0.75 0.0
+		px 1.0 0.0 0.0 0.0 0.0 1.0
+		py 1.0 0.0 0.0 0.0 0.0 1.0
+
+2 0.75 0.0 0.0
+		px 1.0 0.0 0.0 0.0 0.0 1.0
+		py 1.0 0.0 0.0 0.0 0.0 1.0
+2 0.75 0.25 0.0
+		px 1.0 0.0 0.0 0.0 0.0 1.0
+		py 1.0 0.0 0.0 0.0 0.0 1.0
+
+2 0.0 0.25 0.0
+		px 1.0 0.0 0.0 0.0 0.0 1.0
+		py 1.0 0.0 0.0 0.0 0.0 1.0
+2 0.0 0.75 0.0
+		px 1.0 0.0 0.0 0.0 0.0 1.0
+		py 1.0 0.0 0.0 0.0 0.0 1.0
+
+
+iflat_band
+ 11
