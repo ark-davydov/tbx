@@ -25,7 +25,7 @@ integer isymlat(48)
 real(8) symlatc(3,3,48)
 integer invmap(48)
 ! tshift is .true. if atomic basis is allowed to be shifted
-logical, parameter :: tshift=.true.
+logical :: tshift
 ! tsyminv is .true. if the crystal has inversion symmetry
 logical tsyminv
 ! maximum of symmetries allowed
@@ -88,6 +88,36 @@ real(8) rndatposc
 CONTAINS 
 
 subroutine r3frac(eps,v)
+! !INPUT/OUTPUT PARAMETERS:
+!   eps : zero component tolerance (in,real)
+!   v   : input vector (inout,real(3))
+! !DESCRIPTION:
+!   Finds the fractional part of each component of a real 3-vector using the
+!   function ${\rm frac}\,(x)=x-\lfloor x\rfloor$. A component is taken to be
+!   zero if it lies within the intervals $[0,\epsilon)$ or $(1-\epsilon,1]$.
+!
+! !REVISION HISTORY:
+!   Created January 2003 (JKD)
+!   Removed iv, September 2011 (JKD)
+!EOP
+!BOC
+implicit none
+! arguments
+real(8), intent(in) :: eps
+real(8), intent(inout) :: v(3)
+! local variables
+integer i
+do i=1,3
+  v(i)=v(i)-int(v(i))
+  if (v(i).lt.0.d0) v(i)=v(i)+1.d0
+  if ((1.d0-v(i)).lt.eps) v(i)=0.d0
+ ! if (v(i).ge.0.5d0) v(i)=v(i)-1.d0
+  if (v(i).lt.eps) v(i)=0.d0
+end do
+return
+end subroutine
+
+subroutine r3frac1(eps,v)
 ! !INPUT/OUTPUT PARAMETERS:
 !   eps : zero component tolerance (in,real)
 !   v   : input vector (inout,real(3))

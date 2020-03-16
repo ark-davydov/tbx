@@ -43,7 +43,7 @@ type, public :: CLtb
   procedure, public :: init=>init_variables
   procedure, public :: evalk=>calc_eigenvalues_at_K
   procedure, public :: vplorb=>get_location_of_orbial
-  procedure, public :: wfGtransform=>bloch_wf_transform_at_gamma
+  procedure, public :: bloch_wf_transform
   procedure, private :: hK=>give_hK
   procedure, private :: hR=>give_hR
   procedure, private :: tij=>tij_function
@@ -59,9 +59,10 @@ endtype CLtb
 contains
 
 
-subroutine init_variables(THIS,pars,mode)
+subroutine init_variables(THIS,pars,sym,mode)
 class(CLtb), intent(out) :: THIS
 class(CLpars), intent(inout) :: pars
+class(CLsym), intent(inout) :: sym
 character(len=*), intent(in) :: mode
 integer ispec,ios,iorb,ic
 call info ("CLtb%init_variables","")
@@ -78,6 +79,7 @@ THIS%sktype=pars%sktype
 ! allocate basis indices
 call THIS%wbase%init(pars,pars%base%ncenters,pars%base%norb,pars%base%norb_ic,&
                  pars%base%lmr,pars%base%waxis,pars%base%centers)
+call THIS%wbase%init_smap(sym,pars)
 THIS%norb_TB=THIS%wbase%norb
 allocate(THIS%ic_ispec(THIS%norb_TB))
 allocate(THIS%orb_ispec(THIS%norb_TB))
@@ -405,38 +407,54 @@ ic=THIS%wbase%orb_icio(iorb,1)
 vpl=THIS%wbase%centers(:,ic)
 end function
 
-subroutine bloch_wf_transform_at_gamma(THIS,pars,sym,isym,wfinout)
+subroutine bloch_wf_transform(THIS,kgrid,ik,sym,isym,wfinout,wfsk)
 class(CLtb), intent(in) :: THIS
-class(CLpars), intent(in) :: pars
+class(GRID), intent(in) :: kgrid
 class(CLsym), intent(in) :: sym
 integer, intent(in) :: isym
-complex(dp), intent(inout) :: wfinout(THIS%norb_TB)
-complex(dp), allocatable :: wftemp(:)
+complex(dp), intent(out) :: wfinout(THIS%norb_TB)
+complex(dp), intent(in) :: wfsk(THIS%norb_TB)
 ! local
-integer iat,jat,jspec
-integer ic,jc,iorb,jorb,ios,jos 
-real(dp) t1
-allocate(wftemp(THIS%norb_TB))
-wftemp(:)=wfinout(:)
-wfinout(:)=0._dp
-do jc=1,THIS%wbase%ncenters
-  ! iatom/specie index of jc cite
-  jat=pars%tot_iais(jc,1)
-  jspec=pars%tot_iais(jc,2)
-  ! equivalent atom to jat,jspec at the isym operation
-  iat=sym%ieqat(jat,jspec,isym)
-  ! cite index of iat,ispec=jspec
-  ic=pars%iais_tot(iat,jspec)
-  do ios=1,THIS%wbase%norb_ic(ic)
-    iorb=THIS%wbase%icio_orb(ic,ios)
-    do jos=1,THIS%wbase%norb_ic(jc)
-      jorb=THIS%wbase%icio_orb(jc,jos)
-      t1=THIS%wbase%wws(sym%car(:,:,isym),iorb,jorb)
-      wfinout(iorb)=wfinout(iorb)+t1*wftemp(jorb)
-    end do
-  end do
+integer ik
+integer iw,jw
+integer ic,jc
+real(dp) t1,t2,err
+real(dp) :: v1(NDIM),v2(NDIM)
+complex(dp) :: zz
+complex(dp), allocatable :: wws(:,:)
+allocate(wws(THIS%wbase%norb,THIS%wbase%norb))
+wws=0._dp
+do iw=1,THIS%wbase%norb
+   ic=THIS%wbase%orb_icio(iw,1)
+   jc=THIS%wbase%ics2c(ic,isym)
+   do jw=1,THIS%wbase%norb
+      if(THIS%wbase%orb_icio(jw,1).ne.jc) cycle
+      wws(jw,iw)=cmplx(THIS%wbase%wws(sym%car(:,:,isym),iw,jw),0._dp,kind=dp)
+   end do
 end do
-deallocate(wftemp)
+do iw=1,THIS%wbase%norb
+   err=abs((sum(wws(:,iw)**2)+sum(wws(iw,:)**2))*.5_dp-1._dp)
+   if(err.gt.1.e-3_dp) then
+      write(*,*) "wannier_interface%generate_dmn_orb","compute_dmn: Symmetry operator (",isym, &
+              ") could not transform Wannier function (",iw,")."
+      write(*,*) "The error is ",err,"."
+      call throw("wannier_interface%generate_dmn_orb", "missing Wannier functions, see the output.")
+   end if
+end do
+do iw=1,THIS%wbase%norb
+   ic=THIS%wbase%orb_icio(iw,1)
+   jc=THIS%wbase%ics2c(ic,sym%inv(isym))
+   v1=kgrid%vpc(kgrid%iks2k(ik,isym))-matmul(sym%car(:,:,isym),kgrid%vpc(ik))
+   v2=matmul(v1,sym%car(:,:,isym))
+   t1=dot_product(THIS%wbase%vcs2t(:,jc,isym),kgrid%vpc(ik))
+   t2=dot_product(sym%vtc(:,isym),v2)
+   zz=cmplx(cos(t1),sin(t1),kind=dp)*cmplx(cos(t2),sin(t2),kind=dp)
+   do jw=1,THIS%wbase%norb
+     wws(iw,jw)=wws(iw,jw)*zz
+   end do
+end do
+wfinout=matmul(wws,wfsk)
+deallocate(wws)
 return
 end subroutine
 

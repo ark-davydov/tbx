@@ -6,7 +6,7 @@
 !BOP
 ! !ROUTINE: findsymcrys
 ! !INTERFACE:
-subroutine findsymcrys(lwrite)
+subroutine findsymcrys(lwrite,lattice_shift)
 ! !USES:
 use modelk
 ! !DESCRIPTION:
@@ -31,7 +31,9 @@ use modelk
 !BOC
 implicit none
 logical, intent(in) :: lwrite
+logical, intent(out) :: lattice_shift
 ! local variables
+integer, parameter :: ntmax=1000
 integer ia,ja,is,js
 integer isym,nsym,i,n
 integer lspl(48),lspn(48),ilspl
@@ -44,8 +46,8 @@ real(8), allocatable :: vtl(:,:)
 allocate(apl(3,maxatoms,nspecies))
 allocate(iea(maxatoms,nspecies,48))
 ! allocate equivalent atom arrays
-!if (allocated(ieqatom)) deallocate(ieqatom)
-!allocate(ieqatom(maxatoms,nspecies,maxsymcrys))
+if (allocated(ieqatom)) deallocate(ieqatom)
+allocate(ieqatom(maxatoms,nspecies,maxsymcrys))
 if (allocated(eqatoms)) deallocate(eqatoms)
 allocate(eqatoms(maxatoms,maxatoms,nspecies))
 ! store position of first atom
@@ -55,15 +57,14 @@ is=1
 do js=1,nspecies
   if (natoms_arr(js).lt.natoms_arr(is)) is=js
 end do
-if ((tshift).and.(natmtot.gt.0).and..false.) then
+if ((tshift).and.(natmtot.gt.0)) then
 ! shift basis so that the first atom in the smallest atom set is at the origin
   v1(:)=atposl(:,1,is)
   do js=1,nspecies
     do ia=1,natoms_arr(js)
 ! shift atom
       atposl(:,ia,js)=atposl(:,ia,js)-v1(:)
-! map lattice coordinates back to [0,1)
-      call r3fracz05(epslat,atposl(:,ia,js))
+      call r3frac(epslat,atposl(:,ia,js))
 ! determine the new Cartesian coordinates
       call r3mv(avec,atposl(:,ia,js),atposc(:,ia,js))
     end do
@@ -75,7 +76,7 @@ if (symtype.ne.1) then
   allocate(vtl(3,n))
   vtl(:,:)=0.d0
 else
-  n=max(natoms_arr(is)*natoms_arr(is),1)
+  n=min(natoms_arr(is)*natoms_arr(is),ntmax)
   allocate(vtl(3,n))
   n=1
   vtl(:,1)=0.d0
@@ -83,17 +84,18 @@ else
     do ja=2,natoms_arr(is)
 ! compute difference between two atom vectors
       v1(:)=atposl(:,ia,is)-atposl(:,ja,is)
-! map lattice coordinates to [0,1)
-      call r3fracz05(epslat,v1)
+      call r3frac(epslat,v1)
       do i=1,n
         t1=abs(vtl(1,i)-v1(1))+abs(vtl(2,i)-v1(2))+abs(vtl(3,i)-v1(3))
         if (t1.lt.epslat) goto 10
       end do
       n=n+1
       vtl(:,n)=v1(:)
+      if (n.ge.ntmax) go to 11
   10 continue
     end do
   end do
+11 continue
 end if
 ! no translations required when symtype=0,2 (F. Cricchio)
 if (symtype.ne.1) n=1
@@ -159,9 +161,7 @@ if (tsyminv.and.tshift) then
     do ia=1,natoms_arr(is)
 ! shift atom
       atposl(:,ia,is)=atposl(:,ia,is)+v1(:)
-! map lattice coordinates back to [-0.5,0.5)
-      call r3fracz05(epslat,atposl(:,ia,is))
-! determine the new Cartesian coordinates
+      call r3frac(epslat,atposl(:,ia,is))
       call r3mv(avec,atposl(:,ia,is),atposc(:,ia,is))
     end do
   end do
@@ -188,16 +188,20 @@ end do
 if (tsyminv) then
   if (.not.tv0symc(2)) tsyminv=.false.
 end if
+lattice_shift=.false.
 if (natmtot.gt.0) then
   v1(:)=atposl(:,1,1)-v0(:)
   t1=abs(v1(1))+abs(v1(2))+abs(v1(3))
-  if (t1.gt.epslat.and.lwrite) then
-    write(*,'("Info(findsymcrys): atomic basis shift (lattice) :")')
-    write(*,'(3G18.10)') v1(:)
-    write(*,'("See geometry.dat for new atomic positions")')
+  if (t1.gt.epslat) then
+    lattice_shift=.true.
+    if (lwrite) then
+      write(*,'("Info(findsymcrys): atomic basis shift (lattice) :")')
+      write(*,'(3G18.10)') v1(:)
+      write(*,'("See geometry.dat for new atomic positions")')
+    end if
   end if
 end if
-deallocate(iea,vtl,apl)
+deallocate(iea,vtl,apl,ieqatom)
 return
 end subroutine
 !EOC

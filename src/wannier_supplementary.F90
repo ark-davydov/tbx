@@ -1,6 +1,7 @@
 module wannier_supplementary
-use modcom, only : throw,NDIM
+use modcom, only : throw,NDIM,twopi
 use parameters, only : CLpars
+use symmetryclass
 implicit none
 private
 integer, parameter :: maxallowd_orbs=46340
@@ -22,13 +23,16 @@ type, public :: wbase
    integer, allocatable :: norb_ic(:)
    integer, allocatable :: orb_icio(:,:)
    integer, allocatable :: icio_orb(:,:)
+   integer, allocatable :: ics2c(:,:)
+   real(dp), allocatable :: vcs2t(:,:,:)
    real(dp), allocatable :: waxis(:,:,:)
    real(dp), allocatable :: centers(:,:)
    real(dp), allocatable :: centers_cart(:,:)
    contains 
    procedure :: init
+   procedure :: init_smap
    procedure :: wws
-   procedure :: wws_full
+   procedure, nopass :: wws_full
 endtype
 
 contains
@@ -43,7 +47,6 @@ real(dp), optional, intent(in) :: waxis(NDIM,2,norb)
 real(dp), optional, intent(in) :: centers(NDIM,ncenters)
 ! local
 integer iorb,ic,ios
-integer iat,ispec
 THIS%ncenters=ncenters
 allocate(THIS%norb_ic(ncenters))
 THIS%norb_ic=norb_ic
@@ -85,6 +88,60 @@ do ic=1,THIS%ncenters
 end do
 end subroutine
 
+subroutine init_smap(THIS,sym,pars)
+class(wbase), intent(inout) :: THIS
+class(CLsym), intent(in) :: sym
+class(CLpars), intent(in) :: pars
+integer isym,ic,jc
+logical lfound(THIS%ncenters)
+real(dp) v1(NDIM),v2(NDIM),v3(NDIM),v4(NDIM)
+allocate(THIS%ics2c(THIS%ncenters,sym%nsym))
+THIS%ics2c=-999
+!write(*,"(a,i5)") "  Number of symmetry operators = ", sym%nsym
+do isym=1,sym%nsym
+!  write(*,"(2x,i5,a)") isym, "-th symmetry operators is"
+  !Writing rotation matrix and translation vector in Cartesian (QE units) coordinates
+!  write(*,"(3f15.7)") &
+!     sym%car(:,:,isym), sym%vtc(:,isym)/sqrt(sum(pars%avec(1,:)**2))
+  lfound=.false.
+  do ic=1,THIS%ncenters
+    v1=THIS%centers_cart(:,ic)
+    v2=matmul(sym%car(:,:,isym),v1+sym%vtc(:,isym))
+    do jc=1,THIS%ncenters
+      if(lfound(jc)) cycle
+      v3=THIS%centers_cart(:,jc)
+      v4=matmul(pars%bvec,v3-v2)/twopi
+      if(sum(abs(dble(nint(v4))-v4)).lt.1d-2) then
+         lfound(jc)=.true.
+         THIS%ics2c(ic,isym)=jc
+         exit !Sym.op.(isym) moves position(ips2p(ip,isym)) to position(ip) + T, where
+      end if                                       !T is given by vps2t(:,ip,isym).
+    end do
+    if(THIS%ics2c(ic,isym).le.0) then
+       write(*,"(a,3f18.10)")"  Could not find ",matmul(pars%bvec,v2)/twopi
+       write(*,"(a,3f18.10)")"  coming from    ",matmul(pars%bvec,v1)/twopi
+       write(*,"(a,i5,a               )")"  of Wannier site",ic,"."
+       write(*,"(a,i5,a               )")"  symmetry ",isym,"."
+       write(*,"(3F10.6)") sym%car(1,:,isym)
+       write(*,"(3F10.6)") sym%car(2,:,isym)
+       write(*,"(3F10.6)") sym%car(3,:,isym)
+       call throw("wannier_supplemetart%init_smap", "missing Wannier sites")
+    end if
+  end do
+end do
+allocate(THIS%vcs2t(NDIM,THIS%ncenters,sym%nsym))
+THIS%vcs2t=0._dp
+do isym=1,sym%nsym
+  do ic=1,THIS%ncenters
+    v1=THIS%centers_cart(:,ic)
+    jc=THIS%ics2c(ic,isym)
+    v2=THIS%centers_cart(:,jc)
+    v3=matmul(v2,sym%car(:,:,isym))-sym%vtc(:,isym)
+    THIS%vcs2t(:,ic,isym)=v3-v1
+  end do
+end do
+end subroutine
+
 real(dp) function wws(THIS,sr,iorb,jorb)
 class(wbase), intent(in) :: THIS
 real(dp), intent(in) :: sr(3,3)
@@ -100,18 +157,18 @@ xaxis1=THIS%waxis(:,1,iorb)
 xaxis2=THIS%waxis(:,1,jorb)
 zaxis1=THIS%waxis(:,2,iorb)
 zaxis2=THIS%waxis(:,2,jorb)
-wws=wws_full(THIS,sr,l_w1,mr_w1,l_w2,mr_w2,xaxis1,zaxis1,xaxis2,zaxis2)
+wws=wws_full(sr,l_w1,mr_w1,l_w2,mr_w2,xaxis1,zaxis1,xaxis2,zaxis2)
 end function
 
-real(dp) function wws_full(THIS,sr,l_w1,mr_w1,l_w2,mr_w2,xaxis1,zaxis1,xaxis2,zaxis2)
-class(wbase), intent(in) :: THIS
+
+real(dp) function wws_full(sr,l_w1,mr_w1,l_w2,mr_w2,xaxis1,zaxis1,xaxis2,zaxis2)
 real(dp), intent(in) :: sr(3,3)
 integer, intent(in) ::  l_w1,mr_w1,l_w2,mr_w2
 real(dp), intent(in) :: xaxis1(3),zaxis1(3),xaxis2(3),zaxis2(3)
 ! local
 real(dp), parameter :: pwg(2)=(/2.976190476190479d-2,3.214285714285711d-2/)
-integer ip,jp,ir
-real(DP) dvec(3,32),dwgt(32),dvec2(3,32),dmat(3,3),dylm(32,5),vaxis1(3,3),vaxis2(3,3)
+integer ip,ir
+real(DP) dvec(3,32),dwgt(32),dvec2(3,32),dylm(32,5),vaxis1(3,3),vaxis2(3,3)
 real(dp), parameter :: p12(3,12)=reshape(                            &
    (/0d0, 0d0, 1.00000000000000d0,                                   &
      0.894427190999916d0, 0d0, 0.447213595499958d0,                  &
@@ -261,22 +318,22 @@ SUBROUTINE ylm_wannier(ylm,l,mr,r,nr)
 
 
       IF (l==0) THEN   ! s orbital
-                    ylm(ir) = s(cost,phi)
+                    ylm(ir) = s()
       ENDIF
       IF (l==1) THEN   ! p orbitals
-         IF (mr==1) ylm(ir) = p_z(cost,phi)
+         IF (mr==1) ylm(ir) = p_z(cost)
          IF (mr==2) ylm(ir) = px(cost,phi)
          IF (mr==3) ylm(ir) = py(cost,phi)
       ENDIF
       IF (l==2) THEN   ! d orbitals
-         IF (mr==1) ylm(ir) = dz2(cost,phi)
+         IF (mr==1) ylm(ir) = dz2(cost)
          IF (mr==2) ylm(ir) = dxz(cost,phi)
          IF (mr==3) ylm(ir) = dyz(cost,phi)
          IF (mr==4) ylm(ir) = dx2my2(cost,phi)
          IF (mr==5) ylm(ir) = dxy(cost,phi)
       ENDIF
       IF (l==3) THEN   ! f orbitals
-         IF (mr==1) ylm(ir) = fz3(cost,phi)
+         IF (mr==1) ylm(ir) = fz3(cost)
          IF (mr==2) ylm(ir) = fxz2(cost,phi)
          IF (mr==3) ylm(ir) = fyz2(cost,phi)
          IF (mr==4) ylm(ir) = fzx2my2(cost,phi)
@@ -285,34 +342,34 @@ SUBROUTINE ylm_wannier(ylm,l,mr,r,nr)
          IF (mr==7) ylm(ir) = fy3x2my2(cost,phi)
       ENDIF
       IF (l==-1) THEN  !  sp hybrids
-         IF (mr==1) ylm(ir) = bs2 * ( s(cost,phi) + px(cost,phi) )
-         IF (mr==2) ylm(ir) = bs2 * ( s(cost,phi) - px(cost,phi) )
+         IF (mr==1) ylm(ir) = bs2 * ( s() + px(cost,phi) )
+         IF (mr==2) ylm(ir) = bs2 * ( s() - px(cost,phi) )
       ENDIF
       IF (l==-2) THEN  !  sp2 hybrids
-         IF (mr==1) ylm(ir) = bs3*s(cost,phi)-bs6*px(cost,phi)+bs2*py(cost,phi)
-         IF (mr==2) ylm(ir) = bs3*s(cost,phi)-bs6*px(cost,phi)-bs2*py(cost,phi)
-         IF (mr==3) ylm(ir) = bs3*s(cost,phi) +2.d0*bs6*px(cost,phi)
+         IF (mr==1) ylm(ir) = bs3*s()-bs6*px(cost,phi)+bs2*py(cost,phi)
+         IF (mr==2) ylm(ir) = bs3*s()-bs6*px(cost,phi)-bs2*py(cost,phi)
+         IF (mr==3) ylm(ir) = bs3*s() +2.d0*bs6*px(cost,phi)
       ENDIF
       IF (l==-3) THEN  !  sp3 hybrids
-         IF (mr==1) ylm(ir) = 0.5d0*(s(cost,phi)+px(cost,phi)+py(cost,phi)+p_z(cost,phi))
-         IF (mr==2) ylm(ir) = 0.5d0*(s(cost,phi)+px(cost,phi)-py(cost,phi)-p_z(cost,phi))
-         IF (mr==3) ylm(ir) = 0.5d0*(s(cost,phi)-px(cost,phi)+py(cost,phi)-p_z(cost,phi))
-         IF (mr==4) ylm(ir) = 0.5d0*(s(cost,phi)-px(cost,phi)-py(cost,phi)+p_z(cost,phi))
+         IF (mr==1) ylm(ir) = 0.5d0*(s()+px(cost,phi)+py(cost,phi)+p_z(cost))
+         IF (mr==2) ylm(ir) = 0.5d0*(s()+px(cost,phi)-py(cost,phi)-p_z(cost))
+         IF (mr==3) ylm(ir) = 0.5d0*(s()-px(cost,phi)+py(cost,phi)-p_z(cost))
+         IF (mr==4) ylm(ir) = 0.5d0*(s()-px(cost,phi)-py(cost,phi)+p_z(cost))
       ENDIF
       IF (l==-4) THEN  !  sp3d hybrids
-         IF (mr==1) ylm(ir) = bs3*s(cost,phi)-bs6*px(cost,phi)+bs2*py(cost,phi)
-         IF (mr==2) ylm(ir) = bs3*s(cost,phi)-bs6*px(cost,phi)-bs2*py(cost,phi)
-         IF (mr==3) ylm(ir) = bs3*s(cost,phi) +2.d0*bs6*px(cost,phi)
-         IF (mr==4) ylm(ir) = bs2*p_z(cost,phi)+bs2*dz2(cost,phi)
-         IF (mr==5) ylm(ir) =-bs2*p_z(cost,phi)+bs2*dz2(cost,phi)
+         IF (mr==1) ylm(ir) = bs3*s()-bs6*px(cost,phi)+bs2*py(cost,phi)
+         IF (mr==2) ylm(ir) = bs3*s()-bs6*px(cost,phi)-bs2*py(cost,phi)
+         IF (mr==3) ylm(ir) = bs3*s() +2.d0*bs6*px(cost,phi)
+         IF (mr==4) ylm(ir) = bs2*p_z(cost)+bs2*dz2(cost)
+         IF (mr==5) ylm(ir) =-bs2*p_z(cost)+bs2*dz2(cost)
       ENDIF
       IF (l==-5) THEN  ! sp3d2 hybrids
-         IF (mr==1) ylm(ir) = bs6*s(cost,phi)-bs2*px(cost,phi)-bs12*dz2(cost,phi)+.5d0*dx2my2(cost,phi)
-         IF (mr==2) ylm(ir) = bs6*s(cost,phi)+bs2*px(cost,phi)-bs12*dz2(cost,phi)+.5d0*dx2my2(cost,phi)
-         IF (mr==3) ylm(ir) = bs6*s(cost,phi)-bs2*py(cost,phi)-bs12*dz2(cost,phi)-.5d0*dx2my2(cost,phi)
-         IF (mr==4) ylm(ir) = bs6*s(cost,phi)+bs2*py(cost,phi)-bs12*dz2(cost,phi)-.5d0*dx2my2(cost,phi)
-         IF (mr==5) ylm(ir) = bs6*s(cost,phi)-bs2*p_z(cost,phi)+bs3*dz2(cost,phi)
-         IF (mr==6) ylm(ir) = bs6*s(cost,phi)+bs2*p_z(cost,phi)+bs3*dz2(cost,phi)
+         IF (mr==1) ylm(ir) = bs6*s()-bs2*px(cost,phi)-bs12*dz2(cost)+.5d0*dx2my2(cost,phi)
+         IF (mr==2) ylm(ir) = bs6*s()+bs2*px(cost,phi)-bs12*dz2(cost)+.5d0*dx2my2(cost,phi)
+         IF (mr==3) ylm(ir) = bs6*s()-bs2*py(cost,phi)-bs12*dz2(cost)-.5d0*dx2my2(cost,phi)
+         IF (mr==4) ylm(ir) = bs6*s()+bs2*py(cost,phi)-bs12*dz2(cost)-.5d0*dx2my2(cost,phi)
+         IF (mr==5) ylm(ir) = bs6*s()-bs2*p_z(cost)+bs3*dz2(cost)
+         IF (mr==6) ylm(ir) = bs6*s()+bs2*p_z(cost)+bs3*dz2(cost)
       ENDIF
 
    ENDDO
@@ -322,13 +379,12 @@ SUBROUTINE ylm_wannier(ylm,l,mr,r,nr)
 END SUBROUTINE ylm_wannier
 
 !======== l = 0 =====================================================================
-real(DP) FUNCTION s(cost,phi)
-   real(DP) :: cost,phi
+real(DP) FUNCTION s()
    s = 1.d0/ sqrt(fpi)
 END FUNCTION s
 !======== l = 1 =====================================================================
-FUNCTION p_z(cost,phi)
-   real(DP) ::p_z, cost,phi
+FUNCTION p_z(cost)
+   real(DP) ::p_z, cost
    p_z =  sqrt(3.d0/fpi) * cost
 END FUNCTION p_z
 FUNCTION px(cost,phi)
@@ -342,8 +398,8 @@ FUNCTION py(cost,phi)
    py =  sqrt(3.d0/fpi) * sint * sin(phi)
 END FUNCTION py
 !======== l = 2 =====================================================================
-FUNCTION dz2(cost,phi)
-   real(DP) ::dz2, cost, phi
+FUNCTION dz2(cost)
+   real(DP) ::dz2, cost
    dz2 =  sqrt(1.25d0/fpi) * (3.d0* cost*cost-1.d0)
 END FUNCTION dz2
 FUNCTION dxz(cost,phi)
@@ -367,8 +423,8 @@ FUNCTION dxy(cost,phi)
    dxy =  sqrt(3.75d0/fpi) * sint*sint * sin(2.d0*phi)
 END FUNCTION dxy
 !======== l = 3 =====================================================================
-FUNCTION fz3(cost,phi)
-   real(DP) ::fz3, cost, phi
+FUNCTION fz3(cost)
+   real(DP) ::fz3, cost
    fz3 =  0.25d0*sqrt(7.d0/pi) * ( 5.d0 * cost * cost - 3.d0 ) * cost
 END FUNCTION fz3
 FUNCTION fxz2(cost,phi)
@@ -405,56 +461,56 @@ END FUNCTION fy3x2my2
 !
 !
 !-----------------------------------------------------------------------
-SUBROUTINE radialpart(omega,ng, q, alfa, rvalue, lmax, radial)
-  !-----------------------------------------------------------------------
-  !
-  ! This routine computes a table with the radial Fourier transform
-  ! of the radial functions.
-  !
-  !
-  ! I/O
-  INTEGER :: ng, rvalue, lmax
-  real(DP) :: omega, q(ng), alfa, radial(ng,0:lmax)
-  ! local variables
-  real(DP), PARAMETER :: xmin=-6.d0, dx=0.025d0, rmax=10.d0
-
-  real(DP) :: rad_int, pref, x
-  INTEGER :: l, ir, ig, mesh_r
-  real(DP), ALLOCATABLE :: bes(:), func_r(:), r(:), rij(:), aux(:)
-
-  mesh_r = nint ( ( log ( rmax ) - xmin ) / dx + 1 )
-  ALLOCATE ( bes(mesh_r), func_r(mesh_r), r(mesh_r), rij(mesh_r) )
-  ALLOCATE ( aux(mesh_r))
-  !
-  !    compute the radial mesh
-  !
-  DO ir = 1, mesh_r
-     x = xmin  + dble (ir - 1) * dx
-     r (ir) = exp (x) / alfa
-     rij (ir) = dx  * r (ir)
-  ENDDO
-  !
-  IF (rvalue==1) func_r(:) = 2.d0 * alfa**(3.d0/2.d0) * exp(-alfa*r(:))
-  IF (rvalue==2) func_r(:) = 1.d0/sqrt(8.d0) * alfa**(3.d0/2.d0) * &
-                     (2.0d0 - alfa*r(:)) * exp(-alfa*r(:)*0.5d0)
-  IF (rvalue==3) func_r(:) = sqrt(4.d0/27.d0) * alfa**(3.0d0/2.0d0) * &
-                     (1.d0 - 2.0d0/3.0d0*alfa*r(:) + 2.d0*(alfa*r(:))**2/27.d0) * &
-                                           exp(-alfa*r(:)/3.0d0)
-  pref = fpi/sqrt(omega)
-  !
-  DO l = 0, lmax
-     DO ig=1,ng
-       CALL sph_bes (mesh_r, r(1), q(ig), l, bes)
-       aux(:) = bes(:) * func_r(:) * r(:) * r(:)
-       ! second r factor added upo suggestion by YY Liang
-       CALL simpson (mesh_r, aux, rij, rad_int)
-       radial(ig,l) = rad_int * pref
-     ENDDO
-  ENDDO
-
-  DEALLOCATE (bes, func_r, r, rij, aux )
-  RETURN
-END SUBROUTINE radialpart
+!SUBROUTINE radialpart(omega,ng, q, alfa, rvalue, lmax, radial)
+!  !-----------------------------------------------------------------------
+!  !
+!  ! This routine computes a table with the radial Fourier transform
+!  ! of the radial functions.
+!  !
+!  !
+!  ! I/O
+!  INTEGER :: ng, rvalue, lmax
+!  real(DP) :: omega, q(ng), alfa, radial(ng,0:lmax)
+!  ! local variables
+!  real(DP), PARAMETER :: xmin=-6.d0, dx=0.025d0, rmax=10.d0
+!
+!  real(DP) :: rad_int, pref, x
+!  INTEGER :: l, ir, ig, mesh_r
+!  real(DP), ALLOCATABLE :: bes(:), func_r(:), r(:), rij(:), aux(:)
+!
+!  mesh_r = nint ( ( log ( rmax ) - xmin ) / dx + 1 )
+!  ALLOCATE ( bes(mesh_r), func_r(mesh_r), r(mesh_r), rij(mesh_r) )
+!  ALLOCATE ( aux(mesh_r))
+!  !
+!  !    compute the radial mesh
+!  !
+!  DO ir = 1, mesh_r
+!     x = xmin  + dble (ir - 1) * dx
+!     r (ir) = exp (x) / alfa
+!     rij (ir) = dx  * r (ir)
+!  ENDDO
+!  !
+!  IF (rvalue==1) func_r(:) = 2.d0 * alfa**(3.d0/2.d0) * exp(-alfa*r(:))
+!  IF (rvalue==2) func_r(:) = 1.d0/sqrt(8.d0) * alfa**(3.d0/2.d0) * &
+!                     (2.0d0 - alfa*r(:)) * exp(-alfa*r(:)*0.5d0)
+!  IF (rvalue==3) func_r(:) = sqrt(4.d0/27.d0) * alfa**(3.0d0/2.0d0) * &
+!                     (1.d0 - 2.0d0/3.0d0*alfa*r(:) + 2.d0*(alfa*r(:))**2/27.d0) * &
+!                                           exp(-alfa*r(:)/3.0d0)
+!  pref = fpi/sqrt(omega)
+!  !
+!  DO l = 0, lmax
+!     DO ig=1,ng
+!       CALL sph_bes (mesh_r, r(1), q(ig), l, bes)
+!       aux(:) = bes(:) * func_r(:) * r(:) * r(:)
+!       ! second r factor added upo suggestion by YY Liang
+!       CALL simpson (mesh_r, aux, rij, rad_int)
+!       radial(ig,l) = rad_int * pref
+!     ENDDO
+!  ENDDO
+!
+!  DEALLOCATE (bes, func_r, r, rij, aux )
+!  RETURN
+!END SUBROUTINE radialpart
 
 !
 ! Copyright (C) 2001-2007 Quantum ESPRESSO group
@@ -465,241 +521,241 @@ END SUBROUTINE radialpart
 !
 !
 !--------------------------------------------------------------------
-subroutine sph_bes (msh, r, q, l, jl)
-  !--------------------------------------------------------------------
-  !
-  ! ... input:
-  ! ...   msh     = number of grid points points
-  ! ...   r(1:msh)= radial grid
-  ! ...   q       = q
-  ! ...   l       = angular momentum (-1 <= l <= 6)
-  ! ... output:
-  ! ...   jl(1:msh) = j_l(q*r(i))  (j_l = spherical bessel function)
-  !
-  !
-  !
-  integer :: msh, l
-  real(DP) :: r (msh), q, jl (msh)
-  !
-  ! xseries = convergence radius of the series for small x of j_l(x)
-  real(DP) :: x, xl, xseries = 0.05_dp
-  integer :: ir, ir0
-  !
-#if defined (__MASS)
-  real(DP) :: qr(msh), sin_qr(msh), cos_qr(msh)
-#endif
- 
-  !  case q=0
-
-  if (abs (q) < eps14) then
-     if (l == -1) then
-        call throw ('sph_bes', 'j_{-1}(0) ?!?')
-     elseif (l == 0) then
-        jl(:) = 1.d0
-     else
-        jl(:) = 0.d0
-     endif
-     return
-  end if 
-
-  !  case l=-1
-
-  if (l == - 1) then
-     if (abs (q * r (1) ) < eps14) call throw ('sph_bes', 'j_{-1}(0) ?!?')
-
-#if defined (__MASS)
-
-     qr = q * r
-     call vcos( cos_qr, qr, msh)
-     jl = cos_qr / qr
-
-#else
-
-     jl (:) = cos (q * r (:) ) / (q * r (:) )
-
-#endif
-
-     return
-
-  end if
-
-  ! series expansion for small values of the argument
-  ! ir0 is the first grid point for which q*r(ir0) > xseries
-  ! notice that for small q it may happen that q*r(msh) < xseries !
-
-  ir0 = msh+1
-  do ir = 1, msh
-     if ( abs (q * r (ir) ) > xseries ) then
-        ir0 = ir
-        exit
-     end if
-  end do
-
-  do ir = 1, ir0 - 1
-     x = q * r (ir)
-     if ( l == 0 ) then
-        xl = 1.0_dp
-     else
-        xl = x**l
-     end if
-     jl (ir) = xl/semifact(2*l+1) * &
-                ( 1.0_dp - x**2/1.0_dp/2.0_dp/(2.0_dp*l+3) * &
-                ( 1.0_dp - x**2/2.0_dp/2.0_dp/(2.0_dp*l+5) * &
-                ( 1.0_dp - x**2/3.0_dp/2.0_dp/(2.0_dp*l+7) * &
-                ( 1.0_dp - x**2/4.0_dp/2.0_dp/(2.0_dp*l+9) ) ) ) )
-  end do
-
-  ! the following shouldn't be needed but do you trust compilers
-  ! to do the right thing in this special case ? I don't - PG
-
-  if ( ir0 > msh ) return
-
-  if (l == 0) then
-
-#if defined (__MASS)
-
-     qr = q * r
-     call vsin( sin_qr, qr, msh)
-     jl (ir0:) = sin_qr(ir0:) / (q * r (ir0:) )
-
-#else
-
-     jl (ir0:) = sin (q * r (ir0:) ) / (q * r (ir0:) )
-
-#endif
-
-  elseif (l == 1) then
-
-#if defined (__MASS)
-
-     qr = q * r
-     call vcos( cos_qr, qr, msh)
-     call vsin( sin_qr, qr, msh)
-     jl (ir0:) = ( sin_qr(ir0:) / (q * r (ir0:) ) - &
-                   cos_qr(ir0:) ) / (q * r (ir0:) )
-
-#else
-
-     jl (ir0:) = (sin (q * r (ir0:) ) / (q * r (ir0:) ) - &
-                  cos (q * r (ir0:) ) ) / (q * r (ir0:) )
-
-#endif
-
-  elseif (l == 2) then
-
-#if defined (__MASS)
-
-     qr = q * r
-     call vcos( cos_qr, qr, msh)
-     call vsin( sin_qr, qr, msh)
-     jl (ir0:) = ( (3.d0 / (q*r(ir0:)) - (q*r(ir0:)) ) * sin_qr(ir0: ) - &
-                    3.d0 * cos_qr(ir0:) ) / (q*r(ir0:))**2
-
-#else
-
-     jl (ir0:) = ( (3.d0 / (q*r(ir0:)) - (q*r(ir0:)) ) * sin (q*r(ir0:)) - &
-                    3.d0 * cos (q*r(ir0:)) ) / (q*r(ir0:))**2
-
-#endif
-
-  elseif (l == 3) then
-
-#if defined (__MASS)
-
-     qr = q * r
-     call vcos( cos_qr, qr, msh)
-     call vsin( sin_qr, qr, msh)
-     jl (ir0:) = (sin_qr (ir0:) * &
-                  (15.d0 / (q*r(ir0:)) - 6.d0 * (q*r(ir0:)) ) + &
-                  cos_qr (ir0:) * ( (q*r(ir0:))**2 - 15.d0) ) / &
-                  (q*r(ir0:))**3
-
-#else
-
-     jl (ir0:) = (sin (q*r(ir0:)) * &
-                  (15.d0 / (q*r(ir0:)) - 6.d0 * (q*r(ir0:)) ) + &
-                  cos (q*r(ir0:)) * ( (q*r(ir0:))**2 - 15.d0) ) / &
-                  (q*r(ir0:)) **3
-
-#endif
-
-  elseif (l == 4) then
-
-#if defined (__MASS)
-
-     qr = q * r
-     call vcos( cos_qr, qr, msh)
-     call vsin( sin_qr, qr, msh)
-     jl (ir0:) = (sin_qr (ir0:) * &
-                  (105.d0 - 45.d0 * (q*r(ir0:))**2 + (q*r(ir0:))**4) + &
-                  cos_qr (ir0:) * &
-                  (10.d0 * (q*r(ir0:))**3 - 105.d0 * (q*r(ir0:))) ) / &
-                    (q*r(ir0:))**5
-
-#else
-
-     jl (ir0:) = (sin (q*r(ir0:)) * &
-                  (105.d0 - 45.d0 * (q*r(ir0:))**2 + (q*r(ir0:))**4) + &
-                  cos (q*r(ir0:)) * &
-                  (10.d0 * (q*r(ir0:))**3 - 105.d0 * (q*r(ir0:))) ) / &
-                     (q*r(ir0:))**5
-#endif
-
-  elseif (l == 5) then
-
-#if defined (__MASS)
-     qr = q * r
-     call vcos( cos_qr, qr, msh)
-     call vsin( sin_qr, qr, msh)
-     jl (ir0:) = (-cos_qr(ir0:) - &
-                  (945.d0*cos_qr(ir0:)) / (q*r(ir0:)) ** 4 + &
-                  (105.d0*cos_qr(ir0:)) / (q*r(ir0:)) ** 2 + &
-                  (945.d0*sin_qr(ir0:)) / (q*r(ir0:)) ** 5 - &
-                  (420.d0*sin_qr(ir0:)) / (q*r(ir0:)) ** 3 + &
-                  ( 15.d0*sin_qr(ir0:)) / (q*r(ir0:)) ) / (q*r(ir0:))
-#else
-     jl (ir0:) = (-cos(q*r(ir0:)) - &
-                  (945.d0*cos(q*r(ir0:))) / (q*r(ir0:)) ** 4 + &
-                  (105.d0*cos(q*r(ir0:))) / (q*r(ir0:)) ** 2 + &
-                  (945.d0*sin(q*r(ir0:))) / (q*r(ir0:)) ** 5 - &
-                  (420.d0*sin(q*r(ir0:))) / (q*r(ir0:)) ** 3 + &
-                  ( 15.d0*sin(q*r(ir0:))) / (q*r(ir0:)) ) / (q*r(ir0:))
-#endif
-
-  elseif (l == 6) then
-
-#if defined (__MASS)
-
-     qr = q * r
-     call vcos( cos_qr, qr, msh)
-     call vsin( sin_qr, qr, msh)
-     jl (ir0:) = ((-10395.d0*cos_qr(ir0:)) / (q*r(ir0:))**5 + &
-                  (  1260.d0*cos_qr(ir0:)) / (q*r(ir0:))**3 - &
-                  (    21.d0*cos_qr(ir0:)) / (q*r(ir0:))    - &
-                             sin_qr(ir0:)                   + &
-                  ( 10395.d0*sin_qr(ir0:)) / (q*r(ir0:))**6 - &
-                  (  4725.d0*sin_qr(ir0:)) / (q*r(ir0:))**4 + &
-                  (   210.d0*sin_qr(ir0:)) / (q*r(ir0:))**2 ) / (q*r(ir0:))
-#else
-
-     jl (ir0:) = ((-10395.d0*cos(q*r(ir0:))) / (q*r(ir0:))**5 + &
-                  (  1260.d0*cos(q*r(ir0:))) / (q*r(ir0:))**3 - &
-                  (    21.d0*cos(q*r(ir0:))) / (q*r(ir0:))    - &
-                             sin(q*r(ir0:))                   + &
-                  ( 10395.d0*sin(q*r(ir0:))) / (q*r(ir0:))**6 - &
-                  (  4725.d0*sin(q*r(ir0:))) / (q*r(ir0:))**4 + &
-                  (   210.d0*sin(q*r(ir0:))) / (q*r(ir0:))**2 ) / (q*r(ir0:))
-#endif
-
-  else
-
-     call throw ('sph_bes', 'not implemented')
-
-  endif
-  !
-  return
-end subroutine sph_bes
-
+!subroutine sph_bes (msh, r, q, l, jl)
+!  !--------------------------------------------------------------------
+!  !
+!  ! ... input:
+!  ! ...   msh     = number of grid points points
+!  ! ...   r(1:msh)= radial grid
+!  ! ...   q       = q
+!  ! ...   l       = angular momentum (-1 <= l <= 6)
+!  ! ... output:
+!  ! ...   jl(1:msh) = j_l(q*r(i))  (j_l = spherical bessel function)
+!  !
+!  !
+!  !
+!  integer :: msh, l
+!  real(DP) :: r (msh), q, jl (msh)
+!  !
+!  ! xseries = convergence radius of the series for small x of j_l(x)
+!  real(DP) :: x, xl, xseries = 0.05_dp
+!  integer :: ir, ir0
+!  !
+!#if defined (__MASS)
+!  real(DP) :: qr(msh), sin_qr(msh), cos_qr(msh)
+!#endif
+! 
+!  !  case q=0
+!
+!  if (abs (q) < eps14) then
+!     if (l == -1) then
+!        call throw ('sph_bes', 'j_{-1}(0) ?!?')
+!     elseif (l == 0) then
+!        jl(:) = 1.d0
+!     else
+!        jl(:) = 0.d0
+!     endif
+!     return
+!  end if 
+!
+!  !  case l=-1
+!
+!  if (l == - 1) then
+!     if (abs (q * r (1) ) < eps14) call throw ('sph_bes', 'j_{-1}(0) ?!?')
+!
+!#if defined (__MASS)
+!
+!     qr = q * r
+!     call vcos( cos_qr, qr, msh)
+!     jl = cos_qr / qr
+!
+!#else
+!
+!     jl (:) = cos (q * r (:) ) / (q * r (:) )
+!
+!#endif
+!
+!     return
+!
+!  end if
+!
+!  ! series expansion for small values of the argument
+!  ! ir0 is the first grid point for which q*r(ir0) > xseries
+!  ! notice that for small q it may happen that q*r(msh) < xseries !
+!
+!  ir0 = msh+1
+!  do ir = 1, msh
+!     if ( abs (q * r (ir) ) > xseries ) then
+!        ir0 = ir
+!        exit
+!     end if
+!  end do
+!
+!  do ir = 1, ir0 - 1
+!     x = q * r (ir)
+!     if ( l == 0 ) then
+!        xl = 1.0_dp
+!     else
+!        xl = x**l
+!     end if
+!     jl (ir) = xl/semifact(2*l+1) * &
+!                ( 1.0_dp - x**2/1.0_dp/2.0_dp/(2.0_dp*l+3) * &
+!                ( 1.0_dp - x**2/2.0_dp/2.0_dp/(2.0_dp*l+5) * &
+!                ( 1.0_dp - x**2/3.0_dp/2.0_dp/(2.0_dp*l+7) * &
+!                ( 1.0_dp - x**2/4.0_dp/2.0_dp/(2.0_dp*l+9) ) ) ) )
+!  end do
+!
+!  ! the following shouldn't be needed but do you trust compilers
+!  ! to do the right thing in this special case ? I don't - PG
+!
+!  if ( ir0 > msh ) return
+!
+!  if (l == 0) then
+!
+!#if defined (__MASS)
+!
+!     qr = q * r
+!     call vsin( sin_qr, qr, msh)
+!     jl (ir0:) = sin_qr(ir0:) / (q * r (ir0:) )
+!
+!#else
+!
+!     jl (ir0:) = sin (q * r (ir0:) ) / (q * r (ir0:) )
+!
+!#endif
+!
+!  elseif (l == 1) then
+!
+!#if defined (__MASS)
+!
+!     qr = q * r
+!     call vcos( cos_qr, qr, msh)
+!     call vsin( sin_qr, qr, msh)
+!     jl (ir0:) = ( sin_qr(ir0:) / (q * r (ir0:) ) - &
+!                   cos_qr(ir0:) ) / (q * r (ir0:) )
+!
+!#else
+!
+!     jl (ir0:) = (sin (q * r (ir0:) ) / (q * r (ir0:) ) - &
+!                  cos (q * r (ir0:) ) ) / (q * r (ir0:) )
+!
+!#endif
+!
+!  elseif (l == 2) then
+!
+!#if defined (__MASS)
+!
+!     qr = q * r
+!     call vcos( cos_qr, qr, msh)
+!     call vsin( sin_qr, qr, msh)
+!     jl (ir0:) = ( (3.d0 / (q*r(ir0:)) - (q*r(ir0:)) ) * sin_qr(ir0: ) - &
+!                    3.d0 * cos_qr(ir0:) ) / (q*r(ir0:))**2
+!
+!#else
+!
+!     jl (ir0:) = ( (3.d0 / (q*r(ir0:)) - (q*r(ir0:)) ) * sin (q*r(ir0:)) - &
+!                    3.d0 * cos (q*r(ir0:)) ) / (q*r(ir0:))**2
+!
+!#endif
+!
+!  elseif (l == 3) then
+!
+!#if defined (__MASS)
+!
+!     qr = q * r
+!     call vcos( cos_qr, qr, msh)
+!     call vsin( sin_qr, qr, msh)
+!     jl (ir0:) = (sin_qr (ir0:) * &
+!                  (15.d0 / (q*r(ir0:)) - 6.d0 * (q*r(ir0:)) ) + &
+!                  cos_qr (ir0:) * ( (q*r(ir0:))**2 - 15.d0) ) / &
+!                  (q*r(ir0:))**3
+!
+!#else
+!
+!     jl (ir0:) = (sin (q*r(ir0:)) * &
+!                  (15.d0 / (q*r(ir0:)) - 6.d0 * (q*r(ir0:)) ) + &
+!                  cos (q*r(ir0:)) * ( (q*r(ir0:))**2 - 15.d0) ) / &
+!                  (q*r(ir0:)) **3
+!
+!#endif
+!
+!  elseif (l == 4) then
+!
+!#if defined (__MASS)
+!
+!     qr = q * r
+!     call vcos( cos_qr, qr, msh)
+!     call vsin( sin_qr, qr, msh)
+!     jl (ir0:) = (sin_qr (ir0:) * &
+!                  (105.d0 - 45.d0 * (q*r(ir0:))**2 + (q*r(ir0:))**4) + &
+!                  cos_qr (ir0:) * &
+!                  (10.d0 * (q*r(ir0:))**3 - 105.d0 * (q*r(ir0:))) ) / &
+!                    (q*r(ir0:))**5
+!
+!#else
+!
+!     jl (ir0:) = (sin (q*r(ir0:)) * &
+!                  (105.d0 - 45.d0 * (q*r(ir0:))**2 + (q*r(ir0:))**4) + &
+!                  cos (q*r(ir0:)) * &
+!                  (10.d0 * (q*r(ir0:))**3 - 105.d0 * (q*r(ir0:))) ) / &
+!                     (q*r(ir0:))**5
+!#endif
+!
+!  elseif (l == 5) then
+!
+!#if defined (__MASS)
+!     qr = q * r
+!     call vcos( cos_qr, qr, msh)
+!     call vsin( sin_qr, qr, msh)
+!     jl (ir0:) = (-cos_qr(ir0:) - &
+!                  (945.d0*cos_qr(ir0:)) / (q*r(ir0:)) ** 4 + &
+!                  (105.d0*cos_qr(ir0:)) / (q*r(ir0:)) ** 2 + &
+!                  (945.d0*sin_qr(ir0:)) / (q*r(ir0:)) ** 5 - &
+!                  (420.d0*sin_qr(ir0:)) / (q*r(ir0:)) ** 3 + &
+!                  ( 15.d0*sin_qr(ir0:)) / (q*r(ir0:)) ) / (q*r(ir0:))
+!#else
+!     jl (ir0:) = (-cos(q*r(ir0:)) - &
+!                  (945.d0*cos(q*r(ir0:))) / (q*r(ir0:)) ** 4 + &
+!                  (105.d0*cos(q*r(ir0:))) / (q*r(ir0:)) ** 2 + &
+!                  (945.d0*sin(q*r(ir0:))) / (q*r(ir0:)) ** 5 - &
+!                  (420.d0*sin(q*r(ir0:))) / (q*r(ir0:)) ** 3 + &
+!                  ( 15.d0*sin(q*r(ir0:))) / (q*r(ir0:)) ) / (q*r(ir0:))
+!#endif
+!
+!  elseif (l == 6) then
+!
+!#if defined (__MASS)
+!
+!     qr = q * r
+!     call vcos( cos_qr, qr, msh)
+!     call vsin( sin_qr, qr, msh)
+!     jl (ir0:) = ((-10395.d0*cos_qr(ir0:)) / (q*r(ir0:))**5 + &
+!                  (  1260.d0*cos_qr(ir0:)) / (q*r(ir0:))**3 - &
+!                  (    21.d0*cos_qr(ir0:)) / (q*r(ir0:))    - &
+!                             sin_qr(ir0:)                   + &
+!                  ( 10395.d0*sin_qr(ir0:)) / (q*r(ir0:))**6 - &
+!                  (  4725.d0*sin_qr(ir0:)) / (q*r(ir0:))**4 + &
+!                  (   210.d0*sin_qr(ir0:)) / (q*r(ir0:))**2 ) / (q*r(ir0:))
+!#else
+!
+!     jl (ir0:) = ((-10395.d0*cos(q*r(ir0:))) / (q*r(ir0:))**5 + &
+!                  (  1260.d0*cos(q*r(ir0:))) / (q*r(ir0:))**3 - &
+!                  (    21.d0*cos(q*r(ir0:))) / (q*r(ir0:))    - &
+!                             sin(q*r(ir0:))                   + &
+!                  ( 10395.d0*sin(q*r(ir0:))) / (q*r(ir0:))**6 - &
+!                  (  4725.d0*sin(q*r(ir0:))) / (q*r(ir0:))**4 + &
+!                  (   210.d0*sin(q*r(ir0:))) / (q*r(ir0:))**2 ) / (q*r(ir0:))
+!#endif
+!
+!  else
+!
+!     call throw ('sph_bes', 'not implemented')
+!
+!  endif
+!  !
+!  return
+!end subroutine sph_bes
+!
 integer function semifact(n)
   ! semifact(n) = n!!
   integer :: n, i
@@ -719,131 +775,132 @@ end function semifact
 ! or http://www.gnu.org/copyleft/gpl.txt .
 !
 !-----------------------------------------------------------------------
-SUBROUTINE simpson(mesh, func, rab, asum)
-  !-----------------------------------------------------------------------
-  !
-  !     simpson's rule integration. On input:
-  !       mesh = the number of grid points (should be odd)
-  !       func(i)= function to be integrated
-  !       rab(i) = r(i) * dr(i)/di * di
-  !     For the logarithmic grid not including r=0 :
-  !       r(i) = r_0*exp((i-1)*dx) ==> rab(i)=r(i)*dx
-  !     For the logarithmic grid including r=0 :
-  !       r(i) = a(exp((i-1)*dx)-1) ==> rab(i)=(r(i)+a)*dx
-  !     Output in asum = \sum_i c_i f(i)*rab(i) = \int_0^\infty f(r) dr
-  !     where c_i are alternativaly 2/3, 4/3 except c_1 = c_mesh = 1/3
-  !
-  INTEGER, INTENT(in) :: mesh
-  real(DP), INTENT(in) :: rab (mesh), func (mesh)
-  real(DP), INTENT(out):: asum
-  !
-  real(DP) :: f1, f2, f3, r12
-  INTEGER :: i
-  !
-  asum = 0.0d0
-  r12 = 1.0d0 / 3.0d0
-  f3 = func (1) * rab (1) * r12
-
-  DO i = 2, mesh - 1, 2
-     f1 = f3
-     f2 = func (i) * rab (i) * r12
-     f3 = func (i + 1) * rab (i + 1) * r12
-     asum = asum + f1 + 4.0d0 * f2 + f3
-  ENDDO
-  !
-  ! if mesh is not odd, use open formula instead:
-  ! ... 2/3*f(n-5) + 4/3*f(n-4) + 13/12*f(n-3) + 0*f(n-2) + 27/12*f(n-1)
-  !!! Under testing
-  !
-  !IF ( MOD(mesh,2) == 0 ) THEN
-  !   print *, 'mesh even: correction:', f1*5.d0/4.d0-4.d0*f2+23.d0*f3/4.d0, &
-  !                                      func(mesh)*rab(mesh), asum
-  !   asum = asum + f1*5.d0/4.d0 - 4.d0*f2 + 23.d0*f3/4.d0
-  !END IF
-
-  RETURN
-END SUBROUTINE simpson
+!SUBROUTINE simpson(mesh, func, rab, asum)
+!  !-----------------------------------------------------------------------
+!  !
+!  !     simpson's rule integration. On input:
+!  !       mesh = the number of grid points (should be odd)
+!  !       func(i)= function to be integrated
+!  !       rab(i) = r(i) * dr(i)/di * di
+!  !     For the logarithmic grid not including r=0 :
+!  !       r(i) = r_0*exp((i-1)*dx) ==> rab(i)=r(i)*dx
+!  !     For the logarithmic grid including r=0 :
+!  !       r(i) = a(exp((i-1)*dx)-1) ==> rab(i)=(r(i)+a)*dx
+!  !     Output in asum = \sum_i c_i f(i)*rab(i) = \int_0^\infty f(r) dr
+!  !     where c_i are alternativaly 2/3, 4/3 except c_1 = c_mesh = 1/3
+!  !
+!  INTEGER, INTENT(in) :: mesh
+!  real(DP), INTENT(in) :: rab (mesh), func (mesh)
+!  real(DP), INTENT(out):: asum
+!  !
+!  real(DP) :: f1, f2, f3, r12
+!  INTEGER :: i
+!  !
+!  asum = 0.0d0
+!  r12 = 1.0d0 / 3.0d0
+!  f3 = func (1) * rab (1) * r12
+!
+!  DO i = 2, mesh - 1, 2
+!     f1 = f3
+!     f2 = func (i) * rab (i) * r12
+!     f3 = func (i + 1) * rab (i + 1) * r12
+!     asum = asum + f1 + 4.0d0 * f2 + f3
+!  ENDDO
+!  !
+!  ! if mesh is not odd, use open formula instead:
+!  ! ... 2/3*f(n-5) + 4/3*f(n-4) + 13/12*f(n-3) + 0*f(n-2) + 27/12*f(n-1)
+!  !!! Under testing
+!  !
+!  !IF ( MOD(mesh,2) == 0 ) THEN
+!  !   print *, 'mesh even: correction:', f1*5.d0/4.d0-4.d0*f2+23.d0*f3/4.d0, &
+!  !                                      func(mesh)*rab(mesh), asum
+!  !   asum = asum + f1*5.d0/4.d0 - 4.d0*f2 + 23.d0*f3/4.d0
+!  !END IF
+!
+!  RETURN
+!END SUBROUTINE simpson
 
 !=-----------------------------------------------------------------------
-SUBROUTINE simpson_cp90( mesh, func, rab, asum )
-  !-----------------------------------------------------------------------
-  !
-  !    This routine computes the integral of a function defined on a
-  !    logaritmic mesh, by using the open simpson formula given on
-  !    pag. 109 of Numerical Recipes. In principle it is used to
-  !    perform integrals from zero to infinity. The first point of
-  !    the function should be the closest to zero but not the value
-  !    in zero. The formula used here automatically includes the
-  !    contribution from the zero point and no correction is required.
-  !
-  !    Input as "simpson". At least 8 integrating points are required.
-  !
-  !    last revised 12 May 1995 by Andrea Dal Corso
-  !
-  INTEGER, INTENT(in) :: mesh
-  real(DP), INTENT(in) :: rab (mesh), func (mesh)
-  real(DP), INTENT(out):: asum
-  !
-  real(DP) :: c(4)
-  INTEGER ::i
-  !
-  IF ( mesh < 8 ) CALL throw ('simpson_cp90','few mesh points')
-
-  c(1) = 109.0d0 / 48.d0
-  c(2) = -5.d0 / 48.d0
-  c(3) = 63.d0 / 48.d0
-  c(4) = 49.d0 / 48.d0
-
-  asum = ( func(1)*rab(1) + func(mesh  )*rab(mesh  ) )*c(1) &
-       + ( func(2)*rab(2) + func(mesh-1)*rab(mesh-1) )*c(2) &
-       + ( func(3)*rab(3) + func(mesh-2)*rab(mesh-2) )*c(3) &
-       + ( func(4)*rab(4) + func(mesh-3)*rab(mesh-3) )*c(4)
-  DO i=5,mesh-4
-     asum = asum + func(i)*rab(i)
-  ENDDO
-
-  RETURN
-END SUBROUTINE simpson_cp90
+!SUBROUTINE simpson_cp90( mesh, func, rab, asum )
+!  !-----------------------------------------------------------------------
+!  !
+!  !    This routine computes the integral of a function defined on a
+!  !    logaritmic mesh, by using the open simpson formula given on
+!  !    pag. 109 of Numerical Recipes. In principle it is used to
+!  !    perform integrals from zero to infinity. The first point of
+!  !    the function should be the closest to zero but not the value
+!  !    in zero. The formula used here automatically includes the
+!  !    contribution from the zero point and no correction is required.
+!  !
+!  !    Input as "simpson". At least 8 integrating points are required.
+!  !
+!  !    last revised 12 May 1995 by Andrea Dal Corso
+!  !
+!  INTEGER, INTENT(in) :: mesh
+!  real(DP), INTENT(in) :: rab (mesh), func (mesh)
+!  real(DP), INTENT(out):: asum
+!  !
+!  real(DP) :: c(4)
+!  INTEGER ::i
+!  !
+!  IF ( mesh < 8 ) CALL throw ('simpson_cp90','few mesh points')
+!
+!  c(1) = 109.0d0 / 48.d0
+!  c(2) = -5.d0 / 48.d0
+!  c(3) = 63.d0 / 48.d0
+!  c(4) = 49.d0 / 48.d0
+!
+!  asum = ( func(1)*rab(1) + func(mesh  )*rab(mesh  ) )*c(1) &
+!       + ( func(2)*rab(2) + func(mesh-1)*rab(mesh-1) )*c(2) &
+!       + ( func(3)*rab(3) + func(mesh-2)*rab(mesh-2) )*c(3) &
+!       + ( func(4)*rab(4) + func(mesh-3)*rab(mesh-3) )*c(4)
+!  DO i=5,mesh-4
+!     asum = asum + func(i)*rab(i)
+!  ENDDO
+!
+!  RETURN
+!END SUBROUTINE simpson_cp90
 !
 !-----------------------------------------------------------------------
-SUBROUTINE herman_skillman_int(mesh,func,rab,asum)
-!-----------------------------------------------------------------------
-  !     simpson rule integration for herman skillman mesh (obsolescent)
-  !     Input as in "simpson". BEWARE: "func" is overwritten!!!
-  !
-  INTEGER, INTENT(in) :: mesh
-  real(DP), INTENT(in) :: rab (mesh)
-  real(DP), INTENT(inout) :: func (mesh)
-  real(DP), INTENT(out):: asum
-  !
-  INTEGER :: i, j, k, i1, nblock
-  REAL(DP) :: a1, a2e, a2o, a2es
-  !
-  a1=0.0d0
-  a2e=0.0d0
-  asum=0.0d0
-  nblock=mesh/40
-  i=1
-  func(1)=0.0d0
-  DO j=1,nblock
-     DO k=1,20
-        i=i+2
-        i1=i-1
-        a2es=a2e
-        a2o=func(i1)/12.0d0
-        a2e=func(i)/12.0d0
-        a1=a1+5.0d0*a2es+8.0d0*a2o-a2e
-        func(i1)=asum+a1*rab(i1)
-        a1=a1-a2es+8.0d0*a2o+5.0d0*a2e
-        func(i)=asum+a1*rab(i)
-     ENDDO
-     asum=func(i)
-     a1=0.0d0
-  ENDDO
-  !
-  RETURN
-END SUBROUTINE herman_skillman_int
+!SUBROUTINE herman_skillman_int(mesh,func,rab,asum)
+!!-----------------------------------------------------------------------
+!  !     simpson rule integration for herman skillman mesh (obsolescent)
+!  !     Input as in "simpson". BEWARE: "func" is overwritten!!!
+!  !
+!  INTEGER, INTENT(in) :: mesh
+!  real(DP), INTENT(in) :: rab (mesh)
+!  real(DP), INTENT(inout) :: func (mesh)
+!  real(DP), INTENT(out):: asum
+!  !
+!  INTEGER :: i, j, k, i1, nblock
+!  REAL(DP) :: a1, a2e, a2o, a2es
+!  !
+!  a1=0.0d0
+!  a2e=0.0d0
+!  asum=0.0d0
+!  nblock=mesh/40
+!  i=1
+!  func(1)=0.0d0
+!  DO j=1,nblock
+!     DO k=1,20
+!        i=i+2
+!        i1=i-1
+!        a2es=a2e
+!        a2o=func(i1)/12.0d0
+!        a2e=func(i)/12.0d0
+!        a1=a1+5.0d0*a2es+8.0d0*a2o-a2e
+!        func(i1)=asum+a1*rab(i1)
+!        a1=a1-a2es+8.0d0*a2o+5.0d0*a2e
+!        func(i)=asum+a1*rab(i)
+!     ENDDO
+!     asum=func(i)
+!     a1=0.0d0
+!  ENDDO
+!  !
+!  RETURN
+!END SUBROUTINE herman_skillman_int
 
 
 
 end module
+

@@ -7,12 +7,12 @@ use modcom
 implicit none
 private
 logical :: atoms_block_found=.false.
+logical :: avec_block_found=.false.
 integer, parameter :: nmaxtasks=10
 integer, parameter :: nlines_max=100000
 !integer, parameter :: dp = SELECTED_REAL_KIND (15,300)
 type :: CLproj
   logical :: allocatd=.false.
-  logical :: shifted=.false.
   integer :: norb=0
   integer :: ncenters=0
   integer, allocatable :: iw2ic(:)
@@ -21,7 +21,7 @@ type :: CLproj
   real(dp), allocatable :: waxis(:,:,:)
   real(dp), allocatable :: centers(:,:)
   contains
-  procedure :: shift_centers
+  procedure :: write_base
 endtype 
 
 type, public :: CLpars
@@ -33,7 +33,7 @@ type, public :: CLpars
   character(len=100) :: sktype="sk"
   character(len=100) :: tbfile=""
   character(len=2) :: tbftype=""
-  logical :: shifted=.false.
+  logical :: symtshift=.true.
   logical :: writetb=.false.
   logical :: sparse=.false.
   integer :: geometry_index=0
@@ -68,8 +68,8 @@ type, public :: CLpars
   contains
   procedure :: init=>read_input
   procedure :: atmc=>calc_atmc
-  procedure :: shift_atml
   procedure :: write_geometry
+  procedure :: shift_all
 endtype CLpars
 
 contains
@@ -124,6 +124,7 @@ do iline=1,nlines_max
 
   ! real(read) and reciprocal (computed) lattice vectors
   else if (trim(block).eq."avec") then
+    avec_block_found=.true.
     read(arg,*,iostat=iostat) t1
     if (iostat.ne.0) call throw("paramters%read_input()","problem with avec's scale argument")
     do ii=1,NDIM
@@ -131,6 +132,7 @@ do iline=1,nlines_max
       read(50,*,iostat=iostat) THIS%avec(ii,:)
       if (iostat.ne.0) call throw("paramters%read_input()","problem with avec block")
       if(mp_mpi) write(*,'(i6,": ",5F10.6)') jline,THIS%avec(ii,:)
+      THIS%avec(ii,:)=THIS%avec(ii,:)*t1
     end do 
     tvec=THIS%avec
     call dmatrix_inverse(tvec,THIS%bvec,NDIM)
@@ -210,6 +212,13 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%rcut_nn
     if (iostat.ne.0) call throw("paramters%read_input()","problem with rcut_nn data")
     if (mp_mpi) write(*,'(i6,": ",F10.6)') jline,THIS%rcut_nn
+
+  ! symmetry analyser mode
+  else if (trim(block).eq."symtype") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%symtype
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with symtype data")
+    if (mp_mpi) write(*,'(i6,": ",i4)') jline,THIS%symtype
 
   ! gauss_sigma for smearing of the DOS, for example
   else if (trim(block).eq."gauss_sigma") then
@@ -392,6 +401,10 @@ if (mp_mpi) write(*,*)
 
 ! initialise basis for TB calculation
 if (trim(adjustl(THIS%geometry_source)).ne."") then
+   if (avec_block_found.or.atoms_block_found) then
+     call throw("parameters%read_input",&
+         "geometry library is not compatible with atoms or/and avec block")
+   end if
    if (THIS%base%allocatd) then
      call throw("parameters%read_input",&
          "base is already allocataed, either remove 'basis' block or use only geometry_library")
@@ -400,9 +413,9 @@ if (trim(adjustl(THIS%geometry_source)).ne."") then
       trim(adjustl(THIS%geometry_source)).ne."slg") then
       call throw("paramters%read_input()","unknown geometry structure option")
    end if
+   if (trim(adjustl(THIS%geometry_source)).eq.'tbg') THIS%symtshift=.false.
    
    ! exclude translation vectors from symmetry analyser it will take too long to compute that
-   THIS%symtype=2
    call geometry%init(THIS%geometry_index,THIS%geometry_source)
    if (allocated(THIS%nat_per_spec)) deallocate(THIS%nat_per_spec)
    if (allocated(THIS%atml)) deallocate(THIS%atml)
@@ -507,30 +520,54 @@ real(dp) vpc(NDIM)
 vpc=matmul(THIS%atml(:,iat,ispec),THIS%avec)
 end function
 
-subroutine shift_centers(THIS,shift)
-class(CLproj), intent(inout) :: THIS
-real(dp), intent(in) :: shift(NDIM)
-integer ic
-if (THIS%shifted) call throw("CLpars%CLproj%shift_centers","shift can be applied only onse")
-THIS%shifted=.true.
-do ic=1,THIS%ncenters
-  THIS%centers(:,ic)=THIS%centers(:,ic)+shift(:)
-  THIS%centers(:,ic)=THIS%centers(:,ic)-nint(THIS%centers(:,ic))
-end do
-end subroutine
-subroutine shift_atml(THIS,shift)
+!subroutine shift_centers(THIS,shift)
+!class(CLproj), intent(inout) :: THIS
+!real(dp), intent(in) :: shift(NDIM)
+!integer ic
+!if (THIS%shifted) call throw("CLpars%CLproj%shift_centers","shift can be applied only onse")
+!THIS%shifted=.true.
+!do ic=1,THIS%ncenters
+!  THIS%centers(:,ic)=THIS%centers(:,ic)+shift(:)
+!  THIS%centers(:,ic)=THIS%centers(:,ic)-nint(THIS%centers(:,ic))
+!end do
+!end subroutine
+
+subroutine shift_all(THIS,shift)
 class(CLpars), intent(inout) :: THIS
-real(dp), intent(in) :: shift(NDIM)
-integer ispec,iat
-if (THIS%shifted) call throw("CLpars%shift_atml","shift can be applied only onse")
-THIS%shifted=.true.
+real(dp), intent(in) :: shift(NDIM,THIS%nmaxatm_pspec,THIS%nspec)
+real(dp) dv(NDIM)
+integer ispec,iat,ic
+!if (THIS%shifted) call throw("CLpars%shift_atml","shift can be applied only onse")
+!THIS%shifted=.true.
 do ispec=1,THIS%nspec
   do iat=1,THIS%nat_per_spec(ispec)
-    THIS%atml(:,iat,ispec)=THIS%atml(:,iat,ispec)+shift(:)
-    THIS%atml(:,iat,ispec)=THIS%atml(:,iat,ispec)-nint(THIS%atml(:,iat,ispec))
+    if (THIS%proj%allocatd) then
+      do ic=1,THIS%proj%ncenters
+        dv=THIS%proj%centers(:,ic)-THIS%atml(:,iat,ispec)
+        if (sum(abs(dv)).lt.epslat) then
+          THIS%proj%centers(:,ic)=THIS%proj%centers(:,ic)+shift(:,iat,ispec)
+          go to 9
+        end if
+      end do
+      call throw("CLpars%shift_all","wannier porjection center not found or it is originally not at any atomic postion")
+      9 continue
+    end if
+    if (THIS%proj%allocatd) then
+      do ic=1,THIS%base%ncenters
+        dv=THIS%base%centers(:,ic)-THIS%atml(:,iat,ispec)
+        if (sum(abs(dv)).lt.epslat) then
+          THIS%base%centers(:,ic)=THIS%base%centers(:,ic)+shift(:,iat,ispec)
+          go to 10
+        end if
+      end do
+      call throw("CLpars%shift_all","center of basis function is not found or it is originally not at any atomic postion")
+      10 continue
+    end if
   end do
 end do
+THIS%atml=THIS%atml+shift
 end subroutine
+
 subroutine write_geometry(THIS)
 class(CLpars), intent(inout) :: THIS
 integer ii,ispec,iat
@@ -549,7 +586,25 @@ if (mp_mpi) then
     end do
   end do
   close(100)
-  write(*,*)
+end if
+end subroutine
+
+subroutine write_base(THIS,fname)
+class(CLproj), intent(inout) :: THIS
+character(len=*), intent(in) :: fname
+integer ic,io,iw
+! write atoms geometry to a file
+if (mp_mpi) then
+  iw=0
+  open(100,file=trim(adjustl(fname)),action="write")
+  do ic=1,THIS%ncenters
+    write(100,'(I4,3F10.6)') THIS%norb_ic(ic), THIS%centers(:,ic)
+    do io=1,THIS%norb_ic(ic)
+      iw=iw+1
+      write(100,'(2I3,x,6F10.6)')THIS%lmr(:,iw),THIS%waxis(:,1,iw),THIS%waxis(:,2,iw)
+    end do
+  end do
+  close(100)
 end if
 end subroutine
 

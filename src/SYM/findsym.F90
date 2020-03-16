@@ -63,13 +63,13 @@ do isym=1,nsymlat
 ! map apl1 coordinates to [0,1) and store in apl3
     do ia=1,natoms_arr(is)
       apl3(:,ia)=apl1(:,ia,is)
-      call r3fracz05(epslat,apl3(:,ia))
+      call r3frac(epslat,apl3(:,ia))
     end do
     do ja=1,natoms_arr(is)
 ! apply lattice symmetry to atomic positions
       v(:)=sl(:,1)*apl2(1,ja,is)+sl(:,2)*apl2(2,ja,is)+sl(:,3)*apl2(3,ja,is)
 ! map coordinates to [0,1)
-      call r3fracz05(epslat,v)
+      call r3frac(epslat,v)
 ! check if atomic positions are invariant
       do ia=1,natoms_arr(is)
         t1=abs(apl3(1,ia)-v(1))+abs(apl3(2,ia)-v(2))+abs(apl3(3,ia)-v(3))

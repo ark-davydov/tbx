@@ -23,7 +23,6 @@ real(dp), parameter :: pihalf=1.570796326794896557998981734272092580795288085937
 real(dp), parameter :: sqrtpi=1.77245385091_dp
 real(dp), parameter :: epslat=1.e-6_dp
 real(dp), parameter :: epsengy=1.e-6_dp
-real(dp) :: lattice_shift(NDIM)
 real(dp) :: graphene_lvec_length=2.46_dp
 real(dp) :: graphene_cc_distance=1.42_dp
 real(dp) :: tbg_aa_distance=3.60_dp

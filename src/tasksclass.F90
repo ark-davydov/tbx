@@ -68,16 +68,11 @@ complex(dp), allocatable :: evec(:,:)
 call message("  initialise symmetries ..")
 call message("")
 call sym%init(pars)
-! everytime after symmetry run, we have to consider a shift to a more symmetric place
-call pars%shift_atml(lattice_shift)
-if (pars%proj%allocatd) call pars%proj%shift_centers(lattice_shift)
-if (pars%base%allocatd) call pars%base%shift_centers(lattice_shift)
-call pars%write_geometry()
 ! init k-point path
 call kpath%init(pars%nvert,pars%np_per_vert,pars%vert,pars%bvec)
 call message("  initialise TB model ..")
 call message("")
-call tbmodel%init(pars,"SK")
+call tbmodel%init(pars,sym,"SK")
 allocate(eval(pars%nstates,kpath%npt))
 allocate(evec(tbmodel%norb_TB,pars%nstates))
 eval=0._dp
@@ -136,15 +131,11 @@ call message("  initialise symmetries ..")
 call message("")
 call sym%init(pars)
 ! everytime after symmetry run, we have to consider a shift to a more symmetric place
-call pars%shift_atml(lattice_shift)
-if (pars%proj%allocatd) call pars%proj%shift_centers(lattice_shift)
-if (pars%base%allocatd) call pars%base%shift_centers(lattice_shift)
-call pars%write_geometry()
 ! init k-grid
 call kgrid%init(pars%ngrid,pars%bvec,centered_kgrid,.true.)
 call message("  initialise TB model ..")
 call message("")
-call tbmodel%init(pars,"SK")
+call tbmodel%init(pars,sym,"SK")
 allocate(eval(pars%nstates,kgrid%npt))
 allocate(evec(tbmodel%norb_TB,pars%nstates))
 eval=0._dp
@@ -195,11 +186,7 @@ integer ie
 #endif
 call sym%init(pars)
 ! everytime after symmetry run, we have to consider a shift to a more symmetric place
-call pars%shift_atml(lattice_shift)
-if (pars%proj%allocatd) call pars%proj%shift_centers(lattice_shift)
-if (pars%base%allocatd) call pars%base%shift_centers(lattice_shift)
-call pars%write_geometry()
-call tbmodel%init(pars,"noham")
+call tbmodel%init(pars,sym,"noham")
 call kgrid%io(100,"_grid","read",pars,tbmodel%norb_TB)
 allocate(eval(pars%nstates,kgrid%npt))
 allocate(vkl(NDIM,kgrid%npt))
@@ -248,15 +235,11 @@ integer ie
 #endif
 call sym%init(pars)
 ! everytime after symmetry run, we have to consider a shift to a more symmetric place
-call pars%shift_atml(lattice_shift)
-if (pars%proj%allocatd) call pars%proj%shift_centers(lattice_shift)
-if (pars%base%allocatd) call pars%base%shift_centers(lattice_shift)
-call pars%write_geometry()
 if (trim(adjustl(opt)).ne."rpa") then
   call throw("CLtasks","unknown argument for the response function (only RPA is available via rpachi task)")
 end if
 ! initialise TB model, to have centers coordinates and other data
-call tbmodel%init(pars,"noham")
+call tbmodel%init(pars,sym,"noham")
 ! read the k-point grid on which eigenvales/eigenvectors are computed
 call kgrid%io(1000,"_grid","read",pars,tbmodel%norb_TB)
 ! In principle, we can have a different q-point grid for the RPA function,
@@ -322,13 +305,8 @@ type(CLsym) sym
 #endif
 ! generater spatial symmetries
 call sym%init(pars)
-! everytime after symmetry run, we have to consider a shift to a more symmetric place
-call pars%shift_atml(lattice_shift)
-if (pars%proj%allocatd) call pars%proj%shift_centers(lattice_shift)
-if (pars%base%allocatd) call pars%base%shift_centers(lattice_shift)
-call pars%write_geometry()
 ! initialise TB model, to have centers coordinates and other data
-call tbmodel%init(pars,"noham")
+call tbmodel%init(pars,sym,"noham")
 ! read the k-point grid on which eigenvales/eigenvectors are computed
 call kgrid%io(1000,"_grid","read",pars,tbmodel%norb_TB)
 ! init new kpath from input

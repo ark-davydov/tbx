@@ -13,6 +13,7 @@ implicit none
 private
 real(dp), parameter :: epsr=4.e-1_dp
 
+
 type, public :: CLwan
   integer :: nnk=0
   integer :: dis_num_iter=1000
@@ -70,19 +71,23 @@ class(GRID), intent(inout) :: kgrid
 complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
 ! local
 character(len=200) :: message
+integer iR,iw,jw
 integer iorb,jorb,ispec
 integer ipro,ic,jc,ios,l1,m1,l2,m2
-integer eps_plus_state_val,eps_plus_state_con
-integer  isym1,isym2,ik_gamma,ikg(NDIM+1)
+integer isym1,isym2,ik_gamma,ikg(NDIM+1)
+integer nr,pm_val(2),pm_con(2)
 type(wbase) proj
 real(dp) sigma
 real(dp) vpl(NDIM),x1(NDIM),x2(NDIM),z1(NDIM),z2(NDIM)
-complex(dp), allocatable :: wftrial(:,:)
-complex(dp), allocatable :: psi_gamma_Eplus(:)
-complex(dp), allocatable :: psi_gamma_Eminus(:)
+real(dp) t1,dd,dv(NDIM),dc(NDIM)
+!complex(dp), allocatable :: wf_t(:)
+complex(dp), allocatable :: wftrial(:,:,:)
+complex(dp), allocatable :: wws(:,:,:)
 call proj%init(pars,pars%proj%ncenters,pars%proj%norb,pars%proj%norb_ic,&
                    pars%proj%lmr,pars%proj%waxis,pars%proj%centers)
-allocate(wftrial(tbmodel%norb_TB,pars%proj%norb))
+call proj%init_smap(sym,pars)
+allocate(wws(proj%norb,proj%norb,sym%nsym))
+call kgrid%sym_init(sym)
 if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band') then
   if (NDIM.ne.3) call throw("wannier_interface%generate_trial_wavefunctions()","this subroutine assumes NDIM=3")
   if (pars%nstates.ne.4) call throw("wannier_interface%generate_trial_wavefunctions()",&
@@ -102,19 +107,16 @@ if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band') then
   ikg=kgrid%find(vpl)
   ik_gamma=ikg(NDIM+1)
   isym1=2
-  isym2=3
+  isym2=4
   if (mp_mpi) then
     write(message,*)"assiming isym=",isym1,"to be 2pi/3 rotation, 1,2 states=valence dublet states, 3,4=conduction"
     call info("CLwan%project",trim(message))
     write(message,*)"assiming isym=",isym2,"to be C2' from the paper, which generates w3 "
     call info("CLwan%project",trim(message))
   end if
-  eps_plus_state_val=eps_plus_dublet_state(tbmodel,pars,sym,isym1,1,2,evec(:,:,ik_gamma))
-  eps_plus_state_con=eps_plus_dublet_state(tbmodel,pars,sym,isym1,3,4,evec(:,:,ik_gamma))
-  allocate(psi_gamma_Eplus(tbmodel%norb_TB))
-  allocate(psi_gamma_Eminus(tbmodel%norb_TB))
-  psi_gamma_Eplus=0._dp
-  psi_gamma_Eminus=0._dp
+  pm_val=eps_pm_dublet_state(tbmodel,pars,kgrid,ik_gamma,sym,isym1,1,2,evec(:,:,ik_gamma))
+  pm_con=eps_pm_dublet_state(tbmodel,pars,kgrid,ik_gamma,sym,isym1,3,4,evec(:,:,ik_gamma))
+  allocate(wftrial(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt))
   do iorb=1,tbmodel%norb_TB
     ispec=tbmodel%orb_ispec(iorb)
     vpl=tbmodel%vplorb(iorb)
@@ -122,35 +124,70 @@ if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band') then
       ! top layer
       if (ispec.eq.1) then
         ! A-site
-        psi_gamma_Eplus(iorb)=evec(iorb,eps_plus_state_con,ik_gamma)
+        wftrial(iorb,1,1)=evec(iorb,pm_con(1),ik_gamma)
+        wftrial(iorb,2,1)=evec(iorb,pm_con(2),ik_gamma)
       else
         ! B-site
-        psi_gamma_Eminus(iorb)=evec(iorb,eps_plus_state_val,ik_gamma)
+        wftrial(iorb,1,1)=evec(iorb,pm_val(1),ik_gamma)
+        wftrial(iorb,2,1)=evec(iorb,pm_val(2),ik_gamma)
       end if 
     else
       ! bottom layer
       if (ispec.eq.1) then
         ! A-site
-        psi_gamma_Eminus(iorb)=evec(iorb,eps_plus_state_val,ik_gamma)
+        wftrial(iorb,1,1)=evec(iorb,pm_val(1),ik_gamma)
+        wftrial(iorb,2,1)=evec(iorb,pm_val(2),ik_gamma)
       else
         ! B-site
-        psi_gamma_Eplus(iorb)=evec(iorb,eps_plus_state_con,ik_gamma)
+        wftrial(iorb,1,1)=evec(iorb,pm_con(1),ik_gamma)
+        wftrial(iorb,2,1)=evec(iorb,pm_con(2),ik_gamma)
       end if 
     end if
   end do
-  wftrial(:,1)=psi_gamma_Eplus+psi_gamma_Eminus
-  wftrial(:,2)=conjg(wftrial(:,1))
-  wftrial(:,3)=wftrial(:,1)
-  call tbmodel%wfGtransform(pars,sym,isym2,wftrial(:,3))
-  wftrial(:,4)=conjg(wftrial(:,3))
+  ! sinse we are at gamme WF is the same at all UCells (we will compy values from wftrial(:,*,1) to everywhere)
+  call tbmodel%bloch_wf_transform(kgrid,ik_gamma,sym,isym2,wftrial(:,3,1),wftrial(:,1,1))
+  call tbmodel%bloch_wf_transform(kgrid,ik_gamma,sym,isym2,wftrial(:,4,1),wftrial(:,2,1))
+  do iR=2,tbmodel%rgrid%npt
+    wftrial(:,:,iR)=wftrial(:,:,iR-1)
+  end do
+  do iw=1,proj%norb
+    do jw=1,proj%norb
+      write(*,*) iw,jw,dot_product(wftrial(:,iw,1),wftrial(:,jw,1))
+    end do
+  end do
   ! 0.7 of lattice constant as in the paper of Johannes Lischner
-  sigma=0.7_dp*sqrt(dot_product(pars%avec(1,:),pars%avec(1,:)))
-  call generate_amn_overlap(tbmodel,pars,kgrid,evec,wftrial,.true.,sigma)
-  deallocate(psi_gamma_Eplus)
-  deallocate(psi_gamma_Eminus)
+  sigma=0.4_dp*sqrt(dot_product(pars%avec(1,:),pars%avec(1,:)))
+  do iR=1,tbmodel%rgrid%npt
+    do iw=1,proj%norb
+      do iorb=1,tbmodel%norb_TB
+        dv=tbmodel%vplorb(iorb)+tbmodel%rgrid%vpl(iR)-pars%proj%centers(:,pars%proj%iw2ic(iw))
+        dc=matmul(dv,pars%avec)
+        dd=sqrt(dot_product(dc,dc))
+        t1=gauss(dd,sigma)
+        wftrial(iorb,iw,iR)=wftrial(iorb,iw,iR)*t1
+      end do
+    end do
+  end do
+  call generate_amn_overlap(tbmodel,pars,kgrid,evec,tbmodel%rgrid%npt,wftrial,sigma)
+  call generate_dmn_orb(tbmodel,proj,sym,pars,kgrid,evec,.false.,wws)
+  nr=0
+  do iR=1,tbmodel%rgrid%npt
+    if (sum(abs(tbmodel%rgrid%vpl(iR))).le.6) then
+      nr=nr+1
+      do iw=1,proj%norb
+        do iorb=1,tbmodel%norb_TB
+          wftrial(iorb,iw,nr)=wftrial(iorb,iw,iR)
+        end do
+      end do
+    end if
+  end do
+  call write_wf_universe(tbmodel,pars,nr,wftrial(:,:,1:nr),'wftrial','')
+  deallocate(wftrial)
 else if (trim(adjustl(pars%wannier_proj_mode)).eq.'input_file') then
-  if (NDIM.ne.3) call throw("wannier_interface%generate_trial_wavefunctions()","this subroutine assumes NDIM=3")
-   wftrial(:,:)=0._dp
+   if (NDIM.ne.3) call throw("wannier_interface%generate_trial_wavefunctions()","this subroutine assumes NDIM=3")
+   ! find the home unit cel
+   allocate(wftrial(tbmodel%norb_TB,pars%proj%norb,1))
+   wftrial(:,:,:)=0._dp
    do ic=1,proj%ncenters
      do ios=1,proj%norb_ic(ic)
        ipro=proj%icio_orb(ic,ios)
@@ -166,114 +203,70 @@ else if (trim(adjustl(pars%wannier_proj_mode)).eq.'input_file') then
          m2=proj%lmr(2,ipro)
          x2=proj%waxis(:,1,ipro)
          z2=proj%waxis(:,2,ipro)
-         wftrial(jorb,ipro)=tbmodel%wbase%wws_full(sym%car(:,:,1),l1,m1,l2,m2,x1,z1,x2,z2)
+         wftrial(jorb,ipro,1)=tbmodel%wbase%wws_full(sym%car(:,:,1),l1,m1,l2,m2,x1,z1,x2,z2)
        end do
      end do
    end do
-   call generate_amn_overlap(tbmodel,pars,kgrid,evec,wftrial,.false.,sigma)
+   call generate_amn_overlap(tbmodel,pars,kgrid,evec,1,wftrial,sigma)
    do ipro=1,proj%norb
        do jorb=1,tbmodel%norb_TB
-         write(*,*) ipro,jorb,dble( wftrial(jorb,ipro)),aimag( wftrial(jorb,ipro))
+         write(*,*) ipro,jorb,dble( wftrial(jorb,ipro,1)),aimag( wftrial(jorb,ipro,1))
        end do
    end do
-   call generate_dmn_orb(tbmodel,proj,sym,pars,kgrid,evec)
-   !stop
+   call generate_dmn_orb(tbmodel,proj,sym,pars,kgrid,evec,.false.,wws)
+   deallocate(wftrial)
 else
   call throw("wannier_interface%generate_trial_wavefunctions()","unknown projection option")
 end if
 call generate_mmn_overlap(THIS,tbmodel,pars,kgrid,evec)
-deallocate(wftrial)
+deallocate(wws)
 end subroutine
 
-subroutine generate_dmn_orb(tbmodel,base,sym,pars,kgrid,evec)
+subroutine generate_dmn_orb(tbmodel,base,sym,pars,kgrid,evec,lwws,wws)
 class(CLtb), intent(in) :: tbmodel
 class(CLsym), intent(in) :: sym
 class(wbase), intent(in) :: base
 class(CLpars), intent(in) :: pars
 class(GRID), intent(inout) :: kgrid
 complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
-real(dp), allocatable :: wws(:,:,:)
+logical, intent(in) :: lwws
+complex(dp), intent(inout) :: wws(base%norb,base%norb,sym%nsym)
 ! local
 integer isym,iw,jw,ic,jc,ir,ik
 integer ikp,ist,jst
-real(dp) err,t1
-real(dp) v1(NDIM),v2(NDIM),v3(NDIM),v4(NDIM)
-logical lfound(base%ncenters)
-integer, allocatable :: ics2c(:,:)
-real(dp), allocatable :: vcs2t(:,:,:)
+logical exs
+real(dp) err,t1,t2
+real(dp) v1(NDIM),v2(NDIM)
 complex(dp), allocatable :: phs(:,:)
 complex(dp), allocatable :: wf_t(:)
-call kgrid%sym_init(sym)
-allocate(wws(base%norb,base%norb,sym%nsym))
-allocate(vcs2t(3,base%ncenters,sym%nsym))
-allocate(ics2c(base%ncenters,sym%nsym))
-ics2c=-999
-write(*,"(a,i5)") "  Number of symmetry operators = ", sym%nsym
-do isym=1,sym%nsym
-   write(*,"(2x,i5,a)") isym, "-th symmetry operators is"
-   write(*,"(3f15.7)") &
-      sym%car(:,:,isym), sym%vtc(:,isym)/2.4629437 !Writing rotation matrix and translation vector in Cartesian coordinates
-   lfound=.false.
-   do ic=1,base%ncenters
-    v1=base%centers(:,ic)
-    v2=matmul(sym%lat(:,:,isym),(v1+sym%vtl(:,isym)))
-    !v2=matmul(sym%lat(:,:,isym),v1)+sym%vtl(:,isym)
-    do jc=1,base%ncenters
-      if(lfound(jc)) cycle
-      v3=base%centers(:,jc)
-      !v4=matmul(v3-v2,pars%bvec)
-      v4=v3-v2
-      if(sum(abs(dble(nint(v4))-v4)).lt.1d-2) then
-         lfound(jc)=.true.
-         ics2c(ic,isym)=jc
-         exit !Sym.op.(isym) moves position(ips2p(ip,isym)) to position(ip) + T, where
-      end if                                       !T is given by vps2t(:,ip,isym).
+complex(dp), allocatable :: ovlp(:,:)
+inquire(file=trim(adjustl(pars%seedname))//'.dmn',exist=exs)
+if (exs) then
+  call info("CLwan%generate_dmn_orb","skipping "//trim(adjustl(pars%seedname))//".dmn creation")
+  return
+end if
+if (.not.lwws) then
+  wws(:,:,:)=0._dp
+  do isym=1,sym%nsym
+    do iw=1,base%norb
+       ic=base%orb_icio(iw,1)
+       jc=base%ics2c(ic,isym)
+       do jw=1,base%norb
+          if(base%orb_icio(jw,1).ne.jc) cycle
+          wws(jw,iw,isym)=base%wws(sym%car(:,:,isym),iw,jw)
+       end do
     end do
-    if(ics2c(ic,isym).le.0) then
-       write(*,"(a,3f18.10)")"  Could not find ",v2
-       write(*,"(a,3f18.10)")"  coming from    ",v1
-       write(*,"(a,i5,a               )")"  of Wannier site",ic,"."
-       write(*,"(a,i5,a               )")"  symmetry ",isym,"."
-       write(*,"(3I6)") sym%lat(1,:,isym)
-       write(*,"(3I6)") sym%lat(2,:,isym)
-       write(*,"(3I6)") sym%lat(3,:,isym)
-       call throw("wannier_interface%generate_dmn_orb", "missing Wannier sites, see the output.")
-    end if
+    do iw=1,base%norb
+       err=abs((sum(wws(:,iw,isym)**2)+sum(wws(iw,:,isym)**2))*.5_dp-1._dp)
+       if(err.gt.1.e-3_dp) then
+          if (mp_mpi) write(*,*) "wannier_interface%generate_dmn_orb","compute_dmn: Symmetry operator (",isym, &
+                  ") could not transform Wannier function (",iw,")."
+          if (mp_mpi) write(*,*) "The error is ",err,"."
+          call throw("wannier_interface%generate_dmn_orb", "missing Wannier functions, see the output.")
+       end if
+    end do
   end do
-  do ic=1,base%ncenters
-    write(112,*) isym,ic,ics2c(ic,isym)
-  end do
-end do
-vcs2t=0._dp
-do isym=1,sym%nsym
-  do ic=1,base%ncenters
-    v1=base%centers(:,ic)
-    jc=ics2c(ic,isym)
-    v2=base%centers(:,jc)
-    v3=matmul(v2,sym%lat(:,:,isym))-sym%vtl(:,isym)
-    vcs2t(:,ic,isym)=v3-v1
-  end do
-end do
-wws(:,:,:)=0._dp
-do isym=1,sym%nsym
-   do iw=1,base%norb
-      ic=base%orb_icio(iw,1)
-      jc=ics2c(ic,isym)
-      do jw=1,base%norb
-         if(base%orb_icio(jw,1).ne.jc) cycle
-         wws(jw,iw,isym)=base%wws(sym%car(:,:,isym),iw,jw)
-      end do
-   end do
-   do iw=1,base%norb
-      err=abs((sum(wws(:,iw,isym)**2)+sum(wws(iw,:,isym)**2))*.5_dp-1._dp)
-      if(err.gt.1.e-3_dp) then
-         write(*,*) "wannier_interface%generate_dmn_orb","compute_dmn: Symmetry operator (",isym, &
-                 ") could not transform Wannier function (",iw,")."
-         write(*,*) "The error is ",err,"."
-         call throw("wannier_interface%generate_dmn_orb", "missing Wannier functions, see the output.")
-      end if
-   end do
-end do
+end if
 if (mp_mpi) then
   open (unit=1001, file=trim(adjustl(pars%seedname))//".dmn",form='formatted')
   write (1001,*) '# '//trim(adjustl(pars%seedname))//'.dmn file'
@@ -299,20 +292,19 @@ do ir=1,kgrid%nir
     WRITE (*,'(i8)',advance='no') ir
     IF( MOD(ir,10) == 0 ) WRITE (*,*)
   end if
-  !FLUSH(*)
   do isym=1,sym%nsym
      do iw=1,base%norb
         ic=base%orb_icio(iw,1)
-        jc=ics2c(ic,sym%inv(isym))
-        v1=kgrid%vpl(kgrid%iks2k(ik,isym))-matmul(sym%lat(:,:,isym),kgrid%vpl(ik))
-        v2=matmul(v1,sym%lat(:,:,isym))
-        !Phase of T.k with lattice vectors T of aove.
-        t1=dot_product(vcs2t(:,jc,isym),kgrid%vpl(ik))*twopi
-        phs(iw,iw)=cmplx(cos(t1),sin(t1),kind=dp) !Phase of t.G with translation vector t(isym).
+        jc=base%ics2c(ic,sym%inv(isym))
+        v1=kgrid%vpc(kgrid%iks2k(ik,isym))-matmul(sym%car(:,:,isym),kgrid%vpc(ik))
+        v2=matmul(v1,sym%car(:,:,isym))
+        t1=dot_product(base%vcs2t(:,jc,isym),kgrid%vpc(ik))
+        t2=dot_product(sym%vtc(:,isym),v2)
+        phs(iw,iw)=cmplx(cos(t1),sin(t1),kind=dp)*cmplx(cos(t2),sin(t2),kind=dp)
      end do
      if (mp_mpi) then
         WRITE (1001,*)
-        WRITE (1001,"(1p,(' (',e18.10,',',e18.10,')'))") matmul(phs,cmplx(wws(:,:,isym),0._dp,kind=dp))
+        WRITE (1001,"(1p,(' (',e18.10,',',e18.10,')'))") matmul(phs,wws(:,:,isym))
      end if
   end do
 end do
@@ -321,48 +313,61 @@ if (mp_mpi) then
   write(*,'(/)')
   write(*,'(a,i8)') '  DMN(d_matrix_band): nir = ',kgrid%nir
 end if
-allocate(wf_t(tbmodel%norb_TB))
+allocate(ovlp(pars%nstates,pars%nstates))
 do ir=1,kgrid%nir
   if (mp_mpi) then
     WRITE (*,'(i8)',advance='no') ir
     IF( MOD(ir,10) == 0 ) WRITE (*,*)
   end if
+  ik=kgrid%ir2ik(ir)
   do isym=1,sym%nsym
     ikp=kgrid%iks2k(ik,isym)
-    t1=dot_product(kgrid%vpl(ik),sym%vtl(:,isym))*twopi
+    !$OMP PARALLEL DEFAULT(SHARED)&
+    !$OMP PRIVATE(jst,ist,wf_t)
+    !$OMP DO
     do jst=1,pars%nstates
-      wf_t=evec(:,jst,ik)
-      call tbmodel%wfGtransform(pars,sym,isym,wf_t)
+      allocate(wf_t(tbmodel%norb_TB))
+      call tbmodel%bloch_wf_transform(kgrid,ik,sym,isym,wf_t,evec(:,jst,ik))
       do ist=1,pars%nstates
-        if (mp_mpi) write(1001,"(1p,(' (',e18.10,',',e18.10,')'))") &
-                    dot_product(evec(:,ist,ikp),wf_t)*cmplx(cos(t1),sin(t1),kind=dp)
+         ovlp(ist,jst)=dot_product(evec(:,ist,ikp),wf_t)
+      end do
+      deallocate(wf_t)
+    end do
+    !$OMP END DO
+    !$OMP END PARALLEL
+    do jst=1,pars%nstates
+      do ist=1,pars%nstates
+        if (mp_mpi) write(1001,"(1p,(' (',e18.10,',',e18.10,')'))") ovlp(ist,jst)
       end do
     end do
+    if (mp_mpi) write(1001,*) 
   end do
 end do
 if (mp_mpi) close(1001)
-deallocate(wws,phs)
-deallocate(vcs2t,ics2c)
+if (mp_mpi) write(*,*)
+deallocate(phs,ovlp)
 end subroutine
 
-integer function eps_plus_dublet_state(tbmodel,pars,sym,isym,ist1,ist2,evec_G)
+function eps_pm_dublet_state(tbmodel,pars,kgrid,ik_gamma,sym,isym,ist1,ist2,evec_G) result (pm)
 class(CLtb), intent(in) :: tbmodel
 class(CLpars), intent(in) :: pars
+class(GRID), intent(in) :: kgrid
 class(CLsym), intent(in) :: sym
-integer, intent(in) :: isym,ist1,ist2
+integer, intent(in) :: isym,ist1,ist2,ik_gamma
 complex(dp), intent(in) :: evec_G(tbmodel%norb_TB,pars%nstates)
+integer pm(2)
 real(dp) twopi3,a1,a2,b1,b2
 complex(dp), allocatable :: wf_t(:)
 ! constant
 twopi3=twopi/3._dp
 ! find one of the lower dublet state (E-) with eigenvalus +\epsilon
 allocate(wf_t(tbmodel%norb_TB))
-wf_t=evec_G(:,ist1)
-call tbmodel%wfGtransform(pars,sym,isym,wf_t)
+!wf_t=evec_G(:,ist1)
+call tbmodel%bloch_wf_transform(kgrid,ik_gamma,sym,isym,wf_t,evec_G(:,ist1))
 a1=dble(dot_product(evec_G(:,ist1),wf_t))
 b1=dble(dot_product(evec_G(:,ist2),wf_t))
-wf_t=evec_G(:,ist2)
-call tbmodel%wfGtransform(pars,sym,isym,wf_t)
+!wf_t=evec_G(:,ist2)
+call tbmodel%bloch_wf_transform(kgrid,ik_gamma,sym,isym,wf_t,evec_G(:,ist2))
 a2=dble(dot_product(evec_G(:,ist1),wf_t))
 b2=dble(dot_product(evec_G(:,ist2),wf_t))
 if (mp_mpi) then
@@ -375,36 +380,39 @@ else if (a1*b1.gt.0._dp.and.a2*b2.gt.0._dp) then
   call throw("CLwan%project","both dublet state have rotation eigenvalues in 1 or 3d quadrant")
 else if ( ( abs(a1-cos(twopi3)).lt.epsr .and. abs(b1-sin(twopi3)).lt.epsr ) .or.&
        ( abs(b1-cos(twopi3)).lt.epsr .and. abs(a1-sin(twopi3)).lt.epsr ) ) then
-     eps_plus_dublet_state=ist1
+    pm(1)=ist1
+    pm(2)=ist2
 else if ( ( abs(a2-cos(twopi3)).lt.epsr .and. abs(b2-sin(twopi3)).lt.epsr ) .or.&
        ( abs(b2-cos(twopi3)).lt.epsr .and. abs(a2-sin(twopi3)).lt.epsr ) ) then
-     eps_plus_dublet_state=ist2
+    pm(1)=ist2
+    pm(2)=ist1
 else
   call throw("CLwan%project","could not find state with 2pi/3 rotation eigenvalue")
 end if
 deallocate(wf_t)
 end function
 
-subroutine generate_amn_overlap(tbmodel,pars,kgrid,evec,wftrial,lgauss,sigma)
+subroutine generate_amn_overlap(tbmodel,pars,kgrid,evec,nr,wftrial,sigma)
 class(CLtb), intent(in) :: tbmodel
 class(CLpars), intent(in) :: pars
 class(GRID), intent(in) :: kgrid
 complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
-complex(dp), intent(in) :: wftrial(tbmodel%norb_TB,pars%proj%norb)
-logical, intent(in) :: lgauss
+integer, intent(in) :: nr
+complex(dp), intent(in) :: wftrial(tbmodel%norb_TB,pars%proj%norb,nr)
 real(dp), intent(in) :: sigma
 ! local
 logical exs
 integer ik,iwan,ist,iR,iorb
-real(dp) t1,dd!,t2
-real(dp) dv(NDIM),dc(NDIM)
-!complex(dp) z2
+integer ivr(NDIM+1)
+real(dp) t1,dd,t2
+real(dp) dv(NDIM),dc(NDIM),vrl(NDIM)
+complex(dp) z2
 complex(dp), allocatable :: amn(:,:)
 ! A_mn(k)=<\psi_m(k)|g_n>
 inquire(file=trim(adjustl(pars%seedname))//'.amn',exist=exs)
 if (exs) then
   call info("CLwan%generate_amn_overlap","skipping "//trim(adjustl(pars%seedname))//".amn creation")
-  !return
+  return
 end if
 if (mp_mpi) then
   open(50,file=trim(adjustl(pars%seedname))//'.amn',action='write')
@@ -412,25 +420,20 @@ if (mp_mpi) then
   write(50,*) pars%nstates,kgrid%npt,pars%proj%norb
 end if
 allocate(amn(pars%nstates,pars%proj%norb))
+! find home UC
+vrl=0._dp
+ivr=tbmodel%rgrid%find(vrl)
 do ik=1,kgrid%npt
   amn=0._dp
   do iwan=1,pars%proj%norb
- !   do iR=1,tbmodel%rgrid%npt
-!      t2=dot_product(kgrid%vpl(ik),tbmodel%rgrid%vpl(iR))*twopi
-!      z2=cmplx(cos(t2),-sin(t2),kind=dp)
+    do iR=1,tbmodel%rgrid%npt
+      t2=dot_product(kgrid%vpl(ik),tbmodel%rgrid%vpl(iR))*twopi
+      z2=cmplx(cos(t2),-sin(t2),kind=dp)
+      if ( sqrt(sum(tbmodel%rgrid%vpc(iR)**2)) .gt. 3*sigma) cycle
       do iorb=1,tbmodel%norb_TB
-        if (lgauss) then
-          dv=tbmodel%vplorb(iorb)+tbmodel%rgrid%vpl(iR)-pars%proj%centers(:,pars%proj%iw2ic(iwan))
-          dc=matmul(dv,pars%avec)
-          dd=sqrt(dot_product(dc,dc))
-          t1=gauss(dd,sigma)
-          if (t1.lt.epsengy) cycle
-          amn(:,iwan)=amn(:,iwan)+conjg(evec(iorb,:,ik))*wftrial(iorb,iwan)*t1!*z2
-        else
-          amn(:,iwan)=amn(:,iwan)+conjg(evec(iorb,:,ik))*wftrial(iorb,iwan)!*z2
-        end if
+        amn(:,iwan)=amn(:,iwan)+conjg(evec(iorb,:,ik))*wftrial(iorb,iwan,iR)*z2
       end do
-!    end do
+    end do
   end do
   do iwan=1,pars%proj%norb
     do ist=1,pars%nstates
@@ -566,6 +569,8 @@ write(50,*) 'write_xyz         = .true.'
 write(50,*) 'trial_step        = 0.2'
 write(50,*) '!slwf_constrain    = true'
 write(50,*) '!slwf_lambda       = 200'
+write(50,*) '!site_symmetry = .true.'
+write(50,*) '!symmetrize_eps=  1d-7'
 
 
 write(50,*)
@@ -592,6 +597,10 @@ do iwan=1,pars%proj%norb
     pars%proj%centers(:,pars%proj%iw2ic(iwan)),lmr_to_string(pars%proj%lmr(:,iwan))
 end do
 write(50,*) 'End Projections'
+do iwan=1,pars%proj%norb
+  write(50,'("!",G18.10,",",G18.10,",",G18.10)') &
+    matmul(pars%proj%centers(:,pars%proj%iw2ic(iwan)),pars%avec)
+end do
 write(50,*)
 write(50,*) 'begin kpoint_path'
 do ivert=1,kpath%nvert-1
@@ -607,7 +616,7 @@ write(50,*)'End Unit_Cell_Cart'
 write(50,*)
 write(50,*)'Begin Atoms_Frac'
 do iwan=1,pars%proj%norb
-  write(50,'(A2,3G18.10)')'XX',pars%proj%centers(:,iwan)
+  write(50,'(A2,3G18.10)')'XX',pars%proj%centers(:,pars%proj%iw2ic(iwan))
 end do
 write(50,*)'End Atoms_Frac'
 write(50,*)
@@ -627,6 +636,41 @@ real(dp), intent(in) :: dc
 real(dp), parameter :: charge_pz=3.18_dp
 pwave_ovlp=( 1._dp/( 1._dp+(dc*abohr/charge_pz)**2 ) )**3
 end function
+
+subroutine write_wf_universe(tbmodel,pars,nr,wf,pre,post)
+class(CLtb), intent(in) :: tbmodel
+class(CLpars), intent(in) :: pars
+integer, intent(in) :: nr
+complex(dp), intent(in) :: wf(tbmodel%norb_TB,pars%proj%norb,nr)
+character(len=*),intent(in) :: pre
+character(len=*),intent(in) :: post
+character(len=128) fname
+character(len=128) num
+integer iorb,iR,iw,ic,jr
+do iw=1,pars%proj%norb
+  write(num,'(I2)') iw
+  fname=trim(adjustl(pre))//trim(adjustl(num))//trim(adjustl(post))//'.dat'
+  open(50,file=trim(adjustl(fname)))
+  write(50,*) pars%avec(1,:)
+  write(50,*) pars%avec(2,:)
+  write(50,*) pars%avec(3,:)
+  write(50,*) 'atoms ',tbmodel%norb_TB
+  write(50,*) 'nrpt_wan ',nr
+  jr=0
+  do iR=1,tbmodel%rgrid%npt
+    if (sum(abs(tbmodel%rgrid%vpl(iR))).le.6) then
+      jr=jr+1
+      write(50,*) tbmodel%rgrid%vpi(ir)
+      do iorb=1,tbmodel%norb_TB
+        ic=tbmodel%wbase%orb_icio(iorb,1)
+        write(50,'(5G18.10)') tbmodel%wbase%centers_cart(:,ic),wf(iorb,iw,jr)
+      end do
+    end if
+  end do
+  close(50)
+end do
+return
+end subroutine
 
 
 
