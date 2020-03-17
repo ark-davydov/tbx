@@ -48,6 +48,11 @@ do itask=1,pars%ntasks
      call message("")
      call projection_wannier(pars)
      call message("")
+  else if (trim(adjustl(pars%tasks(itask))).eq."write_wfmloc") then
+     call message("*** extract wfmloc ***")
+     call message("")
+     call write_wfmloc(pars)
+     call message("")
   else
     call throw("CLtasks%run","unknown task")
   end if
@@ -294,7 +299,6 @@ integer ik
 real(dp), allocatable :: eval(:,:)
 real(dp), allocatable :: vkl(:,:)
 complex(dp), allocatable :: evec(:,:,:)
-complex(dp), allocatable :: chi(:,:)
 type(GRID) kgrid
 type(PATH) kpath
 type(CLtb) tbmodel
@@ -341,7 +345,65 @@ deallocate(eval,evec,vkl)
 #endif
 end subroutine
 
-
+subroutine write_wfmloc(pars)
+class(CLpars), intent(inout) :: pars
+integer ik
+real(dp), allocatable :: eval(:,:)
+real(dp), allocatable :: vkl(:,:)
+complex(dp), allocatable :: evec(:,:,:)
+complex(dp), allocatable :: wfmloc(:,:,:)
+complex(dp), allocatable :: wfmloc_reorder(:,:,:)
+type(GRID) kgrid
+type(CLtb) tbmodel
+type(CLsym) sym
+integer nr,iR,iw,iorb
+#ifdef MPI
+  call MPI_barrier(mpi_com,mpi_err)
+#endif
+! generater spatial symmetries
+call sym%init(pars)
+! initialise TB model, to have centers coordinates and other data
+call tbmodel%init(pars,sym,"noham")
+! read the k-point grid on which eigenvales/eigenvectors are computed
+call kgrid%io(1000,"_grid","read",pars,tbmodel%norb_TB)
+! allocate array for eigen values
+allocate(eval(pars%nstates,kgrid%npt))
+! allocate array for eigen vectors
+allocate(evec(tbmodel%norb_TB,pars%nstates,kgrid%npt))
+! this is needed to copy the private data of kgrid object, i.e., k-points in lattice coordinates
+allocate(vkl(NDIM,kgrid%npt))
+do ik=1,kgrid%npt
+  ! copy the private data
+  vkl(:,ik)=kgrid%vpl(ik)
+  ! read eigenvectors, subroutine in modcom.f90
+  call io_evec(ik,"read","_evec",tbmodel%norb_TB,pars%nstates,evec(:,:,ik))
+end do
+! zero the arrays for security reasons
+eval=0._dp
+! read eigenvalues, subroutine in modcom.f90
+call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
+! init minimal wannier variables
+!call wannier%init(kgrid,kpath,pars,eval)
+allocate(wfmloc(tbmodel%norb_TB,tbmodel%rgrid%npt,pars%proj%norb))
+call read_wfmloc(pars,tbmodel,kgrid,evec,wfmloc)
+nr=0
+do iR=1,tbmodel%rgrid%npt
+  if (sum(abs(tbmodel%rgrid%vpl(iR))).le.6) then
+    nr=nr+1
+    do iw=1,pars%proj%norb
+      do iorb=1,tbmodel%norb_TB
+        wfmloc(iorb,nr,iw)=wfmloc(iorb,iR,iw)
+      end do
+    end do
+  end if
+end do
+allocate(wfmloc_reorder(tbmodel%norb_TB,pars%proj%norb,nr))
+do iR=1,nr
+  wfmloc_reorder(:,:,iR)=wfmloc(:,iR,:)
+end do
+if (mp_mpi) call write_wf_universe(tbmodel,pars,nr,wfmloc_reorder,'wfmloc','')
+deallocate(eval,evec,vkl,wfmloc,wfmloc_reorder)
+end subroutine
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Side subroutines, could be placed into another file

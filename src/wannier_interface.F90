@@ -12,7 +12,7 @@ use wannier_supplementary
 implicit none
 private
 real(dp), parameter :: epsr=4.e-1_dp
-
+public :: write_wf_universe,read_wfmloc
 
 type, public :: CLwan
   integer :: nnk=0
@@ -81,6 +81,7 @@ type(wbase) proj
 real(dp) sigma
 real(dp) vpl(NDIM),x1(NDIM),x2(NDIM),z1(NDIM),z2(NDIM)
 real(dp) t1,dd,dv(NDIM),dc(NDIM)
+complex(dp) zz
 !complex(dp), allocatable :: wf_t(:)
 complex(dp), allocatable :: wftrial(:,:,:)
 complex(dp), allocatable :: wws(:,:,:)
@@ -178,13 +179,15 @@ if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band'.or.&
     end if
   end do
   ! sinse we are at gamme WF is the same at all UCells (we will compy values from wftrial(:,*,1) to everywhere)
+ ! call tbmodel%bloch_wf_transform(kgrid,ik_gamma,sym,isym2,wftrial(:,3,1),wftrial(:,1,1))
+ ! call tbmodel%bloch_wf_transform(kgrid,ik_gamma,sym,isym2,wftrial(:,4,1),wftrial(:,2,1))
   call tbmodel%bloch_wf_transform(kgrid,ik_gamma,sym,isym2,wftrial(:,3,1),wftrial(:,1,1))
   call tbmodel%bloch_wf_transform(kgrid,ik_gamma,sym,isym2,wftrial(:,4,1),wftrial(:,2,1))
   if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg12band') then
     wftrial(:,5,1)= wftrial(:,1,1)
     wftrial(:,6,1)= wftrial(:,2,1)
-    wftrial(:,7,1)= wftrial(:,3,1)
-    wftrial(:,8,1)= wftrial(:,4,1)
+    wftrial(:,7,1)= wftrial(:,1,1)
+    wftrial(:,8,1)= wftrial(:,2,1)
     wftrial(:,9,1)= wftrial(:,1,1)
     wftrial(:,10,1)=wftrial(:,2,1)
     wftrial(:,11,1)=wftrial(:,1,1)
@@ -194,6 +197,9 @@ if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band'.or.&
     wftrial(:,:,iR)=wftrial(:,:,iR-1)
   end do
   sigma=0.4_dp*sqrt(dot_product(pars%avec(1,:),pars%avec(1,:)))
+  if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg12band') then
+    sigma=0.4_dp*sqrt(dot_product(pars%avec(1,:),pars%avec(1,:)))
+  end if
   do iR=1,tbmodel%rgrid%npt
     do iw=1,proj%norb
       do iorb=1,tbmodel%norb_TB
@@ -208,7 +214,11 @@ if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band'.or.&
   if (mp_mpi) write(*,*) "wannier_interface%projection","overlap between trial orbitals"
   do iw=1,proj%norb
     do jw=iw,proj%norb
-      if (mp_mpi) write(*,'(2I5,2F10.6)') iw,jw,dot_product(wftrial(:,iw,iR_zero),wftrial(:,jw,iR_zero))
+      zz=0._dp
+      do iR=1,tbmodel%rgrid%npt
+        zz=zz+dot_product(wftrial(:,iw,iR),wftrial(:,jw,iR))
+      end do
+      if (mp_mpi) write(*,'(2I5,2F10.6)') iw,jw,z1(1)
     end do
   end do
   call generate_amn_overlap(tbmodel,pars,kgrid,evec,tbmodel%rgrid%npt,wftrial,sigma)
@@ -347,6 +357,7 @@ do ir=1,kgrid%nir
 end do
 if (mp_mpi) then
   write(1001,*)
+  flush(1001)
   write(*,'(/)')
   write(*,'(a,i8)') '  DMN(d_matrix_band) [could be not ordered]: nir = ',kgrid%nir
 end if
@@ -465,6 +476,8 @@ inquire(file=trim(adjustl(pars%seedname))//'.amn',exist=exs)
 if (exs) then
   call info("CLwan%generate_amn_overlap","skipping "//trim(adjustl(pars%seedname))//".amn creation")
   return
+else
+  call info("CLwan%generate_amn_overlap","generating "//trim(adjustl(pars%seedname))//".amn file")
 end if
 if (mp_mpi) then
   open(50,file=trim(adjustl(pars%seedname))//'.amn',action='write')
@@ -503,7 +516,7 @@ class(GRID), intent(in) :: kgrid
 complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
 ! local
 logical exs
-integer ik,jk,mst,nst,iorb,innk
+integer ik,jk,mm,nn,iorb,innk
 real(dp) dc,t1
 complex(dp) z1
 real(dp) vq(NDIM),vc(NDIM)
@@ -513,6 +526,8 @@ inquire(file=trim(adjustl(pars%seedname))//'.mmn',exist=exs)
 if (exs) then
   call info("CLwan%generate_mmn_overlap","skipping "//trim(adjustl(pars%seedname))//".mmn creation")
   return
+else
+  call info("CLwan%generate_mmn_overlap","generating "//trim(adjustl(pars%seedname))//".mmn file")
 end if
 if (mp_mpi) then
   open(50,file=trim(adjustl(pars%seedname))//'.mmn',action='write')
@@ -522,26 +537,29 @@ end if
 allocate(mmn(pars%nstates,pars%nstates,THIS%nnk))
 do ik=1,kgrid%npt
   mmn=0._dp
+  !$OMP PARALLEL DEFAULT (SHARED)&
+  !$OMP PRIVATE(innk,jk,iorb,nn,vq,vc,dc,t1,z1)
+  !$OMP DO
   do innk=1,THIS%nnk
     jk=THIS%nnkp(4,innk,ik)
     vq=kgrid%vpl(jk)+dble(THIS%nnkp(1:3,innk,ik))-kgrid%vpl(ik)
-    vc=matmul(vq,pars%avec)
+    vc=matmul(vq,kgrid%vecs)
     dc=sqrt(dot_product(vc,vc))
-    do mst=1,pars%nstates
-      do nst=1,pars%nstates
-        do iorb=1,tbmodel%norb_TB
-          t1=dot_product(vq,tbmodel%vplorb(iorb))*twopi
-          z1=cmplx(cos(t1),-sin(t1),kind=dp)
-          mmn(mst,nst,innk)=mmn(mst,nst,innk)+conjg(evec(iorb,mst,ik))*evec(iorb,nst,jk)*z1*pwave_ovlp(dc)
-        end do
+    do iorb=1,tbmodel%norb_TB
+      t1=dot_product(vq,tbmodel%vplorb(iorb))*twopi
+      z1=cmplx(cos(t1),-sin(t1),kind=dp)
+      do nn=1,pars%nstates
+        mmn(:,nn,innk)=mmn(:,nn,innk)+conjg(evec(iorb,:,ik))*evec(iorb,nn,jk)*z1*pwave_ovlp(dc)
       end do
     end do
   end do
+  !$OMP END DO
+  !$OMP END PARALLEL
   do innk=1,THIS%nnk
     if (mp_mpi)  write(50,'(5I6)') ik,THIS%nnkp(4,innk,ik),THIS%nnkp(1:3,innk,ik)
-    do nst=1,pars%nstates
-      do mst=1,pars%nstates
-        if (mp_mpi) write(50,'(2G18.10)') dble(mmn(mst,nst,innk)),aimag(mmn(mst,nst,innk))
+    do nn=1,pars%nstates
+      do mm=1,pars%nstates
+        if (mp_mpi) write(50,'(2G18.10)') dble(mmn(mm,nn,innk)),aimag(mmn(mm,nn,innk))
       end do
     end do
   end do
@@ -718,6 +736,139 @@ do iw=1,pars%proj%norb
   end do
   close(50)
 end do
+return
+end subroutine
+
+
+subroutine read_wfmloc(pars,tbmodel,kgrid,evec,wfmloc)
+class(CLpars), intent(in) :: pars
+class(CLtb), intent(in) :: tbmodel
+class(GRID), intent(inout) :: kgrid
+complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
+complex(dp), intent(out) :: wfmloc(tbmodel%norb_TB,tbmodel%rgrid%npt,pars%proj%norb)
+logical exs
+integer nk_,nwan_,num_bands_
+integer ik,m,n,ir
+real(dp) t1,t2,vpl_(3)
+complex(dp) z1
+complex(dp), allocatable :: umat(:,:,:),udis(:,:,:)
+complex(dp), allocatable :: psi_dis(:,:)
+type(wbase)  proj
+if (pars%proj%norb.le.0) then
+   call throw("wannier_interface%read_wfmloc()",&
+              "apparently 'projections' block was not specified, wannier projections not found")
+else
+  if (pars%nstates.lt.pars%proj%norb) then
+    call throw("wannier_interface%read_wfmloc()",&
+               "number of bands is less than the number of requested projections")
+  end if
+end if
+call proj%init(pars,pars%proj%ncenters,pars%proj%norb,pars%proj%norb_ic,&
+                   pars%proj%lmr,pars%proj%waxis,pars%proj%centers)
+inquire(file=trim(adjustl(pars%seedname))//'_u.mat',exist=exs)
+if (.not.exs) then
+  call throw("Wannier_supplementary%read_wfmloc","no "//trim(adjustl(pars%seedname))//'_u.mat'//" file")
+  stop
+end if
+call info("Wannier_supplementary%read_wfmloc","constructing wfmloc")
+allocate(udis(pars%nstates,proj%norb,kgrid%npt))
+allocate(umat(proj%norb,proj%norb,kgrid%npt))
+allocate(psi_dis(tbmodel%norb_TB,proj%norb))
+if (pars%nstates.gt.proj%norb) then
+  open(50,file=trim(adjustl(pars%seedname))//'_u_dis.mat',action='read')
+  read(50,*)
+  read(50,*) nk_,nwan_,num_bands_
+
+  if (nk_.ne.kgrid%npt)  call throw("wannier_interface%read_wfmloc()",&
+               "number of k-points is different from one derived from input")
+  if (nwan_.ne.proj%norb)  call throw("wannier_interface%read_wfmloc()",&
+               "number projections in wannier files is different from one derived from input")
+  if (num_bands_.ne.pars%nstates)  call throw("wannier_interface%read_wfmloc()",&
+               "number bands in wannier files is different from one derived from input")
+
+  do ik=1,nk_
+    read(50,*)
+    read(50,*) vpl_
+    if (sum(abs(vpl_-kgrid%vpl(ik))).gt.epslat) then
+       write(*,*) ik
+       write(*,*) vpl_
+       write(*,*) kgrid%vpl(ik)
+       call throw("wannier_interface%read_wfmloc()","different k-vectors")
+    end if 
+    do m=1,nwan_
+      do n=1,num_bands_
+        read(50,*) t1,t2
+        udis(n,m,ik)=cmplx(t1,t2,kind=dp)
+      end do
+    end do
+  end do
+  close(50)
+end if
+open(51,file=trim(adjustl(pars%seedname))//'_u.mat',action='read')
+read(51,*)
+read(51,*) nk_,nwan_,n
+
+if (nk_.ne.kgrid%npt)  call throw("wannier_interface%read_wfmloc()",&
+             "number of k-points is different from one derived from input")
+if (nwan_.ne.proj%norb)  call throw("wannier_interface%read_wfmloc()",&
+             "number projections in wannier files is different from one derived from input")
+do ik=1,nk_
+  read(51,*)
+  read(51,*) vpl_
+  if (sum(abs(vpl_-kgrid%vpl(ik))).gt.epslat) then
+     write(*,*) ik
+     write(*,*) vpl_
+     write(*,*) kgrid%vpl(ik)
+     call throw("wannier_interface%read_wfmloc()","different k-vectors")
+  end if 
+  do n=1,nwan_
+    do m=1,nwan_
+      read(51,*) t1,t2
+      umat(m,n,ik)=cmplx(t1,t2,8)
+    end do
+  end do
+end do
+close(51)
+wfmloc(:,:,:)=0.d0
+#ifdef MPI
+  call mpi_barrier(mpi_com,mpi_err)
+#endif
+do ik=1,kgrid%npt
+  if (mod(ik-1,np_mpi).ne.lp_mpi) cycle
+  if (pars%nstates.gt.proj%norb) then
+    psi_dis(:,:)=0._dp
+    do n=1,proj%norb
+      do m=1,pars%nstates
+        psi_dis(:,n)=psi_dis(:,n)+udis(m,n,ik)*evec(:,m,ik)
+      end do
+    end do
+  else if (pars%nstates.eq.proj%norb) then
+    psi_dis=evec(:,:,ik)
+  else
+    call throw("Wannier_supplementary%read_wfmloc"," num_bands<nwan")
+  end if
+!$OMP PARALLEL DEFAULT (SHARED)&
+!$OMP PRIVATE(n,m,t1,z1)
+!$OMP DO
+  do ir=1,tbmodel%rgrid%npt
+    t1=dot_product(kgrid%vpc(ik),tbmodel%rgrid%vpc(ir))
+    z1=cmplx(cos(t1),sin(t1),kind=dp)
+    do n=1,proj%norb
+      do m=1,proj%norb
+        wfmloc(:,ir,n)=wfmloc(:,ir,n)+psi_dis(:,m)*umat(m,n,ik)*z1
+      end do
+    end do
+  end do
+!$OMP END DO
+!$OMP END PARALLEL
+end do
+#ifdef MPI
+  n=tbmodel%rgrid%npt*proj%norb*tbmodel%norb_TB
+  call mpi_allreduce(mpi_in_place,wfmloc,n,mpi_double_complex,mpi_sum, &
+   mpi_com,mpi_err)
+#endif
+wfmloc=wfmloc/dble(kgrid%npt)
+deallocate(umat,udis,psi_dis)
 return
 end subroutine
 

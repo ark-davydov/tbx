@@ -96,7 +96,7 @@ real(dp), allocatable :: atmlt(:,:)
   call MPI_barrier(mpi_com,mpi_err)
 #endif
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-if (jstruct.lt.0) call throw("geomlib%generate_structure_tbg()","integer structure value of TBG should be positive or zero")
+if (jstruct.lt.-1) call throw("geomlib%generate_structure_tbg()","integer structure value of TBG should be positive or zero")
 if (jstruct.ge.100) then
   istruct=jstruct-100
 else
@@ -108,14 +108,17 @@ ave(1,:)=graphene_lvec_length*(/ 0.5_dp,0.5_dp*sqrt(3._dp), 0._dp/)
 ave(2,:)=graphene_lvec_length*(/-0.5_dp,0.5_dp*sqrt(3._dp), 0._dp/)
 ave(3,:)=   (/  0._dp,            0._dp, 1._dp/)
 costheta=dble(3*istruct**2+3*istruct+0.5)/dble(3*istruct**2+3*istruct+1)
+if (istruct.lt.0) costheta=1._dp
 theta=acos(costheta)
 thetadeg=theta*57.29577951307854999853_dp
 ! superlattice
 THIS%avec=ave
-THIS%avec(1,1)=istruct*ave(1,1)+(istruct+1)*ave(2,1)
-THIS%avec(1,2)=istruct*ave(1,2)+(istruct+1)*ave(2,2)
-THIS%avec(2,1)=-(istruct+1)*ave(1,1)+(2*istruct+1)*ave(2,1)
-THIS%avec(2,2)=-(istruct+1)*ave(1,2)+(2*istruct+1)*ave(2,2)
+if (istruct.ge.0) then
+  THIS%avec(1,1)=istruct*ave(1,1)+(istruct+1)*ave(2,1)
+  THIS%avec(1,2)=istruct*ave(1,2)+(istruct+1)*ave(2,2)
+  THIS%avec(2,1)=-(istruct+1)*ave(1,1)+(2*istruct+1)*ave(2,1)
+  THIS%avec(2,2)=-(istruct+1)*ave(1,2)+(2*istruct+1)*ave(2,2)
+end if
 ! renormalize z
 t1=sqrt(THIS%avec(1,1)**2+THIS%avec(1,2)**2)
 t2=sqrt(THIS%avec(2,1)**2+THIS%avec(2,2)**2)
