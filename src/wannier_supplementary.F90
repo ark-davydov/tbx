@@ -15,6 +15,8 @@ real(dp), parameter :: tpi=6.283185307179586231995926937088370323181152343750_dp
 real(dp), parameter :: fpi=12.5663706143591724639918538741767406463623046875_dp
 
 
+public :: raddec,ylm_wannier,set_u_matrix
+
 type, public :: wbase
    integer :: norb
    integer :: ncenters
@@ -107,6 +109,7 @@ do isym=1,sym%nsym
   do ic=1,THIS%ncenters
     v1=THIS%centers_cart(:,ic)
     v2=matmul(sym%car(:,:,isym),v1+sym%vtc(:,isym))
+ !   write(*,*) matmul(sym%lat(:,:,isym),THIS%centers(:,ic)+sym%vtl(:,isym))
     do jc=1,THIS%ncenters
       if(lfound(jc)) cycle
       v3=THIS%centers_cart(:,jc)
@@ -903,6 +906,11 @@ end function semifact
 !  RETURN
 !END SUBROUTINE herman_skillman_int
 
+real(8) function raddec(alpha,r)
+implicit none
+real(8), intent(in) :: alpha,r
+raddec=2.d0*alpha**(3.d0/2.d0)*exp(-alpha*r)
+end function raddec
 
 end module
 

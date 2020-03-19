@@ -47,6 +47,8 @@ if (.not.pars%proj%allocatd) call throw("wannier_interface%projection",&
  "projection block must be allocated with correct number of porjections")
 if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band'.or.&
     trim(adjustl(pars%wannier_proj_mode)).eq.'tbg12band'.or.&
+    trim(adjustl(pars%wannier_proj_mode)).eq.'wannier_file'.or.&
+    trim(adjustl(pars%wannier_proj_mode)).eq.'real_space'.or.&
     trim(adjustl(pars%wannier_proj_mode)).eq.'input_file') then
   allocate(vkl(NDIM,kgrid%npt))
   do ik=1,kgrid%npt
@@ -179,15 +181,21 @@ if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band'.or.&
     end if
   end do
   ! sinse we are at gamme WF is the same at all UCells (we will compy values from wftrial(:,*,1) to everywhere)
- ! call tbmodel%bloch_wf_transform(kgrid,ik_gamma,sym,isym2,wftrial(:,3,1),wftrial(:,1,1))
- ! call tbmodel%bloch_wf_transform(kgrid,ik_gamma,sym,isym2,wftrial(:,4,1),wftrial(:,2,1))
   call tbmodel%bloch_wf_transform(kgrid,ik_gamma,sym,isym2,wftrial(:,3,1),wftrial(:,1,1))
   call tbmodel%bloch_wf_transform(kgrid,ik_gamma,sym,isym2,wftrial(:,4,1),wftrial(:,2,1))
   if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg12band') then
+    wftrial(:,5,1)=evec(:,i1-4,ik_gamma)
+    wftrial(:,6,1)= evec(:,i1-3,ik_gamma)
+    wftrial(:,7,1)= evec(:,i1-2,ik_gamma)
+    wftrial(:,8,1)= evec(:,i1-1,ik_gamma)
+    wftrial(:,9,1)= evec(:,i1+4,ik_gamma)
+    wftrial(:,10,1)=evec(:,i1+5,ik_gamma)
+    wftrial(:,11,1)=evec(:,i1+6,ik_gamma)
+    wftrial(:,12,1)=evec(:,i1+7,ik_gamma)
     wftrial(:,5,1)= wftrial(:,1,1)
     wftrial(:,6,1)= wftrial(:,2,1)
-    wftrial(:,7,1)= wftrial(:,1,1)
-    wftrial(:,8,1)= wftrial(:,2,1)
+    wftrial(:,7,1)= wftrial(:,3,1) 
+    wftrial(:,8,1)= wftrial(:,4,1) 
     wftrial(:,9,1)= wftrial(:,1,1)
     wftrial(:,10,1)=wftrial(:,2,1)
     wftrial(:,11,1)=wftrial(:,1,1)
@@ -218,7 +226,7 @@ if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band'.or.&
       do iR=1,tbmodel%rgrid%npt
         zz=zz+dot_product(wftrial(:,iw,iR),wftrial(:,jw,iR))
       end do
-      if (mp_mpi) write(*,'(2I5,2F10.6)') iw,jw,z1(1)
+      if (mp_mpi) write(*,'(2I5,2F10.6)') iw,jw,zz
     end do
   end do
   call generate_amn_overlap(tbmodel,pars,kgrid,evec,tbmodel%rgrid%npt,wftrial,sigma)
@@ -259,7 +267,48 @@ else if (trim(adjustl(pars%wannier_proj_mode)).eq.'input_file') then
        end do
      end do
    end do
-   call generate_amn_overlap(tbmodel,pars,kgrid,evec,tbmodel%rgrid%npt,wftrial,1.e2_dp)
+   call generate_amn_overlap(tbmodel,pars,kgrid,evec,tbmodel%rgrid%npt,wftrial,1.e10_dp)
+   call generate_dmn_orb(tbmodel,proj,sym,pars,kgrid,evec,.false.,wws)
+   deallocate(wftrial)
+else if (trim(adjustl(pars%wannier_proj_mode)).eq.'wannier_file') then
+   ! find the home unit cel
+   allocate(wftrial(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt))
+   wftrial(:,:,:)=0._dp
+   call read_wfmloc(pars,tbmodel,kgrid,evec,wftrial)
+   call generate_amn_overlap(tbmodel,pars,kgrid,evec,tbmodel%rgrid%npt,wftrial,1.e4_dp)
+   call generate_dmn_orb(tbmodel,proj,sym,pars,kgrid,evec,.false.,wws)
+   nr=0
+   do iR=1,tbmodel%rgrid%npt
+     if (sum(abs(tbmodel%rgrid%vpl(iR))).le.6) then
+       nr=nr+1
+       do iw=1,proj%norb
+         do iorb=1,tbmodel%norb_TB
+           wftrial(iorb,iw,nr)=wftrial(iorb,iw,iR)
+         end do
+       end do
+     end if
+   end do
+   !if (mp_mpi) call write_wf_universe(tbmodel,pars,nr,wftrial(:,:,1:nr),'wftrial','')
+   deallocate(wftrial)
+else if (trim(adjustl(pars%wannier_proj_mode)).eq.'real_space') then
+   ! find the home unit cel
+   allocate(wftrial(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt))
+   wftrial(:,:,:)=0._dp
+   sigma=2.0_dp*sqrt(dot_product(pars%avec(1,:),pars%avec(1,:)))
+   call real_space_wftrial(tbmodel,proj,wftrial,sigma)
+   call generate_amn_overlap(tbmodel,pars,kgrid,evec,tbmodel%rgrid%npt,wftrial,sigma)
+   nr=0
+   do iR=1,tbmodel%rgrid%npt
+     if (sum(abs(tbmodel%rgrid%vpl(iR))).le.6) then
+       nr=nr+1
+       do iw=1,proj%norb
+         do iorb=1,tbmodel%norb_TB
+           wftrial(iorb,iw,nr)=wftrial(iorb,iw,iR)
+         end do
+       end do
+     end if
+   end do
+   if (mp_mpi) call write_wf_universe(tbmodel,pars,nr,wftrial(:,:,1:nr),'wftrial','')
    call generate_dmn_orb(tbmodel,proj,sym,pars,kgrid,evec,.false.,wws)
    deallocate(wftrial)
 else
@@ -470,7 +519,7 @@ logical exs
 integer ik,iwan,ist,iR,iorb
 real(dp) t1
 complex(dp) z1
-complex(dp), allocatable :: amn(:,:)
+complex(dp), allocatable :: amn(:,:,:)
 ! A_mn(k)=<\psi_m(k)|g_n>
 inquire(file=trim(adjustl(pars%seedname))//'.amn',exist=exs)
 if (exs) then
@@ -484,22 +533,29 @@ if (mp_mpi) then
   write(50,*) '# '//trim(adjustl(pars%seedname))//' file '
   write(50,*) pars%nstates,kgrid%npt,pars%proj%norb
 end if
-allocate(amn(pars%nstates,pars%proj%norb))
+allocate(amn(pars%nstates,pars%proj%norb,kgrid%npt))
+amn=0._dp
+!$OMP PARALLEL DEFAULT (SHARED)&
+!$OMP PRIVATE(iR,iwan,iorb,t1,z1)
+!$OMP DO
 do ik=1,kgrid%npt
-  amn=0._dp
   do iR=1,tbmodel%rgrid%npt
-    if ( sqrt(sum(tbmodel%rgrid%vpc(iR)**2)) .gt. 3._dp*sigma) cycle
+    if ( sum(abs(tbmodel%rgrid%vpl(iR))).gt.6) cycle
     t1=dot_product(kgrid%vpl(ik),tbmodel%rgrid%vpl(iR))*twopi
     z1=cmplx(cos(t1),-sin(t1),kind=dp)
     do iwan=1,pars%proj%norb
       do iorb=1,tbmodel%norb_TB
-        amn(:,iwan)=amn(:,iwan)+conjg(evec(iorb,:,ik))*wftrial(iorb,iwan,iR)*z1
+        amn(:,iwan,ik)=amn(:,iwan,ik)+conjg(evec(iorb,:,ik))*wftrial(iorb,iwan,iR)*z1
       end do
     end do
   end do
+end do
+!$OMP END DO
+!$OMP END PARALLEL
+do ik=1,kgrid%npt
   do iwan=1,pars%proj%norb
     do ist=1,pars%nstates
-      if (mp_mpi) write(50,'(3I6,2G18.10)') ist,iwan,ik,dble(amn(ist,iwan)),aimag(amn(ist,iwan))
+      if (mp_mpi) write(50,'(3I6,2G18.10)') ist,iwan,ik,dble(amn(ist,iwan,ik)),aimag(amn(ist,iwan,ik))
     end do
   end do
 end do
@@ -727,7 +783,7 @@ do iw=1,pars%proj%norb
   do iR=1,tbmodel%rgrid%npt
     if (sum(abs(tbmodel%rgrid%vpl(iR))).le.6) then
       jr=jr+1
-      write(50,*) tbmodel%rgrid%vpi(ir)
+      write(50,*) tbmodel%rgrid%vpi(iR)
       do iorb=1,tbmodel%norb_TB
         ic=tbmodel%wbase%orb_icio(iorb,1)
         write(50,'(5G18.10)') tbmodel%wbase%centers_cart(:,ic),wf(iorb,iw,jr)
@@ -745,7 +801,7 @@ class(CLpars), intent(in) :: pars
 class(CLtb), intent(in) :: tbmodel
 class(GRID), intent(inout) :: kgrid
 complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
-complex(dp), intent(out) :: wfmloc(tbmodel%norb_TB,tbmodel%rgrid%npt,pars%proj%norb)
+complex(dp), intent(out) :: wfmloc(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt)
 logical exs
 integer nk_,nwan_,num_bands_
 integer ik,m,n,ir
@@ -765,9 +821,9 @@ else
 end if
 call proj%init(pars,pars%proj%ncenters,pars%proj%norb,pars%proj%norb_ic,&
                    pars%proj%lmr,pars%proj%waxis,pars%proj%centers)
-inquire(file=trim(adjustl(pars%seedname))//'_u.mat',exist=exs)
+inquire(file=trim(adjustl(pars%seedname))//'_u.in',exist=exs)
 if (.not.exs) then
-  call throw("Wannier_supplementary%read_wfmloc","no "//trim(adjustl(pars%seedname))//'_u.mat'//" file")
+  call throw("Wannier_supplementary%read_wfmloc","no "//trim(adjustl(pars%seedname))//'_u.in'//" file")
   stop
 end if
 call info("Wannier_supplementary%read_wfmloc","constructing wfmloc")
@@ -775,7 +831,12 @@ allocate(udis(pars%nstates,proj%norb,kgrid%npt))
 allocate(umat(proj%norb,proj%norb,kgrid%npt))
 allocate(psi_dis(tbmodel%norb_TB,proj%norb))
 if (pars%nstates.gt.proj%norb) then
-  open(50,file=trim(adjustl(pars%seedname))//'_u_dis.mat',action='read')
+  inquire(file=trim(adjustl(pars%seedname))//'_u_dis.in',exist=exs)
+  if (.not.exs) then
+    call throw("Wannier_supplementary%read_wfmloc","no "//trim(adjustl(pars%seedname))//'_u_dis.in'//" file")
+    stop
+  end if
+  open(50,file=trim(adjustl(pars%seedname))//'_u_dis.in',action='read')
   read(50,*)
   read(50,*) nk_,nwan_,num_bands_
 
@@ -824,7 +885,7 @@ do ik=1,nk_
   do n=1,nwan_
     do m=1,nwan_
       read(51,*) t1,t2
-      umat(m,n,ik)=cmplx(t1,t2,8)
+      umat(m,n,ik)=cmplx(t1,t2,kind=dp)
     end do
   end do
 end do
@@ -855,7 +916,7 @@ do ik=1,kgrid%npt
     z1=cmplx(cos(t1),sin(t1),kind=dp)
     do n=1,proj%norb
       do m=1,proj%norb
-        wfmloc(:,ir,n)=wfmloc(:,ir,n)+psi_dis(:,m)*umat(m,n,ik)*z1
+        wfmloc(:,n,ir)=wfmloc(:,n,ir)+psi_dis(:,m)*umat(m,n,ik)*z1
       end do
     end do
   end do
@@ -873,5 +934,92 @@ return
 end subroutine
 
 
+subroutine real_space_wftrial(tbmodel,proj,wftrial,sigma)
+class(CLtb), intent(in) :: tbmodel
+class(wbase), intent(in) :: proj
+complex(dp), intent(out) :: wftrial(tbmodel%norb_TB,proj%norb,tbmodel%rgrid%npt)
+real(dp), intent(in) :: sigma
+integer pr,qr,kr,nr,iw,iR,iorb
+integer l1,l2,m1,m2,jr,jc,ic
+real(dp) vc(NDIM),t1
+real(dp) vaxis1(NDIM,NDIM),vaxis2(NDIM,NDIM)
+real(dp), allocatable :: rr(:,:)
+real(dp), allocatable :: r0(:,:)
+real(dp), allocatable :: ylm1(:),ylm2(:)
+integer, parameter :: nbox=4
+real(dp), parameter :: radius=3._dp
+nr=(2*nbox)**NDIM
+allocate(r0(NDIM,nr))
+nr=0
+do pr=-nbox,nbox
+  if (pr.eq.0) cycle
+  do qr=-nbox,nbox
+    if (qr.eq.0) cycle
+    do kr=-nbox,nbox
+      if (kr.eq.0) cycle
+      nr=nr+1
+      r0(1,nr)=dble(pr)*radius
+      r0(2,nr)=dble(qr)*radius
+      r0(3,nr)=dble(kr)*radius
+ !     write(*,*) r0(:,nr)
+    end do
+  end do
+end do
+wftrial=0._dp
+!$OMP PARALLEL DEFAULT(SHARED)&
+!$OMP PRIVATE(l1,l2,m1,m2,ic,jc,iorb,ir,jr,t1,vc)&
+!$OMP PRIVATE(vaxis1,vaxis2,rr,ylm1,ylm2)
+!$OMP DO
+do iw=1,proj%norb
+  allocate(rr(NDIM,nr))
+  allocate(ylm1(nr))
+  allocate(ylm2(nr))
+  l1=proj%lmr(1,iw)
+  m1=proj%lmr(2,iw)
+  ic=proj%orb_icio(iw,1)
+  call set_u_matrix(proj%waxis(:,1,iw),proj%waxis(:,2,iw),vaxis1)
+  do iR=1,tbmodel%rgrid%npt
+    if ( sum(abs(tbmodel%rgrid%vpl(iR))).gt.6) cycle
+    do iorb=1,tbmodel%wbase%norb
+      l2=tbmodel%wbase%lmr(1,iorb)
+      m2=tbmodel%wbase%lmr(2,iorb)
+      jc=tbmodel%wbase%orb_icio(iorb,1)
+      ! rotation operator
+      call set_u_matrix(tbmodel%wbase%waxis(:,1,iorb),tbmodel%wbase%waxis(:,2,iorb),vaxis2)
+      ! angular dependes of TB basis orbial
+      CALL ylm_wannier(ylm2,l2,m2,matmul(vaxis2,r0),nr)
+      ! its radial decay
+      do jr=1,nr
+        t1=sqrt(dot_product(r0(:,jr),r0(:,jr)))
+        ylm2(jr)=ylm2(jr)*raddec(1._dp,t1)
+      end do
+      ! center of basis orbital
+      vc=tbmodel%wbase%centers_cart(:,jc)+tbmodel%rgrid%vpc(iR)
+      do jr=1,nr
+        ! positions with respect to projection center
+        rr(:,jr)=r0(:,jr)+vc(:)-proj%centers_cart(:,ic)
+        if (sum(abs(rr(:,jr))).lt.epslat) rr(:,jr)=epslat
+      end do
+      ! angular dependce of projection function
+      CALL ylm_wannier(ylm1,l1,m1,matmul(vaxis1,rr),nr)
+      ! its radial decay
+      do jr=1,nr
+        t1=sqrt(dot_product(rr(:,jr),rr(:,jr)))
+        ylm1(jr)=ylm1(jr)*gauss(t1,sigma)
+      end do
+      wftrial(iorb,iw,iR)=dot_product(ylm1,ylm2)
+    end do
+  end do
+  t1=0._dp
+  do iR=1,tbmodel%rgrid%npt
+     t1=t1+abs(dot_product(wftrial(:,iw,iR),wftrial(:,iw,iR)))
+  end do
+  wftrial(:,iw,:)=wftrial(:,iw,:)/sqrt(t1)
+  deallocate(rr,ylm1,ylm2)
+end do
+!$OMP END DO
+!$OMP END PARALLEL
+deallocate(r0)
+end subroutine
 
 end module

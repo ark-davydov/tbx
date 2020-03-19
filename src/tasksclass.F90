@@ -352,7 +352,6 @@ real(dp), allocatable :: eval(:,:)
 real(dp), allocatable :: vkl(:,:)
 complex(dp), allocatable :: evec(:,:,:)
 complex(dp), allocatable :: wfmloc(:,:,:)
-complex(dp), allocatable :: wfmloc_reorder(:,:,:)
 type(GRID) kgrid
 type(CLtb) tbmodel
 type(CLsym) sym
@@ -384,7 +383,7 @@ eval=0._dp
 call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
 ! init minimal wannier variables
 !call wannier%init(kgrid,kpath,pars,eval)
-allocate(wfmloc(tbmodel%norb_TB,tbmodel%rgrid%npt,pars%proj%norb))
+allocate(wfmloc(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt))
 call read_wfmloc(pars,tbmodel,kgrid,evec,wfmloc)
 nr=0
 do iR=1,tbmodel%rgrid%npt
@@ -392,17 +391,13 @@ do iR=1,tbmodel%rgrid%npt
     nr=nr+1
     do iw=1,pars%proj%norb
       do iorb=1,tbmodel%norb_TB
-        wfmloc(iorb,nr,iw)=wfmloc(iorb,iR,iw)
+        wfmloc(iorb,iw,nr)=wfmloc(iorb,iw,iR)
       end do
     end do
   end if
 end do
-allocate(wfmloc_reorder(tbmodel%norb_TB,pars%proj%norb,nr))
-do iR=1,nr
-  wfmloc_reorder(:,:,iR)=wfmloc(:,iR,:)
-end do
-if (mp_mpi) call write_wf_universe(tbmodel,pars,nr,wfmloc_reorder,'wfmloc','')
-deallocate(eval,evec,vkl,wfmloc,wfmloc_reorder)
+if (mp_mpi) call write_wf_universe(tbmodel,pars,nr,wfmloc,'wfmloc','')
+deallocate(eval,evec,vkl,wfmloc)
 end subroutine
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
