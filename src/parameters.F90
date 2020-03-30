@@ -50,6 +50,7 @@ type, public :: CLpars
   integer :: natmtot
   integer :: nmaxatm_pspec
   integer :: ngrid(NDIM)
+  integer :: qgrid(NDIM)
   real(dp) :: gauss_sigma=0.1_dp
   real(dp) :: sparse_eps=0.e-6_dp
   real(dp) :: efermi=0._dp
@@ -135,8 +136,12 @@ do iline=1,nlines_max
       read(50,*,iostat=iostat) THIS%avec(ii,:)
       if (iostat.ne.0) call throw("paramters%read_input()","problem with avec block")
       if(mp_mpi) write(*,'(i6,": ",5F10.6)') jline,THIS%avec(ii,:)
+<<<<<<< HEAD
       THIS%avec(ii,:)=THIS%avec(ii,:)*t1
     end do 
+=======
+    end do
+>>>>>>> kenny
     tvec=THIS%avec
     call dmatrix_inverse(tvec,THIS%bvec,NDIM)
     THIS%bvec=transpose(THIS%bvec)*twopi
@@ -146,7 +151,7 @@ do iline=1,nlines_max
         call throw("paramters%read_input()","could not construct reciprocal lattice vectors")
       end if
     end do
-  
+
   ! atoms coordinates and species
   else if (trim(block).eq."atoms") then
     atoms_block_found=.true.
@@ -183,6 +188,12 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%ngrid(:)
     if (iostat.ne.0) call throw("paramters%read_input()","problem with ngrid data")
     if (mp_mpi) write(*,'(i6,": ",5I6)') jline,THIS%ngrid(:)
+
+  else if (trim(block).eq."qgrid") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%qgrid(:)
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with qgrid data")
+    if (mp_mpi) write(*,'(i6,": ",5I6)') jline,THIS%qgrid(:)
 
   ! BZ k-papth block
   else if (trim(block).eq."path") then
@@ -310,6 +321,7 @@ do iline=1,nlines_max
         if (iostat.ne.0) call throw("paramters%read_input()","problem with wannier_proj_mode data")
         if (mp_mpi) write(*,'(i6,": ",A)') jline,trim(adjustl(THIS%wannier_proj_mode))
 
+<<<<<<< HEAD
   ! file with tight-binding hamiltonian
   else if (trim(block).eq."tbfile") then
         jline=jline+1
@@ -404,9 +416,17 @@ do iline=1,nlines_max
         end do
         deallocate(lmr,xaxis,zaxis)  
   
+=======
+  ! number of disired wannier projection
+  else if (trim(block).eq."nwan") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%nwan
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with nwan data")
+    if (mp_mpi) write(*,'(i6,": ",I6)') jline,THIS%nwan
+>>>>>>> kenny
 
   end if
-  
+
 end do
 100 continue
 close(50)
@@ -486,6 +506,27 @@ do ispec=1,THIS%nspec
     THIS%natmtot=THIS%natmtot+1
   end do
 end do
+<<<<<<< HEAD
+=======
+if (trim(adjustl(THIS%geometry_source)).eq."tbg".or.&
+    trim(adjustl(THIS%geometry_source)).eq."slg") then
+
+            allocate(THIS%norb_per_center(THIS%natmtot))
+            allocate(THIS%wannier_axis(NDIM,2,THIS%natmtot))
+            THIS%norb_per_center=1
+            if (NDIM.eq.3) then
+              ! X and Z axis
+              do iat=1,THIS%natmtot
+                THIS%wannier_axis(:,1,iat)=(/1._dp,0._dp,0._dp/)
+                THIS%wannier_axis(:,2,iat)=(/0._dp,0._dp,1._dp/)
+              end do
+            else
+               call throw("paramters%read_input()","wannier axis assignemt works in 3D case only")
+            end if
+else
+   call throw("paramters%read_input()","unknown geometry structure option")
+end if
+>>>>>>> kenny
 allocate(THIS%tot_iais(THIS%natmtot,2))
 allocate(THIS%iais_tot(THIS%nmaxatm_pspec,THIS%nspec))
 THIS%natmtot=0
@@ -595,6 +636,10 @@ if (mp_mpi) then
   write(100,*)"avec"
   do ii=1,NDIM
     write(100,'(5G18.10)') THIS%avec(ii,:)
+  end do
+  write(100,*)"bvec"
+  do ii=1,NDIM
+    write(100,'(5G18.10)') THIS%bvec(ii,:)
   end do
   write(100,'("atoms ",I6)') THIS%nspec
   do ispec=1,THIS%nspec

@@ -23,11 +23,16 @@ type, public, extends(CLgrid) :: GRID
   logical centered
   logical fractional
   integer ngrid(NDIM)
+<<<<<<< HEAD
   integer nir
   integer, allocatable :: iks2k(:,:)
   integer, allocatable :: ik2ir(:)
   integer, allocatable :: ir2ik(:)
   contains 
+=======
+  integer grid_extent(NDIM)
+  contains
+>>>>>>> kenny
   procedure :: init=>init_grid
   procedure :: io=>io_grid
   procedure :: find=>find_grid_point
@@ -40,15 +45,16 @@ type, public, extends(CLgrid) :: PATH
   real(dp), allocatable :: vert(:,:)
   real(dp), allocatable :: dvpc(:)
   real(dp), allocatable :: dvrt(:)
-  contains 
+  contains
   procedure :: init=>init_path
 endtype PATH
 
 contains
 
-subroutine init_grid(THIS,ngrid,vecs,centered,fractional)
+subroutine init_grid(THIS,ngrid,grid_extent,vecs,centered,fractional)
 class(GRID), intent(out) :: THIS
 integer, intent(in) :: ngrid(NDIM)
+integer, intent(in) :: grid_extent(NDIM)
 real(dp), intent(in) :: vecs(NDIM,NDIM)
 logical, intent(in) :: centered,fractional
 integer id,i1,i2,i3,ii,jj,ip
@@ -57,6 +63,7 @@ THIS%centered=centered
 THIS%fractional=fractional
 THIS%vecs=vecs
 THIS%ngrid=ngrid
+THIS%grid_extent=grid_extent
 THIS%npt=1
 do id=1,NDIM
   THIS%npt=THIS%npt*THIS%ngrid(id)
@@ -105,7 +112,7 @@ do ip=1,THIS%npt
   end if
   if (fractional) then
     !write(*,'(I3," ! ",3I3," ! ",3I3)')ip,i1,i2,i3,i1-THIS%ngrid(1)/2,i2-THIS%ngrid(2)/2,i3-THIS%ngrid(3)/2
-    THIS%vl_(:,ip)=dble(THIS%vi_(:,ip))/dble(THIS%ngrid(:))
+    THIS%vl_(:,ip)=dble(THIS%vi_(:,ip))/dble(THIS%grid_extent(:))
   else
     THIS%vl_(:,ip)=dble(THIS%vi_(:,ip))
   end if
@@ -239,6 +246,7 @@ character(len=*), intent(in) :: action,fname
 integer nd,nstates
 logical centered,fractional
 integer ngrid(NDIM)
+integer grid_extent(NDIM)
 real(dp) vecs(NDIM,NDIM)
 if (trim(adjustl(action)).ne."write".and.trim(adjustl(action)).ne."read") &
 call throw("modcom%io_grid()","unknown read/write action")
@@ -249,6 +257,7 @@ if (trim(adjustl(action)).eq."write") then
   write(unt) THIS%centered
   write(unt) THIS%fractional
   write(unt) THIS%ngrid(:)
+  write(unt) THIS%grid_extent(:)
   write(unt) THIS%vecs(:,:)
   write(unt) norb
   write(unt) pars%nstates
@@ -258,6 +267,7 @@ else
   read(unt) centered
   read(unt) fractional
   read(unt) ngrid(:)
+  read(unt) grid_extent(:)
   if (sum(abs(ngrid-pars%ngrid)).ne.0) &
    call throw("grid%io_grid()","the k-point grid dimensions in _grid file are different from ones derived from input")
   read(unt) vecs(:,:)
@@ -271,7 +281,7 @@ else
   THIS%fractional=fractional
   THIS%ngrid=ngrid
   THIS%vecs=vecs
-  call THIS%init(ngrid,vecs,centered,fractional)
+  call THIS%init(ngrid,grid_extent,vecs,centered,fractional)
 end if
 close(unt)
 end subroutine
@@ -304,6 +314,7 @@ real(dp), intent(in) :: vpl(NDIM)
 integer ikg(NDIM+1)
 real(dp) vchk(NDIM)
 if (THIS%centered) then
+<<<<<<< HEAD
   if (THIS%fractional) then
     ! centered grid is defined differently, this complicated construct is becase THIS%ngrid/2 
     ! action was used in the creation of the grid, and the result is different for odd and even grids
@@ -313,6 +324,13 @@ if (THIS%centered) then
   else
     ikg(1:NDIM)=nint(vpl+dble(THIS%ngrid/2))
   end if
+=======
+  ! centered grid is defined differently, this complicated construct is becase THIS%ngrid/2
+  ! action was used in the creation of the grid, and the result is different for odd and even grids
+  ! so here we just plug exactly the same as was used in the initialisation
+  ikg(1:NDIM)=nint( (vpl+dble(THIS%ngrid/2)/dble(THIS%ngrid))*dble(THIS%ngrid) )
+  ikg(1:NDIM)=modulo(ikg(1:NDIM),THIS%ngrid)
+>>>>>>> kenny
 else
   if (THIS%fractional) then
     ikg(1:NDIM)=modulo(nint(vpl*dble(THIS%ngrid)),THIS%ngrid)
