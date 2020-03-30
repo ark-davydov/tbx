@@ -23,6 +23,8 @@ type, public :: CLtb
   integer, private    :: hamsize
   integer, private    :: nmaxatm_pspec
   real(dp), private   :: rcut_nn
+  real(dp), private   :: rcut_tbg_nni
+  real(dp), private   :: vecs(NDIM,NDIM)
   real(dp), private   :: sparse_eps=1.e-6_dp
   type(SK), private   :: skfunc
   type(GRID), public  :: rgrid
@@ -73,6 +75,8 @@ else
 end if
 THIS%sparse_eps=pars%sparse_eps
 THIS%rcut_nn=pars%rcut_nn
+THIS%rcut_tbg_nni=pars%rcut_tbg_nni
+THIS%vecs=pars%avec
 THIS%nspec=pars%nspec
 THIS%nmaxatm_pspec=pars%nmaxatm_pspec
 THIS%sktype=pars%sktype
@@ -348,6 +352,13 @@ do ic=1,THIS%wbase%ncenters
       dv=THIS%wbase%centers_cart(:,jc)+THIS%rgrid%vpc(jR)-THIS%wbase%centers_cart(:,ic)
       t1=sqrt(dot_product(dv,dv))
       if (t1.lt.THIS%rcut_nn) then
+        if (trim(adjustl(THIS%sktype)).eq.'tbgsk'.or.&
+            trim(adjustl(THIS%sktype)).eq.'tbgsk1') then
+           if (abs(dv(ZAXIS)).lt.0.5_dp*tbg_ab_distance) then
+              ! cut in-plane hopping for TBG (later for something else)
+              if (t1.gt.THIS%rcut_tbg_nni) cycle
+           end if
+        end if
         do ios=1,THIS%wbase%norb_ic(ic)
           iorb=THIS%wbase%icio_orb(ic,ios)
           do jos=1,THIS%wbase%norb_ic(jc)

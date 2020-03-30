@@ -55,12 +55,12 @@ if (abs(rr).gt.epslat) then
   zz=dvec(ZAXIS)/rr
   if (trim(adjustl(option)).eq.'tbgsk') then
     ! full SK from the literature
-    tij=(  tpz_pi(rr)*(1._dp-zz**2)+tpz_sig(rr)*zz**2  )*fcut(rr)
+    tij=(  tpz_pi(rr)*(1._dp-zz**2)+tpz_sig(rr)*zz**2  )!*fcut(rr)
   else if (trim(adjustl(option)).eq.'tbgsk1') then
     ! full mixed SK (out-of-plane) with ab-initio (in-plane)
     if (abs(dvec(ZAXIS)).gt.0.5_dp*tbg_ab_distance) then
        ! out-of-plane
-       tij=(  tpz_pi(rr)*(1._dp-zz**2)+tpz_sig(rr)*zz**2  )*fcut(rr)
+       tij=(  tpz_pi(rr)*(1._dp-zz**2)+tpz_sig(rr)*zz**2  )!*fcut(rr)
     else
        ! in-plane
        tij=tbg_inplane_table(rr)

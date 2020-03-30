@@ -56,6 +56,7 @@ type, public :: CLpars
   real(dp) :: emin=-10._dp
   real(dp) :: emax=10._dp
   real(dp) :: rcut_nn=100._dp
+  real(dp) :: rcut_tbg_nni=100._dp
   real(dp) :: avec(NDIM,NDIM)
   real(dp) :: bvec(NDIM,NDIM)
   type(CLproj) :: proj
@@ -214,6 +215,12 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%rcut_nn
     if (iostat.ne.0) call throw("paramters%read_input()","problem with rcut_nn data")
     if (mp_mpi) write(*,'(i6,": ",F10.6)') jline,THIS%rcut_nn
+  ! cut off for in-plane nearest neighbors for tbg
+  else if (trim(block).eq."rcut_tbg_nni") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%rcut_tbg_nni
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with rcut_tbg_nni data")
+    if (mp_mpi) write(*,'(i6,": ",F10.6)') jline,THIS%rcut_tbg_nni
 
   ! symmetry analyser mode
   else if (trim(block).eq."symtype") then
