@@ -229,7 +229,7 @@ if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band'.or.&
       if (mp_mpi) write(*,'(2I5,2F10.6)') iw,jw,zz
     end do
   end do
-  call generate_amn_overlap(tbmodel,pars,kgrid,evec,tbmodel%rgrid%npt,wftrial,sigma)
+  call generate_amn_overlap(tbmodel,pars,kgrid,evec,tbmodel%rgrid%npt,wftrial)
   nr=0
   do iR=1,tbmodel%rgrid%npt
     if (sum(abs(tbmodel%rgrid%vpl(iR))).le.6) then
@@ -267,7 +267,7 @@ else if (trim(adjustl(pars%wannier_proj_mode)).eq.'input_file') then
        end do
      end do
    end do
-   call generate_amn_overlap(tbmodel,pars,kgrid,evec,tbmodel%rgrid%npt,wftrial,1.e10_dp)
+   call generate_amn_overlap(tbmodel,pars,kgrid,evec,tbmodel%rgrid%npt,wftrial)
    call generate_dmn_orb(tbmodel,proj,sym,pars,kgrid,evec,.false.,wws)
    deallocate(wftrial)
 else if (trim(adjustl(pars%wannier_proj_mode)).eq.'wannier_file') then
@@ -275,7 +275,7 @@ else if (trim(adjustl(pars%wannier_proj_mode)).eq.'wannier_file') then
    allocate(wftrial(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt))
    wftrial(:,:,:)=0._dp
    call read_wfmloc(pars,tbmodel,kgrid,evec,wftrial)
-   call generate_amn_overlap(tbmodel,pars,kgrid,evec,tbmodel%rgrid%npt,wftrial,1.e4_dp)
+   call generate_amn_overlap(tbmodel,pars,kgrid,evec,tbmodel%rgrid%npt,wftrial)
    call generate_dmn_orb(tbmodel,proj,sym,pars,kgrid,evec,.false.,wws)
    nr=0
    do iR=1,tbmodel%rgrid%npt
@@ -296,7 +296,7 @@ else if (trim(adjustl(pars%wannier_proj_mode)).eq.'real_space') then
    wftrial(:,:,:)=0._dp
    sigma=2.0_dp*sqrt(dot_product(pars%avec(1,:),pars%avec(1,:)))
    call real_space_wftrial(tbmodel,proj,wftrial,sigma)
-   call generate_amn_overlap(tbmodel,pars,kgrid,evec,tbmodel%rgrid%npt,wftrial,sigma)
+   call generate_amn_overlap(tbmodel,pars,kgrid,evec,tbmodel%rgrid%npt,wftrial)
    nr=0
    do iR=1,tbmodel%rgrid%npt
      if (sum(abs(tbmodel%rgrid%vpl(iR))).le.6) then
@@ -506,14 +506,13 @@ end if
 deallocate(wf_t)
 end function
 
-subroutine generate_amn_overlap(tbmodel,pars,kgrid,evec,nr,wftrial,sigma)
+subroutine generate_amn_overlap(tbmodel,pars,kgrid,evec,nr,wftrial)
 class(CLtb), intent(in) :: tbmodel
 class(CLpars), intent(in) :: pars
 class(GRID), intent(in) :: kgrid
 complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
 integer, intent(in) :: nr
 complex(dp), intent(in) :: wftrial(tbmodel%norb_TB,pars%proj%norb,nr)
-real(dp), intent(in) :: sigma
 ! local
 logical exs
 integer ik,iwan,ist,iR,iorb

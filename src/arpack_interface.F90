@@ -186,7 +186,7 @@ iparam(7) = mode
 !        | Eigenvectors may also be computed now if  |
 !        | desired.  (indicated by rvec = .true.)    | 
 !        %-------------------------------------------%
-         select=.true.
+         !select=.true.
          call zneupd  (rvec, 'A', select, D, V, ldv, sigma, &
                       workev, bmat, n, which, nev, tol,&
                       resid, ncv, v, ldv, iparam, ipntr, workd,&

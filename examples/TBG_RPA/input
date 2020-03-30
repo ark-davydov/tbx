@@ -1,0 +1,28 @@
+tasks 2
+ eigen
+ rpachi
+ngrid
+ 12 12 1 
+! k-path conntecting vertices. format "x y z npoints"
+path 4
+0.666666 0.333333 0. 0
+0.5 0. 0. 2
+0.0 0. 0. 2
+0.333333 0.666666 0. 2
+geometry_source tbg
+ 131
+efermi
+ .818043
+states
+ 5854 6054 
+sparse
+ .true.
+sparse_eps
+ 1.d-5
+sktype
+ tbgsk
+qgrid
+12 1 1
+rcut_tbg_nni
+ 3.1
+

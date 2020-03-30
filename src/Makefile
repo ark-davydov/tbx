@@ -12,7 +12,7 @@ ARPACKLIB=./ARPACK/libarpack.a
 FFLAGS = $(F90FLAGS) $(OMP) $(DPARDI) $(DMPI)
 
 # linkink library flags
-LDFLAGS = $(SYMLIB) $(BLAS) $(LAPACK)  $(ARPACKLIB)
+LDFLAGS = $(SYMLIB) $(ARPACKLIB) $(BLAS) $(LAPACK) 
 
 # modules
 MODULES = modcom.F90 geometry_library.F90 parameters.F90 symm_base.F90 \

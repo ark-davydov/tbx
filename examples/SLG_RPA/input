@@ -1,0 +1,25 @@
+tasks 2
+ eigen
+ rpachi
+ngrid
+ 100 100 1
+path 2
+0.666666 0.333333 0. 0
+0. 0. 0. 100
+geometry_source slg
+ 104
+efermi
+ 0.0
+states
+ 1 2
+sparse
+ .false.
+sparse_eps
+ 1.d-5
+sktype
+ tbgsk
+rcut_nn
+ 1.5
+qgrid
+ 100 1 1
+

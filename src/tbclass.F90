@@ -11,13 +11,8 @@ use symmetryclass
 use wannier_supplementary
 implicit none
 private
-<<<<<<< HEAD
 !integer, parameter :: maxallowd_orbs=46340
 integer, parameter :: maxallowd_nn=1000
-=======
-integer, parameter :: maxallowd_orbs=46340
-integer, parameter :: maxallowd_nn=14400
->>>>>>> kenny
 
 type, public :: CLtb
   ! private
@@ -56,14 +51,10 @@ type, public :: CLtb
   procedure, private :: tij=>tij_function
   procedure, private :: findnn=>run_findnn
   procedure, private :: inquire_hamsize=>calc_hamsize
-<<<<<<< HEAD
   procedure, private :: read_tb_file
   procedure, private :: write_nonzeros_hame
   procedure, private :: write_tb_file
   
-=======
-
->>>>>>> kenny
 endtype CLtb
 
 
@@ -104,22 +95,6 @@ do ic=1,THIS%wbase%ncenters
      THIS%orb_ispec(iorb)=ispec
   end do
 end do
-<<<<<<< HEAD
-=======
-! compute the actual centers
-allocate(THIS%centers(NDIM,THIS%ncenters))
-allocate(THIS%centers_cart(NDIM,THIS%ncenters))
-ic=0
-do ispec=1,pars%nspec
-  do iat=1,pars%nat_per_spec(ispec)
-    ic=ic+1
-    THIS%centers(:,ic)=pars%atml(:,iat,ispec)
-    THIS%centers_cart(:,ic)=pars%atmc(iat,ispec)
-  end do
-end do
-! init real space grid
-call THIS%rgrid%init(pars%ngrid,pars%ngrid,pars%avec,.true.,.false.)
->>>>>>> kenny
 ! Fix the parameters for bottom and top states to calculate
 if (pars%istop.gt.THIS%norb_TB) then
   pars%istop=THIS%norb_TB
@@ -451,11 +426,10 @@ integer, intent(in) :: isym
 complex(dp), intent(out) :: wfout(THIS%norb_TB)
 complex(dp), intent(in) :: wfin(THIS%norb_TB)
 ! local
-<<<<<<< HEAD
 integer ik
 integer iw,jw
 integer ic,jc
-real(dp) t1,t2,err
+real(dp) t1,t2
 real(dp) :: v1(NDIM),v2(NDIM)
 complex(dp) :: zz
 real(dp), allocatable :: wws(:,:)
@@ -625,28 +599,6 @@ do ir=1,THIS%rgrid%npt
   do jj=1,THIS%norb_TB
     do ii=1,THIS%norb_TB
       write(50,'(2I5,3x,2(E15.8,1x))') ii,jj,ham(ii,jj,ir)
-=======
-integer iat,jat,jspec
-integer ic,jc,iorb,jorb,ios,jos
-real(dp) t1
-allocate(wftemp(THIS%norb_TB))
-wftemp(:)=wfinout(:)
-wfinout(:)=0._dp
-do jc=1,THIS%ncenters
-  ! iatom/specie index of jc cite
-  jat=pars%tot_iais(jc,1)
-  jspec=pars%tot_iais(jc,2)
-  ! equivalent atom to jat,jspec at the jsym operation
-  iat=sym%ieqat(jat,jspec,isym)
-  ! cite index of iat,ispec=jspec
-  ic=pars%iais_tot(iat,jspec)
-  do ios=1,THIS%norb_ic(ic)
-    iorb=THIS%icio_orb(ic,ios)
-    do jos=1,THIS%norb_ic(jc)
-      t1=give_symrep_me(sym%car(:,:,isym),THIS%waxis(:,:,ios),THIS%waxis(:,:,jos),THIS%lmr(:,ios),THIS%lmr(:,jos))
-      jorb=THIS%icio_orb(jc,jos)
-      wfinout(iorb)=wfinout(iorb)+t1*wftemp(jorb)
->>>>>>> kenny
     end do
   end do
 end do

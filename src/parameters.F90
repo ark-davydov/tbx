@@ -45,7 +45,7 @@ type, public :: CLpars
   integer :: istart=1
   integer :: istop=1000
   integer :: nstates=1000
-  integer :: negrid=100
+  integer :: negrid=1
   integer :: ntasks=0
   integer :: natmtot
   integer :: nmaxatm_pspec
@@ -136,12 +136,8 @@ do iline=1,nlines_max
       read(50,*,iostat=iostat) THIS%avec(ii,:)
       if (iostat.ne.0) call throw("paramters%read_input()","problem with avec block")
       if(mp_mpi) write(*,'(i6,": ",5F10.6)') jline,THIS%avec(ii,:)
-<<<<<<< HEAD
       THIS%avec(ii,:)=THIS%avec(ii,:)*t1
     end do 
-=======
-    end do
->>>>>>> kenny
     tvec=THIS%avec
     call dmatrix_inverse(tvec,THIS%bvec,NDIM)
     THIS%bvec=transpose(THIS%bvec)*twopi
@@ -312,7 +308,7 @@ do iline=1,nlines_max
         jline=jline+1
         read(50,'(A)',iostat=iostat) THIS%sktype
         if (iostat.ne.0) call throw("paramters%read_input()","problem with sktype data")
-        if (mp_mpi) write(*,'(i6,": ",A)') jline,trim(adjustl(THIS%seedname))
+        if (mp_mpi) write(*,'(i6,": ",A)') jline,trim(adjustl(THIS%sktype))
 
   ! projection mode for wannier export
   else if (trim(block).eq."wannier_proj_mode") then
@@ -321,7 +317,6 @@ do iline=1,nlines_max
         if (iostat.ne.0) call throw("paramters%read_input()","problem with wannier_proj_mode data")
         if (mp_mpi) write(*,'(i6,": ",A)') jline,trim(adjustl(THIS%wannier_proj_mode))
 
-<<<<<<< HEAD
   ! file with tight-binding hamiltonian
   else if (trim(block).eq."tbfile") then
         jline=jline+1
@@ -416,14 +411,6 @@ do iline=1,nlines_max
         end do
         deallocate(lmr,xaxis,zaxis)  
   
-=======
-  ! number of disired wannier projection
-  else if (trim(block).eq."nwan") then
-    jline=jline+1
-    read(50,*,iostat=iostat) THIS%nwan
-    if (iostat.ne.0) call throw("paramters%read_input()","problem with nwan data")
-    if (mp_mpi) write(*,'(i6,": ",I6)') jline,THIS%nwan
->>>>>>> kenny
 
   end if
 
@@ -506,27 +493,6 @@ do ispec=1,THIS%nspec
     THIS%natmtot=THIS%natmtot+1
   end do
 end do
-<<<<<<< HEAD
-=======
-if (trim(adjustl(THIS%geometry_source)).eq."tbg".or.&
-    trim(adjustl(THIS%geometry_source)).eq."slg") then
-
-            allocate(THIS%norb_per_center(THIS%natmtot))
-            allocate(THIS%wannier_axis(NDIM,2,THIS%natmtot))
-            THIS%norb_per_center=1
-            if (NDIM.eq.3) then
-              ! X and Z axis
-              do iat=1,THIS%natmtot
-                THIS%wannier_axis(:,1,iat)=(/1._dp,0._dp,0._dp/)
-                THIS%wannier_axis(:,2,iat)=(/0._dp,0._dp,1._dp/)
-              end do
-            else
-               call throw("paramters%read_input()","wannier axis assignemt works in 3D case only")
-            end if
-else
-   call throw("paramters%read_input()","unknown geometry structure option")
-end if
->>>>>>> kenny
 allocate(THIS%tot_iais(THIS%natmtot,2))
 allocate(THIS%iais_tot(THIS%nmaxatm_pspec,THIS%nspec))
 THIS%natmtot=0
@@ -610,7 +576,7 @@ do ispec=1,THIS%nspec
       call throw("CLpars%shift_all","wannier porjection center not found or it is originally not at any atomic postion")
       9 continue
     end if
-    if (THIS%proj%allocatd) then
+    if (THIS%base%allocatd) then
       do ic=1,THIS%base%ncenters
         dv=THIS%base%centers(:,ic)-THIS%atml(:,iat,ispec)
         if (sum(abs(dv)).lt.epslat) then

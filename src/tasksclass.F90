@@ -132,17 +132,9 @@ real(dp), allocatable :: vkl(:,:)
 #endif
 real(dp), allocatable :: eval(:,:)
 complex(dp), allocatable :: evec(:,:)
-<<<<<<< HEAD
-=======
-call kgrid%init(pars%ngrid,pars%ngrid,pars%bvec,centered_kgrid,.true.)
-call message("  initialise TB model ..")
-call message("")
-call tbmodel%init(pars,"SK")
->>>>>>> kenny
 call message("  initialise symmetries ..")
 call message("")
 call sym%init(pars)
-! everytime after symmetry run, we have to consider a shift to a more symmetric place
 ! init k-grid
 call kgrid%init(pars%ngrid,pars%bvec,centered_kgrid,.true.)
 call message("  initialise TB model ..")
@@ -240,16 +232,11 @@ complex(dp), allocatable :: evec(:,:,:)
 complex(dp), allocatable :: chi(:,:)
 type(GRID) kgrid,qgrid
 type(CLtb) tbmodel
-<<<<<<< HEAD
 type(CLsym) sym
-integer ie
-=======
-integer ch
 #ifdef MPI
   integer nn
 #endif
 
->>>>>>> kenny
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
 #endif
@@ -266,7 +253,7 @@ call kgrid%io(1000,"_grid","read",pars,tbmodel%norb_TB)
 ! However, the grid dimensions will have to be commensurate with original k-grid dimensions, because
 ! in RPA one needs to find kp=k+q, and kp has to be found in the original k-point grid.
 ! Finally, below there is an example how one should proceed when qgrid is equal to kgrid
-call qgrid%init(pars%qgrid,kgrid%grid_extent,pars%bvec,centered_qgrid,.true.)
+call qgrid%init(pars%qgrid,pars%bvec,centered_qgrid,.true.)
 ! allocate array for eigen values
 allocate(eval(pars%nstates,kgrid%npt))
 ! allocate array for eigen vectors
@@ -293,7 +280,7 @@ eval=eval-pars%efermi
 if (mp_mpi) then
   print *, "Calculating RPA Chi"
   print *, "on a q grid of", qgrid%ngrid
-  print *, "with BZ grid of", kgrid%grid_extent
+  print *, "with BZ grid of", kgrid%ngrid
   print *, "Using ", pars%nstates, "states"
   print *, "with", tbmodel%norb_TB, "orbitals per unit cell"
 end if
@@ -313,11 +300,12 @@ end do
    mpi_com,mpi_err)
 #endif
 
+
 if (mp_mpi) then
   open(2000,file="chi.dat")
   do iq=1,qgrid%npt
     do ie=1,pars%negrid
-      write(2000,*) qgrid%vpl(iq), pars%egrid(ie),REAL(chi(ie,iq)), AIMAG(chi(ie,iq))
+      write(2000,*) sqrt(dot_product(qgrid%vpc(iq),qgrid%vpc(iq))),REAL(chi(ie,iq)), AIMAG(chi(ie,iq))
     end do
   end do
 end if
@@ -449,20 +437,19 @@ complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
 complex(dp), intent(out) :: chiq(pars%negrid)
 
 ! local
-integer ie,ist,jst,ikq,ik,iorb
+integer ik
 real(dp) vkq(NDIM),vg(NDIM)
 integer ikg(NDIM+1)
 integer ic, iv
 integer fermi_index_kq(1)
 integer fermi_index_k(1)
-integer testing
 
 real(dp) delta
 complex(dp) overlap
 complex(dp) eitq(tbmodel%norb_TB)
 ! I guess, chi has to be zeroed again, since it is intent(out)
 chiq=0._dp
-eitq = EXP(CMPLX(0, 1)*8 * atan (1.0_16)*MATMUL(vpl, pars%atml(1:3,1:tbmodel%norb_TB,1)))
+eitq = EXP(CMPLX(0, 1, dp)*8 * atan (1._dp)*MATMUL(vpl, pars%atml(1:3,1:tbmodel%norb_TB,1)))
 ! to start with, one needs a subroutine to find k+q on the regular k-poit grid stored inside kgrid object
 ! therefore, one should plug it in a subroutine of kgrid object, here there is an example
 do ik=1,kgrid%npt
@@ -527,35 +514,4 @@ deallocate(idx,ekw,ee)
 end subroutine
 
 
-<<<<<<< HEAD
-subroutine get_chiq(pars,kgrid,tbmodel,vpl,eval,evec,chiq)
-class(CLpars), intent(in) :: pars
-class(GRID), intent(in) :: kgrid
-class(CLtb), intent(in) :: tbmodel
-real(dp), intent(in) :: vpl(NDIM)
-real(dp), intent(in) :: eval(pars%nstates,kgrid%npt)
-complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
-complex(dp), intent(out) :: chiq(pars%negrid)
-! local
-integer ik,iorb
-real(dp) vkq(NDIM),vg(NDIM)
-integer ikg(NDIM+1)
-! I guess, chi has to be zeroed again, since it is intent(out) 
-chiq=0._dp
-! to start with, one needs a subroutine to find k+q on the regular k-poit grid stored inside kgrid object
-! therefore, one should plug it in a subroutine of kgrid object, here there is an example
-do ik=1,kgrid%npt
-  vkq=vpl+kgrid%vpl(ik)
-  ikg=kgrid%find(vkq)
-  vg=dble(ikg(1:NDIM))
-  write(*,'("vkq,corresponding vk+G: ",6F10.4)') vkq,kgrid%vpl(ikg(NDIM+1))+vg
-end do
-do iorb=1,tbmodel%norb_TB
-  write(*,'("iorb, lattice coords: ",i4,6F10.4)') iorb,tbmodel%vplorb(iorb)
-end do
-
-end subroutine
-
-=======
->>>>>>> kenny
 end module
