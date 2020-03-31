@@ -225,11 +225,12 @@ end subroutine
 subroutine calc_chi(pars,opt)
 class(CLpars), intent(inout) :: pars
 character(len=*), intent(in) :: opt
-integer ik,iq,ie
+integer ik,iq,ie,id,ig
+real(dp) vc(NDIM),dc
 real(dp), allocatable :: eval(:,:)
 real(dp), allocatable :: vkl(:,:)
-complex(dp), allocatable :: chi(:,:)
-type(GRID) kgrid,qgrid
+complex(dp), allocatable :: chi(:,:,:)
+type(GRID) kgrid,qgrid,Ggrid
 type(CLtb) tbmodel
 type(CLsym) sym
 #ifdef MPI
@@ -248,17 +249,22 @@ end if
 call tbmodel%init(pars,sym,"noham")
 ! read the k-point grid on which eigenvales/eigenvectors are computed
 call kgrid%io(1000,"_grid","read",pars,tbmodel%norb_TB)
-! In principle, we can have a different q-point grid for the RPA function,
-! However, the grid dimensions will have to be commensurate with original k-grid dimensions, because
-! in RPA one needs to find kp=k+q, and kp has to be found in the original k-point grid.
-! Finally, below there is an example how one should proceed when qgrid is equal to kgrid
+! init q-grid it has to be commensurate and less or equal to k-grid
+do id=1,NDIM
+  if (pars%qgrid(id).gt.pars%ngrid(id)) call throw("CLtasks%calc_chi","q-grid must not be larger than k-grid in any dimension")
+  if (mod(pars%ngrid(id),pars%qgrid(id)).ne.0) call throw("CLtasks%calc_chi","q-grid must commensurate with k-grid")
+end do
 call qgrid%init(pars%qgrid,pars%bvec,centered_qgrid,.true.)
+! grid of reciprocal lattice points G such that q_FBZ+G samples whole reciprocal space
+call Ggrid%init(pars%ngrid,pars%bvec,.true.,.false.)
+! take remember its spherical part only, defined by pars%rcut_grid
+call Ggrid%init_sphere(pars)
 ! allocate array for eigen values
 allocate(eval(pars%nstates,kgrid%npt))
 ! this is needed to copy the private data of kgrid object, i.e., k-points in lattice coordinates
 allocate(vkl(NDIM,kgrid%npt))
 ! array for RPA response function which can be dynamic (on pars%negrid frequencies), and at different q-points
-allocate(chi(pars%negrid,qgrid%npt))
+allocate(chi(pars%negrid,Ggrid%npt_sphere,qgrid%npt))
 ! copy the private data
 do ik=1,kgrid%npt
   ! copy the private data
@@ -283,25 +289,28 @@ end if
 
 ! do the computation. later we will attach MPI parallelisation here
 ! (you can see bands, eigen tasks how to do it), therefore arrays have to be zeroed
-chi(:,:)=0._dp
+chi(:,:,:)=0._dp
 do iq=1,qgrid%npt
   if (mod(iq-1,np_mpi).ne.lp_mpi) cycle
   if (mod(iq-1,max(np_mpi,qgrid%npt/10)).eq.0) write(*,*) "ik, of: ",iq,qgrid%npt
-  call get_chiq(iq,qgrid,kgrid,pars,tbmodel,eval,chi(:,iq))
+  call get_chiq(iq,qgrid,kgrid,Ggrid,pars,tbmodel,eval,chi(:,:,iq))
 end do
 
 #ifdef MPI
-  nn=pars%negrid*qgrid%npt
+  nn=pars%negrid*Ggrid%npt_sphere*qgrid%npt
   call mpi_allreduce(mpi_in_place,chi,nn,MPI_DOUBLE_COMPLEX,mpi_sum, &
    mpi_com,mpi_err)
 #endif
 
-
 if (mp_mpi) then
   open(2000,file="chi.dat")
   do iq=1,qgrid%npt
-    do ie=1,pars%negrid
-      write(2000,*) qgrid%dc(iq),REAL(chi(ie,iq)), AIMAG(chi(ie,iq))
+    do ig=1,Ggrid%npt_sphere
+      vc=qgrid%vpc(iq)+Ggrid%vpc_sphere(ig)
+      dc=sqrt(dot_product(vc,vc))
+      do ie=1,pars%negrid
+        write(2000,'(20F8.4)') dc,REAL(chi(ie,ig,iq)),qgrid%vpl(iq)+Ggrid%vpl_sphere(ig)
+      end do
     end do
   end do
 end if
@@ -423,37 +432,40 @@ end subroutine
 ! Side subroutines, could be placed into another file
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-subroutine get_chiq(iq,qgrid,kgrid,pars,tbmodel,eval,chiq)
+subroutine get_chiq(iq,qgrid,kgrid,Ggrid,pars,tbmodel,eval,chiq)
 integer, intent(in) :: iq
-class(GRID), intent(in) :: qgrid,kgrid
+class(GRID), intent(in) :: qgrid,kgrid,Ggrid
 class(CLpars), intent(in) :: pars
 class(CLtb), intent(in) :: tbmodel
 real(dp), intent(in) :: eval(pars%nstates,kgrid%npt)
-complex(dp), intent(out) :: chiq(pars%negrid)
+complex(dp), intent(out) :: chiq(pars%negrid,Ggrid%npt_sphere)
 
 ! local
-integer ik
+integer ik, ig
 integer ikg(NDIM+1)
-integer ic, iv
+integer ic, iv, iorb
 integer fermi_index_kq(1)
 integer fermi_index_k(1)
-real(dp) delta,pwo
-real(dp) vkq(NDIM),vpl(NDIM)
+real(dp) delta,pwo,dc
+real(dp) vkq(NDIM),vpl(NDIM),vl(NDIM),vc(NDIM)
 complex(dp) overlap
-complex(dp) eitq(tbmodel%norb_TB)
+complex(dp), allocatable :: eitqG(:,:)
 complex(dp), allocatable :: eveck(:,:),eveckq(:,:)
 ! allocate array for eigen vectors
 allocate(eveck(tbmodel%norb_TB,pars%nstates))
 allocate(eveckq(tbmodel%norb_TB,pars%nstates))
+! array for phase factors inside matrix elements
+allocate(eitqG(tbmodel%norb_TB,Ggrid%npt_sphere))
+do ig=1,Ggrid%npt_sphere
+  vl=qgrid%vpl(iq)+Ggrid%vpl_sphere(ig)
+  do iorb=1,tbmodel%norb_tb
+    ! compute phase factors e^(i(q+G)t) for all t, atomic positions
+    eitqG(iorb,ig)=EXP(CMPLX(0._dp, twopi*dot_product(vl,tbmodel%vplorb(iorb)) ,kind=dp))
+  end do
+end do
 ! I guess, chi has to be zeroed again, since it is intent(out)
 chiq = 0._dp
-! compute phase factors e^(iqt) for all t, atomic positions
-eitq = EXP(CMPLX(0, 1, dp)*8 * atan (1._dp)*MATMUL(qgrid%vpl(iq), pars%atml(1:3,1:tbmodel%norb_TB,1)))
-! overlap I(q)=<local_orb|e^iqr|local_orb>, currently only the pz orbital
-pwo = pwave_ovlp(qgrid%dc(iq))
-
 do ik=1,kgrid%npt
-
   vkq=qgrid%vpl(iq)+kgrid%vpl(ik)
   ikg=kgrid%find(vkq)
 
@@ -466,18 +478,23 @@ do ik=1,kgrid%npt
   fermi_index_k =  minloc(eval(:,ik), mask=(eval(:,ik) > 0))
   fermi_index_kq(1) = merge(fermi_index_kq(1)-1,pars%nstates, fermi_index_kq(1) > 0)
   fermi_index_k(1) = merge(fermi_index_k(1)-1,pars%nstates, fermi_index_k(1) > 0)
-
-  do iv=1, fermi_index_k(1)
-    do ic=fermi_index_kq(1)+1, pars%nstates
-      if (pars%ignore_chiIq) then
-        overlap = ABS(DOT_PRODUCT(eveckq(1:tbmodel%norb_TB,ic), eitq*eveck(1:tbmodel%norb_TB,iv)))
-      else
-        overlap = ABS(DOT_PRODUCT(eveckq(1:tbmodel%norb_TB,ic), eitq*eveck(1:tbmodel%norb_TB,iv))) * pwo
-      end if
-      delta = eval(ic, ikg(4)) - eval(iv, ik)
-      if (delta > 1e-7) then
-        chiq(1) = chiq(1) + overlap*overlap/delta
-      end if
+  do ig=1,Ggrid%npt_sphere
+    vc=qgrid%vpc(iq)+Ggrid%vpc_sphere(ig)
+    dc=sqrt(dot_product(vc,vc))
+    ! overlap I(q)=<local_orb|e^iqr|local_orb>, currently only the pz orbital
+    pwo = pwave_ovlp(dc)
+    do iv=1, fermi_index_k(1)
+      do ic=fermi_index_kq(1)+1, pars%nstates
+        if (pars%ignore_chiIq) then
+          overlap = ABS(DOT_PRODUCT(eveckq(1:tbmodel%norb_TB,ic), eitqG(:,ig)*eveck(1:tbmodel%norb_TB,iv)))
+        else
+          overlap = ABS(DOT_PRODUCT(eveckq(1:tbmodel%norb_TB,ic), eitqG(:,ig)*eveck(1:tbmodel%norb_TB,iv))) * pwo
+        end if
+        delta = eval(ic, ikg(4)) - eval(iv, ik)
+        if (delta > 1e-7) then
+          chiq(1,ig) = chiq(1,ig) + overlap*overlap/delta
+        end if
+      end do
     end do
   end do
 end do
@@ -485,7 +502,7 @@ end do
 ! Normalise
 chiq = (4/(pars%ngrid(1)*pars%ngrid(2)*(ABS(pars%avec(1,1)*pars%avec(2,2) - pars%avec(1,2)*pars%avec(2,1))))) * chiq
 
-deallocate(eveck,eveckq)
+deallocate(eveck,eveckq,eitqG)
 end subroutine
 
 

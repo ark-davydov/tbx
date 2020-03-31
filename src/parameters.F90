@@ -59,6 +59,7 @@ type, public :: CLpars
   real(dp) :: emax=10._dp
   real(dp) :: rcut_nn=100._dp
   real(dp) :: rcut_tbg_nni=100._dp
+  real(dp) :: rcut_grid=100._dp
   real(dp) :: avec(NDIM,NDIM)
   real(dp) :: bvec(NDIM,NDIM)
   type(CLproj) :: proj
@@ -229,6 +230,12 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%rcut_tbg_nni
     if (iostat.ne.0) call throw("paramters%read_input()","problem with rcut_tbg_nni data")
     if (mp_mpi) write(*,'(i6,": ",F10.6)') jline,THIS%rcut_tbg_nni
+  ! cut off for spherical part of grid class
+  else if (trim(block).eq."rcut_grid") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%rcut_grid
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with rcut_grid data")
+    if (mp_mpi) write(*,'(i6,": ",F10.6)') jline,THIS%rcut_grid
 
   ! symmetry analyser mode
   else if (trim(block).eq."symtype") then
@@ -283,7 +290,7 @@ do iline=1,nlines_max
   else if (trim(block).eq."ignore_chiIq") then
     jline=jline+1
     read(50,*,iostat=iostat) THIS%ignore_chiIq
-    if (iostat.ne.0) call throw("paramters%read_input()","problem with writetb data")
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with ignore_chiIq data")
     if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%ignore_chiIq
 
   ! energy grid for DOS or spectral functions

@@ -21,18 +21,25 @@ endtype CLgrid
 
 type, public, extends(CLgrid) :: GRID
   logical :: syminit_done=.false.
+  logical :: sphere_allocated=.false.
   logical centered
   logical fractional
   integer ngrid(NDIM)
   integer nir
+  integer npt_sphere
+  integer, allocatable :: sphere_to_homo(:)
   integer, allocatable :: iks2k(:,:)
   integer, allocatable :: ik2ir(:)
   integer, allocatable :: ir2ik(:)
   contains 
   procedure :: init=>init_grid
+  procedure :: init_sphere
   procedure :: io=>io_grid
   procedure :: find=>find_grid_point
   procedure :: sym_init
+  procedure :: vpl_sphere
+  procedure :: vpc_sphere
+  procedure :: dc_sphere
 endtype GRID
 
 type, public, extends(CLgrid) :: PATH
@@ -46,6 +53,39 @@ type, public, extends(CLgrid) :: PATH
 endtype PATH
 
 contains
+
+subroutine init_sphere(THIS,pars)
+class(GRID), intent(inout) :: THIS
+class(CLpars), intent(in) :: pars
+integer ip
+if (THIS%mode.ne."grid") call throw("GRID%init_sphere","grid mode has to be 'grid'")
+if (THIS%centered.eqv..false.) call throw("GRID%init_sphere","grid has to be centered")
+if (THIS%fractional.eqv..true.) call throw("GRID%init_sphere","grid needs to be non-fractional")
+THIS%sphere_allocated=.true.
+! count the number of grid points in the sphere
+THIS%npt_sphere=0
+do ip=1,THIS%npt
+  if (THIS%dc(ip).lt.pars%rcut_grid) then
+    THIS%npt_sphere=THIS%npt_sphere+1
+  end if
+end do
+! allocate map from sphere point to homogeneous point
+allocate(THIS%sphere_to_homo(THIS%npt_sphere))
+THIS%npt_sphere=0
+do ip=1,THIS%npt
+  if (THIS%dc(ip).lt.pars%rcut_grid) then
+    THIS%npt_sphere=THIS%npt_sphere+1
+    THIS%sphere_to_homo(THIS%npt_sphere)=ip
+  end if
+end do
+if (mp_mpi) then
+  call info("GRID%init_sphere","spherical part of grid object extracted")
+  write(*,'("  grid parameters: ",20I8)')  THIS%ngrid(:)
+  write(*,'("  npt_sphere,npt: ",2I8)')  THIS%npt_sphere,THIS%npt
+end if
+
+
+end subroutine
 
 subroutine init_grid(THIS,ngrid,vecs,centered,fractional)
 class(GRID), intent(out) :: THIS
@@ -304,6 +344,27 @@ integer, intent(in) :: ip
 real(dp) :: dc
 real(dp) :: vc(NDIM)
 vc(:)=matmul(THIS%vl_(:,ip),THIS%vecs(:,:))
+dc=sqrt(dot_product(vc,vc))
+end function
+! quantinies of spherical grid
+function vpl_sphere(THIS,ip) result(vl)
+class(GRID), intent(in) :: THIS
+integer, intent(in) :: ip
+real(dp) :: vl(NDIM)
+vl(:)=THIS%vl_(:,THIS%sphere_to_homo(ip))
+end function
+function vpc_sphere(THIS,ip) result(vc)
+class(GRID), intent(in) :: THIS
+integer, intent(in) :: ip
+real(dp) :: vc(NDIM)
+vc(:)=matmul(THIS%vl_(:,THIS%sphere_to_homo(ip)),THIS%vecs(:,:))
+end function
+function dc_sphere(THIS,ip) result(dc)
+class(GRID), intent(in) :: THIS
+integer, intent(in) :: ip
+real(dp) :: dc
+real(dp) :: vc(NDIM)
+vc(:)=matmul(THIS%vl_(:,THIS%sphere_to_homo(ip)),THIS%vecs(:,:))
 dc=sqrt(dot_product(vc,vc))
 end function
 
