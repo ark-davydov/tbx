@@ -37,6 +37,7 @@ type, public :: CLpars
   logical :: symtshift=.true.
   logical :: writetb=.false.
   logical :: sparse=.false.
+  logical :: ignore_chiIq=.false.
   integer :: geometry_index=0
   integer :: symtype=1
   integer :: nvert
@@ -278,6 +279,12 @@ do iline=1,nlines_max
     if (iostat.ne.0) call throw("paramters%read_input()","problem with writetb data")
     if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%writetb
 
+  ! .true. local overlap with exponent will be ignored in chi calculation
+  else if (trim(block).eq."ignore_chiIq") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%ignore_chiIq
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with writetb data")
+    if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%ignore_chiIq
 
   ! energy grid for DOS or spectral functions
   else if (trim(block).eq."egrid") then

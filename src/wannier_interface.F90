@@ -753,11 +753,6 @@ end subroutine
 
 
 
-real(dp) function pwave_ovlp(dc)
-real(dp), intent(in) :: dc
-real(dp), parameter :: charge_pz=3.18_dp
-pwave_ovlp=( 1._dp/( 1._dp+(dc*abohr/charge_pz)**2 ) )**3
-end function
 
 subroutine write_wf_universe(tbmodel,pars,nr,wf,pre,post)
 class(CLtb), intent(in) :: tbmodel

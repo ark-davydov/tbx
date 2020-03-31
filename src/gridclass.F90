@@ -16,6 +16,7 @@ type, public :: CLgrid
   procedure :: vpi=>give_vpi
   procedure :: vpl=>give_vpl
   procedure :: vpc=>calc_vpc
+  procedure :: dc=>calc_dc
 endtype CLgrid
 
 type, public, extends(CLgrid) :: GRID
@@ -296,6 +297,14 @@ class(CLgrid), intent(in) :: THIS
 integer, intent(in) :: ip
 real(dp) :: vc(NDIM)
 vc(:)=matmul(THIS%vl_(:,ip),THIS%vecs(:,:))
+end function
+function calc_dc(THIS,ip) result(dc)
+class(CLgrid), intent(in) :: THIS
+integer, intent(in) :: ip
+real(dp) :: dc
+real(dp) :: vc(NDIM)
+vc(:)=matmul(THIS%vl_(:,ip),THIS%vecs(:,:))
+dc=sqrt(dot_product(vc,vc))
 end function
 
 function find_grid_point(THIS,vpl) result(ikg)

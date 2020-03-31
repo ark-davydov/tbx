@@ -25,4 +25,6 @@ qgrid
 12 1 1
 rcut_tbg_nni
  3.1
+ignore_chiIq
+ .true.
 

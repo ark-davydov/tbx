@@ -22,4 +22,6 @@ rcut_nn
  1.5
 qgrid
  100 1 1
+ignore_chiIq
+ .true.
 

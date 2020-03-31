@@ -286,7 +286,8 @@ end if
 chi(:,:)=0._dp
 do iq=1,qgrid%npt
   if (mod(iq-1,np_mpi).ne.lp_mpi) cycle
-  call get_chiq(pars,kgrid,tbmodel,qgrid%vpl(iq),eval,chi(:,iq))
+  if (mod(iq-1,max(np_mpi,qgrid%npt/10)).eq.0) write(*,*) "ik, of: ",iq,qgrid%npt
+  call get_chiq(iq,qgrid,kgrid,pars,tbmodel,eval,chi(:,iq))
 end do
 
 #ifdef MPI
@@ -300,7 +301,7 @@ if (mp_mpi) then
   open(2000,file="chi.dat")
   do iq=1,qgrid%npt
     do ie=1,pars%negrid
-      write(2000,*) sqrt(dot_product(qgrid%vpc(iq),qgrid%vpc(iq))),REAL(chi(ie,iq)), AIMAG(chi(ie,iq))
+      write(2000,*) qgrid%dc(iq),REAL(chi(ie,iq)), AIMAG(chi(ie,iq))
     end do
   end do
 end if
@@ -422,38 +423,40 @@ end subroutine
 ! Side subroutines, could be placed into another file
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-subroutine get_chiq(pars,kgrid,tbmodel,vpl,eval,chiq)
+subroutine get_chiq(iq,qgrid,kgrid,pars,tbmodel,eval,chiq)
+integer, intent(in) :: iq
+class(GRID), intent(in) :: qgrid,kgrid
 class(CLpars), intent(in) :: pars
-class(GRID), intent(in) :: kgrid
 class(CLtb), intent(in) :: tbmodel
-real(dp), intent(in) :: vpl(NDIM)
 real(dp), intent(in) :: eval(pars%nstates,kgrid%npt)
 complex(dp), intent(out) :: chiq(pars%negrid)
 
 ! local
 integer ik
-real(dp) vkq(NDIM),vg(NDIM)
 integer ikg(NDIM+1)
 integer ic, iv
 integer fermi_index_kq(1)
 integer fermi_index_k(1)
-complex(dp), allocatable :: eveck(:,:),eveckq(:,:)
-
-real(dp) delta
+real(dp) delta,pwo
+real(dp) vkq(NDIM),vpl(NDIM)
 complex(dp) overlap
 complex(dp) eitq(tbmodel%norb_TB)
+complex(dp), allocatable :: eveck(:,:),eveckq(:,:)
 ! allocate array for eigen vectors
 allocate(eveck(tbmodel%norb_TB,pars%nstates))
 allocate(eveckq(tbmodel%norb_TB,pars%nstates))
 ! I guess, chi has to be zeroed again, since it is intent(out)
-chiq=0._dp
-eitq = EXP(CMPLX(0, 1, dp)*8 * atan (1._dp)*MATMUL(vpl, pars%atml(1:3,1:tbmodel%norb_TB,1)))
-! to start with, one needs a subroutine to find k+q on the regular k-poit grid stored inside kgrid object
-! therefore, one should plug it in a subroutine of kgrid object, here there is an example
+chiq = 0._dp
+! compute phase factors e^(iqt) for all t, atomic positions
+eitq = EXP(CMPLX(0, 1, dp)*8 * atan (1._dp)*MATMUL(qgrid%vpl(iq), pars%atml(1:3,1:tbmodel%norb_TB,1)))
+! overlap I(q)=<local_orb|e^iqr|local_orb>, currently only the pz orbital
+pwo = pwave_ovlp(qgrid%dc(iq))
+
 do ik=1,kgrid%npt
-  vkq=vpl+kgrid%vpl(ik)
+
+  vkq=qgrid%vpl(iq)+kgrid%vpl(ik)
   ikg=kgrid%find(vkq)
-  vg=kgrid%vpl(ikg(4))
+
   ! read eigenvectors, subroutine in modcom.f90
   call io_evec(ik,"read","_evec",tbmodel%norb_TB,pars%nstates,eveck)
   call io_evec(ikg(4),"read","_evec",tbmodel%norb_TB,pars%nstates,eveckq)
@@ -466,7 +469,11 @@ do ik=1,kgrid%npt
 
   do iv=1, fermi_index_k(1)
     do ic=fermi_index_kq(1)+1, pars%nstates
-      overlap = ABS(DOT_PRODUCT(eveckq(1:tbmodel%norb_TB,ic), eitq*eveck(1:tbmodel%norb_TB,iv)))
+      if (pars%ignore_chiIq) then
+        overlap = ABS(DOT_PRODUCT(eveckq(1:tbmodel%norb_TB,ic), eitq*eveck(1:tbmodel%norb_TB,iv)))
+      else
+        overlap = ABS(DOT_PRODUCT(eveckq(1:tbmodel%norb_TB,ic), eitq*eveck(1:tbmodel%norb_TB,iv))) * pwo
+      end if
       delta = eval(ic, ikg(4)) - eval(iv, ik)
       if (delta > 1e-7) then
         chiq(1) = chiq(1) + overlap*overlap/delta
