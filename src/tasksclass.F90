@@ -228,7 +228,6 @@ character(len=*), intent(in) :: opt
 integer ik,iq,ie
 real(dp), allocatable :: eval(:,:)
 real(dp), allocatable :: vkl(:,:)
-complex(dp), allocatable :: evec(:,:,:)
 complex(dp), allocatable :: chi(:,:)
 type(GRID) kgrid,qgrid
 type(CLtb) tbmodel
@@ -256,8 +255,6 @@ call kgrid%io(1000,"_grid","read",pars,tbmodel%norb_TB)
 call qgrid%init(pars%qgrid,pars%bvec,centered_qgrid,.true.)
 ! allocate array for eigen values
 allocate(eval(pars%nstates,kgrid%npt))
-! allocate array for eigen vectors
-allocate(evec(tbmodel%norb_TB,pars%nstates,kgrid%npt))
 ! this is needed to copy the private data of kgrid object, i.e., k-points in lattice coordinates
 allocate(vkl(NDIM,kgrid%npt))
 ! array for RPA response function which can be dynamic (on pars%negrid frequencies), and at different q-points
@@ -266,8 +263,6 @@ allocate(chi(pars%negrid,qgrid%npt))
 do ik=1,kgrid%npt
   ! copy the private data
   vkl(:,ik)=kgrid%vpl(ik)
-  ! read eigenvectors, subroutine in modcom.f90
-  call io_evec(ik,"read","_evec",tbmodel%norb_TB,pars%nstates,evec(:,:,ik))
 end do
 ! zero the arrays for security reasons
 eval=0._dp
@@ -291,7 +286,7 @@ end if
 chi(:,:)=0._dp
 do iq=1,qgrid%npt
   if (mod(iq-1,np_mpi).ne.lp_mpi) cycle
-  call get_chiq(pars,kgrid,tbmodel,qgrid%vpl(iq),eval,evec,chi(:,iq))
+  call get_chiq(pars,kgrid,tbmodel,qgrid%vpl(iq),eval,chi(:,iq))
 end do
 
 #ifdef MPI
@@ -310,7 +305,7 @@ if (mp_mpi) then
   end do
 end if
 
-deallocate(eval,evec,vkl)
+deallocate(eval,vkl)
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
 #endif
@@ -427,13 +422,12 @@ end subroutine
 ! Side subroutines, could be placed into another file
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-subroutine get_chiq(pars,kgrid,tbmodel,vpl,eval,evec,chiq)
+subroutine get_chiq(pars,kgrid,tbmodel,vpl,eval,chiq)
 class(CLpars), intent(in) :: pars
 class(GRID), intent(in) :: kgrid
 class(CLtb), intent(in) :: tbmodel
 real(dp), intent(in) :: vpl(NDIM)
 real(dp), intent(in) :: eval(pars%nstates,kgrid%npt)
-complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
 complex(dp), intent(out) :: chiq(pars%negrid)
 
 ! local
@@ -443,10 +437,14 @@ integer ikg(NDIM+1)
 integer ic, iv
 integer fermi_index_kq(1)
 integer fermi_index_k(1)
+complex(dp), allocatable :: eveck(:,:),eveckq(:,:)
 
 real(dp) delta
 complex(dp) overlap
 complex(dp) eitq(tbmodel%norb_TB)
+! allocate array for eigen vectors
+allocate(eveck(tbmodel%norb_TB,pars%nstates))
+allocate(eveckq(tbmodel%norb_TB,pars%nstates))
 ! I guess, chi has to be zeroed again, since it is intent(out)
 chiq=0._dp
 eitq = EXP(CMPLX(0, 1, dp)*8 * atan (1._dp)*MATMUL(vpl, pars%atml(1:3,1:tbmodel%norb_TB,1)))
@@ -456,6 +454,9 @@ do ik=1,kgrid%npt
   vkq=vpl+kgrid%vpl(ik)
   ikg=kgrid%find(vkq)
   vg=kgrid%vpl(ikg(4))
+  ! read eigenvectors, subroutine in modcom.f90
+  call io_evec(ik,"read","_evec",tbmodel%norb_TB,pars%nstates,eveck)
+  call io_evec(ikg(4),"read","_evec",tbmodel%norb_TB,pars%nstates,eveckq)
 
   ! Get the index corresponding to fermi level
   fermi_index_kq =  minloc(eval(:,ikg(4)), mask=(eval(:,ikg(4)) > 0))
@@ -465,7 +466,7 @@ do ik=1,kgrid%npt
 
   do iv=1, fermi_index_k(1)
     do ic=fermi_index_kq(1)+1, pars%nstates
-      overlap = ABS(DOT_PRODUCT(evec(1:tbmodel%norb_TB,ic,ikg(4)), eitq*evec(1:tbmodel%norb_TB,iv,ik)))
+      overlap = ABS(DOT_PRODUCT(eveckq(1:tbmodel%norb_TB,ic), eitq*eveck(1:tbmodel%norb_TB,iv)))
       delta = eval(ic, ikg(4)) - eval(iv, ik)
       if (delta > 1e-7) then
         chiq(1) = chiq(1) + overlap*overlap/delta
@@ -477,6 +478,7 @@ end do
 ! Normalise
 chiq = (4/(pars%ngrid(1)*pars%ngrid(2)*(ABS(pars%avec(1,1)*pars%avec(2,2) - pars%avec(1,2)*pars%avec(2,1))))) * chiq
 
+deallocate(eveck,eveckq)
 end subroutine
 
 
