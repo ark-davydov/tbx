@@ -3,9 +3,11 @@ tasks 2
  rpachi
 ngrid
  100 100 1
-path 2
+path 4
  0.666666 0.333333 0. 0
- 0. 0. 0. 100
+ 0.5 0. 0. 2
+ 0.0 0. 0. 2
+ 0.333333 0.666666 0. 2
 geometry_source slg
  104
 efermi
@@ -21,9 +23,11 @@ sktype
 rcut_nn
  1.5
 qgrid
- 10 10 1
-ignore_chiIq
- .false.
+ 100 1 1
+Ggrid
+ 3 1 1
 rcut_grid
  6.0
+ignore_chiIq
+ .true.
 

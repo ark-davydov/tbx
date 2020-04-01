@@ -256,7 +256,8 @@ do id=1,NDIM
 end do
 call qgrid%init(pars%qgrid,pars%bvec,centered_qgrid,.true.)
 ! grid of reciprocal lattice points G such that q_FBZ+G samples whole reciprocal space
-call Ggrid%init(pars%ngrid,pars%bvec,.true.,.false.)
+if (sum(abs(pars%Ggrid)).eq.0) pars%Ggrid=pars%ngrid
+call Ggrid%init(pars%Ggrid,pars%bvec,.true.,.false.)
 ! take remember its spherical part only, defined by pars%rcut_grid
 call Ggrid%init_sphere(pars)
 ! allocate array for eigen values

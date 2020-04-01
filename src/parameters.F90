@@ -52,6 +52,7 @@ type, public :: CLpars
   integer :: nmaxatm_pspec
   integer :: ngrid(NDIM)
   integer :: qgrid(NDIM)
+  integer :: Ggrid(NDIM)
   real(dp) :: gauss_sigma=0.1_dp
   real(dp) :: sparse_eps=0.e-6_dp
   real(dp) :: efermi=0._dp
@@ -100,6 +101,7 @@ integer, allocatable :: lmr(:,:)
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
 #endif
+THIS%Ggrid=0
 
 open(50,file=trim(adjustl(THIS%input_file)),action="read",status="old",iostat=iostat)
 if (iostat.ne.0) call throw("paramters%read_input()","could not open input file")
@@ -192,6 +194,12 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%qgrid(:)
     if (iostat.ne.0) call throw("paramters%read_input()","problem with qgrid data")
     if (mp_mpi) write(*,'(i6,": ",5I6)') jline,THIS%qgrid(:)
+
+  else if (trim(block).eq."Ggrid") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%Ggrid(:)
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with Ggrid data")
+    if (mp_mpi) write(*,'(i6,": ",5I6)') jline,THIS%Ggrid(:)
 
   ! BZ k-papth block
   else if (trim(block).eq."path") then
