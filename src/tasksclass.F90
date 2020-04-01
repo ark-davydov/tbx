@@ -479,6 +479,9 @@ do ik=1,kgrid%npt
   fermi_index_k =  minloc(eval(:,ik), mask=(eval(:,ik) > 0))
   fermi_index_kq(1) = merge(fermi_index_kq(1)-1,pars%nstates, fermi_index_kq(1) > 0)
   fermi_index_k(1) = merge(fermi_index_k(1)-1,pars%nstates, fermi_index_k(1) > 0)
+  !$OMP PARALLEL DEFAULT(SHARED)&
+  !$OMP PRIVATE(ig,vc,dc,pwo,iv,ic,overlap,delta)
+  !$OMP DO
   do ig=1,Ggrid%npt_sphere
     vc=qgrid%vpc(iq)+Ggrid%vpc_sphere(ig)
     dc=sqrt(dot_product(vc,vc))
@@ -498,6 +501,8 @@ do ik=1,kgrid%npt
       end do
     end do
   end do
+  !$OMP END DO
+  !$OMP END PARALLEL
 end do
 
 ! Normalise

@@ -22,10 +22,12 @@ sktype
  tbgsk
 qgrid
  4 4 1
-rcut_tbg_nni
- 3.1
+Ggrid
+ 3 1 1
 rcut_grid
  0.1
+rcut_tbg_nni
+ 3.1
 ignore_chiIq
  .true.
 
