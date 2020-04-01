@@ -85,7 +85,7 @@ integer i,j,iat,istruct
 integer counter1,counter2,counter
 integer number_of_atoms,spec0(4)
 real(dp) t1,t2,t3,z,zmid,vac
-real(dp) costheta,theta,thetadeg
+real(dp) costheta,theta,thetadeg,alpha
 real(dp) a33,tbg_interplane_dist,zlat,dvar
 real(dp) atl(3),atc(3),atl_super(3)
 real(dp) rot(3,3),atxy(4,3)
@@ -119,9 +119,17 @@ if (istruct.ge.0) then
   THIS%avec(2,1)=-(istruct+1)*ave(1,1)+(2*istruct+1)*ave(2,1)
   THIS%avec(2,2)=-(istruct+1)*ave(1,2)+(2*istruct+1)*ave(2,2)
 end if
-! renormalize z
+! superlattice lengths
 t1=sqrt(THIS%avec(1,1)**2+THIS%avec(1,2)**2)
 t2=sqrt(THIS%avec(2,1)**2+THIS%avec(2,2)**2)
+! rotate in-plane vectors such that the first one is along X
+alpha=acos(dot_product((/t1,0._dp,0._dp/),THIS%avec(1,:))/t1**2)
+call getrot(.true.,-alpha,rot)
+THIS%avec(1,:)=matmul(THIS%avec(1,:),rot)
+THIS%avec(2,:)=matmul(THIS%avec(2,:),rot)
+ave(1,:)=matmul(ave(1,:),rot)
+ave(2,:)=matmul(ave(2,:),rot)
+! renormalize z
 vac=max(t1,t2)
 tbg_interplane_dist=tbg_ab_distance
 a33=tbg_interplane_dist+vac

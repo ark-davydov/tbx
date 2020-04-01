@@ -275,10 +275,8 @@ end do
 eval=0._dp
 ! read eigenvalues, subroutine in modcom.f90
 call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
-
 ! shift all eigenvalues by efermi (so, it should not be changend in the input file)
 eval=eval-pars%efermi
-
 if (mp_mpi) then
   print *, "Calculating RPA Chi"
   print *, "on a q grid of", qgrid%ngrid
@@ -286,8 +284,6 @@ if (mp_mpi) then
   print *, "Using ", pars%nstates, "states"
   print *, "with", tbmodel%norb_TB, "orbitals per unit cell"
 end if
-
-
 ! do the computation. later we will attach MPI parallelisation here
 ! (you can see bands, eigen tasks how to do it), therefore arrays have to be zeroed
 chi(:,:,:)=0._dp
@@ -309,9 +305,10 @@ if (mp_mpi) then
     do ig=1,Ggrid%npt_sphere
       vc=qgrid%vpc(iq)+Ggrid%vpc_sphere(ig)
       dc=sqrt(dot_product(vc,vc))
-      do ie=1,pars%negrid
-        write(2000,'(20F8.4)') dc,REAL(chi(ie,ig,iq)),qgrid%vpl(iq)+Ggrid%vpl_sphere(ig)
-      end do
+ !     do ie=1,pars%negrid
+        ! temporary format, plottable with xmgrace as chi(|q|) for two first columns
+        write(2000,'(20F8.4)') dc,REAL(chi(1,ig,iq)),qgrid%vpl(iq)+Ggrid%vpl_sphere(ig)
+ !     end do
     end do
   end do
 end if

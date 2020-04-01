@@ -24,10 +24,13 @@ rcut_nn
  1.5
 qgrid
  100 1 1
+! grid of reciprocal vertices
 Ggrid
  3 1 1
+! this allows to take only its sphereical part (Useful at large Ggrid)
 rcut_grid
  6.0
+! ignore <loc_orb_i|e^iqr|loc_orb_j> overlap on a site in compiting bloch wave overlap <k|e^iqr|k+q>
 ignore_chiIq
- .true.
+ .false.
 

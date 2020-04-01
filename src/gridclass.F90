@@ -81,7 +81,7 @@ end do
 if (mp_mpi) then
   call info("GRID%init_sphere","spherical part of grid object extracted")
   write(*,'("  grid parameters: ",20I8)')  THIS%ngrid(:)
-  write(*,'("  npt_sphere,npt: ",2I8)')  THIS%npt_sphere,THIS%npt
+  write(*,'("  npt_sphere: ",I8)')  THIS%npt_sphere
 end if
 
 

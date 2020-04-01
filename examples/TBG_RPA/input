@@ -9,25 +9,30 @@ path 4
  0.0 0. 0. 2
  0.333333 0.666666 0. 2
 geometry_source tbg
- 121
+ 131
 efermi
  .818043
 states
- 5854 6054 
+ 5155 6754 
+! when there are many states, as needed for RPA calculation, sparse may be slower -> switched off
 sparse
- .true.
+ .false.
 sparse_eps
  1.d-5
 sktype
  tbgsk
 qgrid
- 4 4 1
+ 12 1 1
+! grid of reciprocal vertices
 Ggrid
  3 1 1
+! this allows to take only its sphereical part (Useful at large Ggrid)
 rcut_grid
- 0.1
+ 1.0
+! cut in-plane TBG hoppoing by this distanse
 rcut_tbg_nni
  3.1
+! ignore <loc_orb_i|e^iqr|loc_orb_j> overlap on a site in compiting bloch wave overlap <k+q|e^iqr|k>
 ignore_chiIq
  .true.
 

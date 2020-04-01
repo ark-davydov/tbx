@@ -57,8 +57,8 @@ call symmetry(THIS%typ, pars%nspec, pars%nat_per_spec,&
 if (shifted) then
   call info("symmetryclass%find_symmetries()","lattice was shifted by symmetry analyser")  
   call info("","basis, projections were shifted by the same amount")  
-  call info("","to make code working, be sure that your basis set")  
-  call info("","and wannier projections (if needed) at positions compatible with atoms in 'geometry0.dat'")  
+  call info("","to make code working, be sure that your final basis set (base.dat)")  
+  call info("","and wannier projections (proj.dat) are at positions compatible with atoms in 'geometry.dat'")  
   call pars%write_geometry('geometry0.dat')
   call pars%shift_all(lattice_shift)
   if (pars%base%allocatd) call pars%base%write_base('base.dat')
