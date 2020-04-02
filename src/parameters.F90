@@ -22,7 +22,7 @@ type :: CLproj
   real(dp), allocatable :: centers(:,:)
   contains
   procedure :: write_base
-endtype 
+endtype
 
 type, public :: CLpars
   character(len=100) :: input_file
@@ -53,6 +53,7 @@ type, public :: CLpars
   integer :: ngrid(NDIM)
   integer :: qgrid(NDIM)
   integer :: Ggrid(NDIM)
+  integer :: chi_n_exclude=0
   real(dp) :: gauss_sigma=0.1_dp
   real(dp) :: sparse_eps=0.e-6_dp
   real(dp) :: efermi=0._dp
@@ -69,6 +70,7 @@ type, public :: CLpars
   integer, allocatable :: np_per_vert(:)
   integer, allocatable :: tot_iais(:,:)
   integer, allocatable :: iais_tot(:,:)
+  integer, allocatable :: chi_exclude(:)
   real(dp), allocatable :: egrid(:)
   real(dp), allocatable :: atml(:,:,:)
   real(dp), allocatable :: vert(:,:)
@@ -141,7 +143,7 @@ do iline=1,nlines_max
       if (iostat.ne.0) call throw("paramters%read_input()","problem with avec block")
       if(mp_mpi) write(*,'(i6,": ",5F10.6)') jline,THIS%avec(ii,:)
       THIS%avec(ii,:)=THIS%avec(ii,:)*t1
-    end do 
+    end do
     tvec=THIS%avec
     call dmatrix_inverse(tvec,THIS%bvec,NDIM)
     THIS%bvec=transpose(THIS%bvec)*twopi
@@ -201,6 +203,15 @@ do iline=1,nlines_max
     if (iostat.ne.0) call throw("paramters%read_input()","problem with Ggrid data")
     if (mp_mpi) write(*,'(i6,": ",5I6)') jline,THIS%Ggrid(:)
 
+  else if (trim(block).eq."chi_exclude") then
+    read(arg,*,iostat=iostat) THIS%chi_n_exclude
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with chi_exclude's length argumet")
+    allocate(THIS%chi_exclude(THIS%chi_n_exclude))
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%chi_exclude(:)
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with chi_exclude data")
+    if (mp_mpi) write(*,'(i6,": ",5I6)') jline,THIS%chi_exclude(:)
+
   ! BZ k-papth block
   else if (trim(block).eq."path") then
     read(arg,*,iostat=iostat) THIS%nvert
@@ -251,7 +262,7 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%symtype
     if (iostat.ne.0) call throw("paramters%read_input()","problem with symtype data")
     if (mp_mpi) write(*,'(i6,": ",i4)') jline,THIS%symtype
- 
+
   ! index of the first flat band of TBG
   else if (trim(block).eq."iflat_band") then
     jline=jline+1
@@ -280,7 +291,7 @@ do iline=1,nlines_max
     if (iostat.ne.0) call throw("paramters%read_input()","problem with sparse_eps data")
     if (mp_mpi) write(*,'(i6,": ",F18.10)') jline,THIS%sparse_eps
 
-  ! .true. to use the sparse algorithms 
+  ! .true. to use the sparse algorithms
   else if (trim(block).eq."sparse") then
     jline=jline+1
     read(50,*,iostat=iostat) THIS%sparse
@@ -346,7 +357,7 @@ do iline=1,nlines_max
         if (iostat.ne.0) call throw("paramters%read_input()","problem with tbfile argumet")
         read(50,*,iostat=iostat) THIS%tbfile
         if (mp_mpi) write(*,'(i6,": ",A)') jline,THIS%tbfile
-  
+
   ! projection mode for wannier export
   else if (trim(block).eq."projections") then
         THIS%proj%allocatd=.true.
@@ -386,9 +397,9 @@ do iline=1,nlines_max
            do iw=1,THIS%proj%norb_ic(ic)
              jw=jw+1
              THIS%proj%iw2ic(jw)=ic
-           end do 
+           end do
         end do
-        deallocate(lmr,xaxis,zaxis)  
+        deallocate(lmr,xaxis,zaxis)
 
   ! the same block is projection, but now it defines a base for TB hamiltonian
   else if (trim(block).eq."basis") then
@@ -429,10 +440,10 @@ do iline=1,nlines_max
            do iw=1,THIS%base%norb_ic(ic)
              jw=jw+1
              THIS%base%iw2ic(jw)=ic
-           end do 
+           end do
         end do
-        deallocate(lmr,xaxis,zaxis)  
-  
+        deallocate(lmr,xaxis,zaxis)
+
 
   end if
 
@@ -459,7 +470,7 @@ if (trim(adjustl(THIS%geometry_source)).ne."") then
       call throw("paramters%read_input()","unknown geometry structure option")
    end if
    if (trim(adjustl(THIS%geometry_source)).eq.'tbg') THIS%symtshift=.false.
-   
+
    ! exclude translation vectors from symmetry analyser it will take too long to compute that
    call geometry%init(THIS%geometry_index,THIS%geometry_source)
    if (allocated(THIS%nat_per_spec)) deallocate(THIS%nat_per_spec)
@@ -499,7 +510,7 @@ if (trim(adjustl(THIS%geometry_source)).ne."") then
       do iw=1,THIS%base%norb_ic(ic)
         jw=jw+1
         THIS%base%iw2ic(jw)=ic
-      end do 
+      end do
    end do
    THIS%base%allocatd=.true.
 else

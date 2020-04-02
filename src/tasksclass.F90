@@ -283,6 +283,7 @@ if (mp_mpi) then
   print *, "with BZ grid of", kgrid%ngrid
   print *, "Using ", pars%nstates, "states"
   print *, "with", tbmodel%norb_TB, "orbitals per unit cell"
+  print *, "Excluded bands =", pars%chi_exclude
 end if
 ! do the computation. later we will attach MPI parallelisation here
 ! (you can see bands, eigen tasks how to do it), therefore arrays have to be zeroed
@@ -486,6 +487,7 @@ do ik=1,kgrid%npt
     pwo = pwave_ovlp(dc)
     do iv=1, fermi_index_k(1)
       do ic=fermi_index_kq(1)+1, pars%nstates
+        if (ANY(pars%chi_exclude == ic) .AND. ANY(pars%chi_exclude == iv)) cycle
         if (pars%ignore_chiIq) then
           overlap = ABS(DOT_PRODUCT(eveckq(1:tbmodel%norb_TB,ic), eitqG(:,ig)*eveck(1:tbmodel%norb_TB,iv)))
         else
