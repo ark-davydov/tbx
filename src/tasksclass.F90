@@ -503,7 +503,7 @@ do ik=1,kgrid%npt
 end do
 
 ! Normalise
-chiq = (4/(pars%ngrid(1)*pars%ngrid(2)*(ABS(pars%avec(1,1)*pars%avec(2,2) - pars%avec(1,2)*pars%avec(2,1))))) * chiq
+chiq = (4.0/(kgrid%npt)) * chiq
 
 deallocate(eveck,eveckq,eitqG)
 end subroutine
