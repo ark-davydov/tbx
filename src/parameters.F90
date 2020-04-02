@@ -38,6 +38,7 @@ type, public :: CLpars
   logical :: writetb=.false.
   logical :: sparse=.false.
   logical :: ignore_chiIq=.false.
+  logical :: chi_exclude=.false.
   integer :: geometry_index=0
   integer :: symtype=1
   integer :: nvert
@@ -53,7 +54,6 @@ type, public :: CLpars
   integer :: ngrid(NDIM)
   integer :: qgrid(NDIM)
   integer :: Ggrid(NDIM)
-  integer :: chi_n_exclude=0
   real(dp) :: gauss_sigma=0.1_dp
   real(dp) :: sparse_eps=0.e-6_dp
   real(dp) :: efermi=0._dp
@@ -64,13 +64,13 @@ type, public :: CLpars
   real(dp) :: rcut_grid=100._dp
   real(dp) :: avec(NDIM,NDIM)
   real(dp) :: bvec(NDIM,NDIM)
+  real(dp) :: e_chi_exclude(2)
   type(CLproj) :: proj
   type(CLproj) :: base
   integer, allocatable :: nat_per_spec(:)
   integer, allocatable :: np_per_vert(:)
   integer, allocatable :: tot_iais(:,:)
   integer, allocatable :: iais_tot(:,:)
-  integer, allocatable :: chi_exclude(:)
   real(dp), allocatable :: egrid(:)
   real(dp), allocatable :: atml(:,:,:)
   real(dp), allocatable :: vert(:,:)
@@ -204,14 +204,11 @@ do iline=1,nlines_max
     if (mp_mpi) write(*,'(i6,": ",5I6)') jline,THIS%Ggrid(:)
 
   else if (trim(block).eq."chi_exclude") then
-    read(arg,*,iostat=iostat) THIS%chi_n_exclude
-    if (iostat.ne.0) call throw("paramters%read_input()","problem with chi_exclude's length argumet")
-    allocate(THIS%chi_exclude(THIS%chi_n_exclude))
+    THIS%chi_exclude=.true.
     jline=jline+1
-    read(50,*,iostat=iostat) THIS%chi_exclude(:)
+    read(50,*,iostat=iostat) THIS%e_chi_exclude(:)
     if (iostat.ne.0) call throw("paramters%read_input()","problem with chi_exclude data")
-    if (mp_mpi) write(*,'(i6,": ",5I6)') jline,THIS%chi_exclude(:)
-
+    if (mp_mpi) write(*,'(i6,": ",5F19.6)') jline,THIS%e_chi_exclude(:)
   ! BZ k-papth block
   else if (trim(block).eq."path") then
     read(arg,*,iostat=iostat) THIS%nvert

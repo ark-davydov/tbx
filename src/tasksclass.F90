@@ -283,8 +283,8 @@ if (mp_mpi) then
   print *, "with BZ grid of", kgrid%ngrid
   print *, "Using ", pars%nstates, "states"
   print *, "with", tbmodel%norb_TB, "orbitals per unit cell"
-  if (ALLOCATED(pars%chi_exclude)) then
-    print *, "Excluded bands =", pars%chi_exclude
+  if (pars%chi_exclude) then
+    print '(a,F5.2,a,F5.2)', "Excluding bands in the range  ", pars%e_chi_exclude(1), " < E - E_fermi < ", pars%e_chi_exclude(2)
   end if
 end if
 ! do the computation. later we will attach MPI parallelisation here
@@ -447,6 +447,7 @@ integer ikg(NDIM+1)
 integer ic, iv, iorb
 integer fermi_index_kq(1)
 integer fermi_index_k(1)
+real(dp) ec, ev
 real(dp) delta,pwo,dc
 real(dp) vkq(NDIM),vpl(NDIM),vl(NDIM),vc(NDIM)
 complex(dp) overlap
@@ -489,15 +490,18 @@ do ik=1,kgrid%npt
     pwo = pwave_ovlp(dc)
     do iv=1, fermi_index_k(1)
       do ic=fermi_index_kq(1)+1, pars%nstates
-        if (ALLOCATED(pars%chi_exclude)) then
-          if ((FINDLOC(pars%chi_exclude,ic,1) .ne. 0) .AND. (FINDLOC(pars%chi_exclude, iv,1) .ne. 0)) cycle
+        ev = eval(iv, ik)
+        ec = eval(ic, ikg(4))
+        if (pars%chi_exclude) then
+          if (((ev < pars%e_chi_exclude(2)) .and. (ev > pars%e_chi_exclude(1))) &
+          .AND. ((ec < pars%e_chi_exclude(2)) .and. (ec > pars%e_chi_exclude(1)))) cycle
         end if
         if (pars%ignore_chiIq) then
           overlap = ABS(DOT_PRODUCT(eveckq(1:tbmodel%norb_TB,ic), eitqG(:,ig)*eveck(1:tbmodel%norb_TB,iv)))
         else
           overlap = ABS(DOT_PRODUCT(eveckq(1:tbmodel%norb_TB,ic), eitqG(:,ig)*eveck(1:tbmodel%norb_TB,iv))) * pwo
         end if
-        delta = eval(ic, ikg(4)) - eval(iv, ik)
+        delta = ec - ev
         if (delta > 1e-7) then
           chiq(1,ig) = chiq(1,ig) + overlap*overlap/delta
         end if
