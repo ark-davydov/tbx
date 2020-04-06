@@ -310,7 +310,7 @@ if (mp_mpi) then
       dc=sqrt(dot_product(vc,vc))
  !     do ie=1,pars%negrid
         ! temporary format, plottable with xmgrace as chi(|q|) for two first columns
-        write(2000,'(20F8.4)') dc,REAL(chi(1,ig,iq)),qgrid%vpl(iq)+Ggrid%vpl_sphere(ig)
+        write(2000,'(20F12.4)') dc,REAL(chi(1,ig,iq)),qgrid%vpl(iq)+Ggrid%vpl_sphere(ig)
  !     end do
     end do
   end do
