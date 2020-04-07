@@ -284,7 +284,7 @@ if (mp_mpi) then
   print *, "Using ", pars%nstates, "states"
   print *, "with", tbmodel%norb_TB, "orbitals per unit cell"
   if (pars%chi_exclude) then
-    print '(a,F5.2,a,F5.2)', "Excluding bands in the range  ", pars%e_chi_exclude(1), " < E - E_fermi < ", pars%e_chi_exclude(2)
+    print '(a,F7.5,a,F7.5)', "Excluding bands in the range  ", pars%e_chi_exclude(1), " < E - E_fermi < ", pars%e_chi_exclude(2)
   end if
 end if
 ! do the computation. later we will attach MPI parallelisation here
