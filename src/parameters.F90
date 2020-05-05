@@ -47,6 +47,8 @@ type, public :: CLpars
   integer :: istart=1
   integer :: istop=1000
   integer :: nstates=1000
+  integer :: chi_start=1
+  integer :: chi_stop=1000
   integer :: negrid=1
   integer :: ntasks=0
   integer :: natmtot
@@ -325,6 +327,15 @@ do iline=1,nlines_max
     if (mp_mpi) write(*,'(i6,": ",2I6)') jline,THIS%istart,THIS%istop
     if (THIS%istop.lt.THIS%istart) call throw("paramters%read_input()","istart state should be less or equal then istop")
     THIS%nstates=THIS%istop-THIS%istart+1
+    THIS%chi_stop=THIS%nstates
+
+  else if (trim(block).eq."chi_states") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%chi_start,THIS%chi_stop
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with chi states data")
+    if (mp_mpi) write(*,'(i6,": ",2I6)') jline,THIS%chi_start,THIS%chi_stop
+    if (THIS%chi_stop.lt.THIS%chi_start) call throw("paramters%read_input()", &
+    "chi start state should be less or equal then chi stop")
 
   ! seedname for Wannier90 interface
   else if (trim(block).eq."seedname") then
