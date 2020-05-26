@@ -48,10 +48,30 @@ do itask=1,pars%ntasks
      call message("")
      call projection_wannier(pars)
      call message("")
+  else if (trim(adjustl(pars%tasks(itask))).eq."symreps") then
+     call message("*** symmetry representations of bands in kpath vertices ***")
+     call message("")
+     call symreps(pars)
+     call message("")
   else if (trim(adjustl(pars%tasks(itask))).eq."write_wfmloc") then
      call message("*** extract wfmloc ***")
      call message("")
      call write_wfmloc(pars)
+     call message("")
+  else if (trim(adjustl(pars%tasks(itask))).eq."hubbard_tbg") then
+     call message("*** compute Hubbard parameters ***")
+     call message("")
+     call hubbard_tbg(pars)
+     call message("")
+  else if (trim(adjustl(pars%tasks(itask))).eq."symmetrize_u") then
+     call message("*** symmetrize Hubbard parameters ***")
+     call message("")
+     call symmetrize_u(pars)
+     call message("")
+  else if (trim(adjustl(pars%tasks(itask))).eq."symmetrize_tb") then
+     call message("*** symmetrize Tight-Binding Hamiltonian ***")
+     call message("")
+     call symmetrize_tb(pars)
      call message("")
   else
     call throw("CLtasks%run","unknown task")
@@ -225,7 +245,7 @@ end subroutine
 subroutine calc_chi(pars,opt)
 class(CLpars), intent(inout) :: pars
 character(len=*), intent(in) :: opt
-integer ik,iq,ie,id,ig
+integer ik,iq,id,ig
 real(dp) vc(NDIM),dc
 real(dp), allocatable :: eval(:,:)
 real(dp), allocatable :: vkl(:,:)
@@ -371,6 +391,67 @@ deallocate(eval,evec,vkl)
 #endif
 end subroutine
 
+subroutine symreps(pars)
+class(CLpars), intent(inout) :: pars
+integer ik
+real(dp), allocatable :: eval(:)
+complex(dp), allocatable :: evec(:,:)
+type(CLtb) tbmodel
+type(PATH) kpath
+type(CLsym) sym
+type(char_table) ch_table
+real(dp) vpc(NDIM)
+integer isym,ngroups,igr,ist,icl,nsym
+complex(dp) ch_bandgroup,irrep_decompose(48)
+integer, allocatable :: idx(:,:)
+complex(dp), allocatable :: wft(:)
+#ifdef MPI
+  call MPI_barrier(mpi_com,mpi_err)
+#endif
+! generater spatial symmetries
+call sym%init(pars)
+call ch_table%read_character_table(pars%character_file,sym%nsym)
+call kpath%init(pars%nvert,pars%np_per_vert,pars%vert,pars%bvec)
+call tbmodel%init(pars,sym,"SK")
+allocate(idx(pars%nstates,2))
+allocate(eval(pars%nstates))
+allocate(evec(tbmodel%norb_TB,pars%nstates))
+allocate(wft(tbmodel%norb_TB))
+eval=0._dp
+evec=0._dp
+do ik=1,kpath%nvert
+   write(*,*)"IK: ",ik
+   call tbmodel%evalk(.true.,pars,kpath%vert(:,ik),eval,evec)
+   vpc=matmul(kpath%vert(:,ik),kpath%vecs)
+   call find_degroups(pars%nstates,eval,ngroups,idx)
+   ! find symreps for groups of bands
+   do igr=1,ngroups
+     write(*,*) 'group: ',igr,idx(igr,1),idx(igr,2)
+     write(*,*) 'energies: ',eval(idx(igr,1):idx(igr,2))-pars%efermi
+     irrep_decompose(:)=0._dp
+     do icl=1,ch_table%nclasses
+       do nsym=1,ch_table%nsym_of_cl(icl)
+         isym=ch_table%isym_of_cl(icl,nsym)
+         ch_bandgroup=0
+         do ist=idx(igr,1),idx(igr,2)
+           call tbmodel%bloch_wf_transform_statk(vpc,vpc,sym,isym,wft,evec(:,ist))
+           ch_bandgroup=ch_bandgroup+dot_product(evec(:,ist),wft)
+         end do
+         irrep_decompose(1:ch_table%nclasses)=irrep_decompose(1:ch_table%nclasses)&
+                                             +ch_bandgroup*ch_table%table(1:ch_table%nclasses,icl)/dble(sym%nsym)
+       end do
+     end do
+     write(*,'("irreps_decomposition: ")',advance='no')
+     write(*,'(10A5)',advance='no') ch_table%symreps(1:ch_table%nclasses)
+     write(*,'(100F10.4)') abs(irrep_decompose(1:ch_table%nclasses))
+   end do
+end do
+#ifdef MPI
+  call MPI_barrier(mpi_com,mpi_err)
+#endif
+deallocate(eval,evec,idx)
+end subroutine
+
 subroutine write_wfmloc(pars)
 class(CLpars), intent(inout) :: pars
 integer ik
@@ -426,6 +507,94 @@ if (mp_mpi) call write_wf_universe(tbmodel,pars,nr,wfmloc,'wfmloc','')
 deallocate(eval,evec,vkl,wfmloc)
 end subroutine
 
+subroutine hubbard_tbg(pars)
+class(CLpars), intent(inout) :: pars
+integer ik
+real(dp), allocatable :: eval(:,:)
+real(dp), allocatable :: vkl(:,:)
+complex(dp), allocatable :: evec(:,:,:)
+type(GRID) kgrid
+type(CLtb) tbmodel
+type(CLsym) sym
+#ifdef MPI
+  call MPI_barrier(mpi_com,mpi_err)
+#endif
+! generater spatial symmetries
+call sym%init(pars)
+! initialise TB model, to have centers coordinates and other data
+call tbmodel%init(pars,sym,"noham")
+! read the k-point grid on which eigenvales/eigenvectors are computed
+call kgrid%io(1000,"_grid","read",pars,tbmodel%norb_TB)
+! allocate array for eigen values
+allocate(eval(pars%nstates,kgrid%npt))
+! allocate array for eigen vectors
+allocate(evec(tbmodel%norb_TB,pars%nstates,kgrid%npt))
+! this is needed to copy the private data of kgrid object, i.e., k-points in lattice coordinates
+allocate(vkl(NDIM,kgrid%npt))
+do ik=1,kgrid%npt
+  ! copy the private data
+  vkl(:,ik)=kgrid%vpl(ik)
+  ! read eigenvectors, subroutine in modcom.f90
+  call io_evec(ik,"read","_evec",tbmodel%norb_TB,pars%nstates,evec(:,:,ik))
+end do
+! zero the arrays for security reasons
+eval=0._dp
+! read eigenvalues, subroutine in modcom.f90
+call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
+! init minimal wannier variables
+call compute_hubbardu_rs(pars,tbmodel,kgrid,evec)
+!call compute_hubbardj_rs(pars,tbmodel,kgrid,sym,evec)
+deallocate(eval,evec,vkl)
+end subroutine
+
+subroutine symmetrize_u(pars)
+class(CLpars), intent(inout) :: pars
+real(dp), allocatable :: eval(:,:)
+real(dp), allocatable :: vkl(:,:)
+complex(dp), allocatable :: evec(:,:,:)
+type(GRID) kgrid
+type(CLtb) tbmodel
+type(CLsym) sym
+integer ik
+#ifdef MPI
+  call MPI_barrier(mpi_com,mpi_err)
+#endif
+! generater spatial symmetries
+call sym%init(pars)
+! initialise TB model, to have centers coordinates and other data
+call tbmodel%init(pars,sym,"noham")
+! read the k-point grid on which eigenvales/eigenvectors are computed
+call kgrid%io(1000,"_grid","read",pars,tbmodel%norb_TB)
+! allocate array for eigen values
+allocate(eval(pars%nstates,kgrid%npt))
+! allocate array for eigen vectors
+allocate(evec(tbmodel%norb_TB,pars%nstates,kgrid%npt))
+! this is needed to copy the private data of kgrid object, i.e., k-points in lattice coordinates
+allocate(vkl(NDIM,kgrid%npt))
+do ik=1,kgrid%npt
+  ! copy the private data
+  vkl(:,ik)=kgrid%vpl(ik)
+  ! read eigenvectors, subroutine in modcom.f90
+  call io_evec(ik,"read","_evec",tbmodel%norb_TB,pars%nstates,evec(:,:,ik))
+end do
+! zero the arrays for security reasons
+eval=0._dp
+! read eigenvalues, subroutine in modcom.f90
+call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
+! init minimal wannier variables
+call sym%init(pars)
+call symmetrize_hubbardu_rs(pars,sym,tbmodel,kgrid,evec)
+deallocate(eval,evec,vkl)
+end subroutine
+
+subroutine symmetrize_tb(pars)
+class(CLpars), intent(inout) :: pars
+type(CLsym) sym
+call sym%init(pars)
+call symmetrize_tbfile(pars,sym)
+end subroutine
+
+
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Side subroutines, could be placed into another file
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -445,7 +614,7 @@ integer ic, iv, iorb
 integer fermi_index_kq(1)
 integer fermi_index_k(1)
 real(dp) delta,pwo,dc
-real(dp) vkq(NDIM),vpl(NDIM),vl(NDIM),vc(NDIM)
+real(dp) vkq(NDIM),vl(NDIM),vc(NDIM)
 complex(dp) overlap
 complex(dp), allocatable :: eitqG(:,:)
 complex(dp), allocatable :: eveck(:,:),eveckq(:,:)

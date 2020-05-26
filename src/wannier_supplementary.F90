@@ -34,10 +34,17 @@ type, public :: wbase
    procedure :: init
    procedure :: init_smap
    procedure :: wws
+   procedure, nopass :: Tmlij
    procedure, nopass :: wws_full
 endtype
 
 contains
+
+function Tmlij(sr,tau1,tau2) result (TT)
+real(dp), intent(in) :: sr(NDIM,NDIM),tau1(NDIM),tau2(NDIM)
+real(dp) TT(NDIM)
+TT=matmul(sr,tau1)-tau2
+end function
 
 subroutine init(THIS,pars,ncenters,norb,norb_ic,lmr,waxis,centers)
 ! allocate a basis for TB model

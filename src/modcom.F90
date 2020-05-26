@@ -23,6 +23,8 @@ real(dp), parameter :: pihalf=1.570796326794896557998981734272092580795288085937
 real(dp), parameter :: sqrtpi=1.77245385091_dp
 real(dp), parameter :: epslat=1.e-6_dp
 real(dp), parameter :: epsengy=1.e-6_dp
+real(dp), parameter :: Hartree_to_ev=27.211386245988_dp
+real(dp), parameter :: CoulombForceConstant=abohr*Hartree_to_ev
 real(dp) :: graphene_lvec_length=2.46_dp
 real(dp) :: graphene_cc_distance=1.42_dp
 real(dp) :: tbg_aa_distance=3.60_dp
@@ -45,16 +47,22 @@ logical mp_mpi
 contains 
 
   ! split a string into 2 either side of a delimiter token
-  SUBROUTINE split_string(instring, string1, string2)
+  SUBROUTINE split_string(instring, string1, string2, crit)
+    CHARACTER :: crit
     CHARACTER(256) :: instring
     CHARACTER(256),INTENT(OUT):: string1,string2
     INTEGER :: index
 
     instring = TRIM(adjustl(instring))
 
-    index = SCAN(instring,' ')
-    string1 = instring(1:index-1)
-    string2 = instring(index+1:)
+    index = SCAN(instring,crit)
+!    if (index.eq.0) then
+!      string1=instring
+!      string2=''
+!    else
+      string1 = instring(1:index-1)
+      string2 = instring(index+1:)
+!    end if
 
   END SUBROUTINE split_string
 
@@ -572,5 +580,57 @@ real(dp), intent(in) :: dc
 real(dp), parameter :: charge_pz=3.18_dp
 pwave_ovlp=( 1._dp/( 1._dp+(dc*abohr/charge_pz)**2 ) )**3
 end function
+
+subroutine find_degroups(nx,xx,ngr,idx)
+integer :: nx,ngr
+real(dp) :: xx(nx)
+integer, intent(out) :: idx(nx,2)
+integer nlast,ix
+ngr=1
+nlast=0
+idx(ngr,1)=1
+idx(ngr,2)=1
+do ix=2,nx
+  if (abs(xx(ix)-xx(ix-1)).lt.epslat) then
+     nlast=nlast+1
+     idx(ngr,2)=idx(ngr,1)+nlast
+  else
+    ngr=ngr+1
+    nlast=0
+    idx(ngr,1)=ix
+    idx(ngr,2)=ix
+  end if
+end do
+end subroutine
+! Copyright (C) 2002-2005 J. K. Dewhurst, S. Sharma and C. Ambrosch-Draxl.
+! This file is distributed under the terms of the GNU Lesser General Public
+! License. See the file COPYING for license details.
+
+!BOP
+! !ROUTINE: r3cross
+! !INTERFACE:
+subroutine r3cross(x,y,z)
+! !INPUT/OUTPUT PARAMETERS:
+!   x : input vector 1 (in,real(3))
+!   y : input vector 2 (in,real(3))
+!   z : output cross-product (out,real(3))
+! !DESCRIPTION:
+!   Returns the cross product of two real 3-vectors.
+!
+! !REVISION HISTORY:
+!   Created September 2002 (JKD)
+!EOP
+!BOC
+implicit none
+! arguments
+real(8), intent(in) :: x(3),y(3)
+real(8), intent(out) :: z(3)
+z(1)=x(2)*y(3)-x(3)*y(2)
+z(2)=x(3)*y(1)-x(1)*y(3)
+z(3)=x(1)*y(2)-x(2)*y(1)
+return
+end subroutine
+!EOC
+
 
 end module

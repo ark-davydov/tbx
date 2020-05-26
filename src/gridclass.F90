@@ -25,10 +25,13 @@ type, public, extends(CLgrid) :: GRID
   logical centered
   logical fractional
   integer ngrid(NDIM)
+  integer ip0
   integer nir
   integer npt_sphere
   integer, allocatable :: sphere_to_homo(:)
+  integer, allocatable :: homo_to_sphere(:)
   integer, allocatable :: iks2k(:,:)
+  integer, allocatable :: sik2ir(:)
   integer, allocatable :: ik2ir(:)
   integer, allocatable :: ir2ik(:)
   contains 
@@ -71,11 +74,14 @@ do ip=1,THIS%npt
 end do
 ! allocate map from sphere point to homogeneous point
 allocate(THIS%sphere_to_homo(THIS%npt_sphere))
+allocate(THIS%homo_to_sphere(THIS%npt_sphere))
 THIS%npt_sphere=0
+THIS%homo_to_sphere=0
 do ip=1,THIS%npt
   if (THIS%dc(ip).lt.pars%rcut_grid) then
     THIS%npt_sphere=THIS%npt_sphere+1
     THIS%sphere_to_homo(THIS%npt_sphere)=ip
+    THIS%homo_to_sphere(ip)=THIS%npt_sphere
   end if
 end do
 if (mp_mpi) then
@@ -150,6 +156,7 @@ do ip=1,THIS%npt
   else
     THIS%vl_(:,ip)=dble(THIS%vi_(:,ip))
   end if
+  if (sum(abs(THIS%vl_(:,ip))).lt.epslat) THIS%ip0=ip
 end do
 end subroutine
 
@@ -160,6 +167,7 @@ real(dp), intent(in) :: vert(NDIM,nvert)
 real(dp), intent(in) :: vecs(NDIM,NDIM)
 integer ip,ivert,counter
 real(dp) v1(NDIM),v2(NDIM),v3(NDIM)
+if (nvert.le.1) call throw("PATH%init_path()","nvert should be at least 2, now it is <=1")
 THIS%mode="path"
 allocate(THIS%vert(NDIM,nvert))
 allocate(THIS%np_per_vert(nvert))
@@ -250,6 +258,7 @@ end do
 end if
 allocate(THIS%ik2ir(THIS%npt))
 allocate(THIS%ir2ik(THIS%npt))
+allocate(THIS%sik2ir(THIS%npt))
 THIS%ik2ir=-999 !Gives irreducible-k points from regular-k points.
 THIS%ir2ik=-999 !Gives regular-k points from irreducible-k points.
 lfound=.false.
@@ -260,11 +269,13 @@ do ik=1,THIS%npt
    THIS%nir=THIS%nir+1
    THIS%ir2ik(THIS%nir)=ik
    THIS%ik2ir(ik)=THIS%nir
+   THIS%sik2ir(ik)=1
    do isym=1,sym%nsym
       ikp=THIS%iks2k(ik,isym)
       if(lfound(ikp)) cycle
       lfound(ikp)=.true.
       THIS%ik2ir(ikp)=THIS%nir
+      THIS%sik2ir(ikp)=sym%inv(isym)
    end do
 end do
 end subroutine
@@ -403,9 +414,9 @@ if (THIS%centered) then
   ! return back to orgiginal values
   ikg(1:NDIM)=ikg(1:NDIM)-THIS%ngrid/2
 end if
-if (ikg(NDIM+1).gt.THIS%npt) then
-  ikg(NDIM+1)=-ikg(NDIM+1)
-  ikg(1:NDIM)=0
+if (ikg(NDIM+1).gt.THIS%npt.or.ikg(NDIM+1).le.0) then
+  ikg(NDIM+1)=-abs(ikg(NDIM+1))
+  ikg(1:NDIM)=-99999
 else
   ! finally, redefine ikg(1:NDIM) such that they return translation vectors
   ikg(1:NDIM)=nint(vpl-THIS%vpl(ikg(NDIM+1)))
