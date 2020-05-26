@@ -11,7 +11,7 @@ real(dp) :: tpz_sig0
 
 type, public :: SK
     contains
-    procedure :: init=>init_sk_pars
+    procedure, nopass :: init=>init_sk_pars
     procedure, nopass :: tij
 endtype 
 
@@ -19,8 +19,7 @@ endtype
 contains
 
 
-subroutine init_sk_pars(THIS,option)
-class(SK), intent(out) :: THIS
+subroutine init_sk_pars(option)
 character(len=*), intent(in) :: option
 if (trim(adjustl(option)).eq."tbgsk1") then
   ! in this case in-planle hoppins should be read from the table
