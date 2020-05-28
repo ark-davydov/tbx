@@ -74,7 +74,7 @@ do ip=1,THIS%npt
 end do
 ! allocate map from sphere point to homogeneous point
 allocate(THIS%sphere_to_homo(THIS%npt_sphere))
-allocate(THIS%homo_to_sphere(THIS%npt_sphere))
+allocate(THIS%homo_to_sphere(THIS%npt))
 THIS%npt_sphere=0
 THIS%homo_to_sphere=0
 do ip=1,THIS%npt
