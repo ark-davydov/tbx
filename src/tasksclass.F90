@@ -286,6 +286,7 @@ if (mp_mpi) then
   if (pars%chi_exclude) then
     print '(a,F7.5,a,F7.5)', "Excluding bands in the range  ", pars%e_chi_exclude(1), " < E - E_fermi < ", pars%e_chi_exclude(2)
   end if
+  print *, "Restricting to states from ", pars%chi_start, " to ", pars%chi_stop
 end if
 ! do the computation. later we will attach MPI parallelisation here
 ! (you can see bands, eigen tasks how to do it), therefore arrays have to be zeroed
@@ -488,8 +489,8 @@ do ik=1,kgrid%npt
     dc=sqrt(dot_product(vc,vc))
     ! overlap I(q)=<local_orb|e^iqr|local_orb>, currently only the pz orbital
     pwo = pwave_ovlp(dc)
-    do iv=1, fermi_index_k(1)
-      do ic=fermi_index_kq(1)+1, pars%nstates
+    do iv=pars%chi_start, fermi_index_k(1)
+      do ic=fermi_index_kq(1)+1, pars%chi_stop
         ev = eval(iv, ik)
         ec = eval(ic, ikg(4))
         if (pars%chi_exclude) then
