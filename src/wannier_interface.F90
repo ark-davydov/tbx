@@ -827,11 +827,11 @@ do isym=1,sym%nsym
             mc=proj%orb_icio(morb,1)
             if (proj%ics2c(mc,isym).ne.jc) cycle
             tauml=proj%centers(:,pars%proj%iw2ic(morb))-proj%centers(:,pars%proj%iw2ic(lorb))
-            Tmlij=proj%Tmlij(dble(sym%lat(:,:,isym)),tauml,tauji)
-            RR=matmul(dble(sym%lat(:,:,sym%inv(isym))),wan%rgrid%vpl(iR)-Tmlij)
+       !     Tmlij=proj%Tmlij(dble(sym%lat(:,:,isym)),tauml,tauji)
+            RR=matmul(dble(sym%lat(:,:,sym%inv(isym))),wan%rgrid%vpl(iR))
             !write(*,'(I4,6F10.4)') isym,RR,Tmlij
             iv=wan%rgrid%find(RR)
-            if (iv(NDIM+1).lt.0.or.sum(abs(iv(1:NDIM))).ne.0) cycle
+            if (iv(NDIM+1).le.0.or.sum(abs(iv(1:NDIM))).ne.0) cycle
             hams(iorb,jorb,iR)=hams(iorb,jorb,iR)+wws(iorb,lorb,isym)*wan%hame(lorb,morb,iv(NDIM+1))*wwsi(morb,jorb,isym)
           end do
         end do
@@ -849,7 +849,9 @@ class(CLsym), intent(in) :: sym
 class(CLtb), intent(in) :: tbmodel
 class(GRID), intent(inout) :: kgrid
 complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
-integer jR_sphere,mm,mm_,nn,nn_,norb,npt_sphere
+integer jR_sphere,norb,npt_sphere
+integer nn,mm,pp,qq
+integer nn_,mm_,pp_,qq_
 integer isym,iR,iw,jw,ik
 integer iorb,jorb,morb,lorb
 integer ic,jc,mc,lc
@@ -858,12 +860,11 @@ real(dp) Tmlij(NDIM),tauji(NDIM),tauml(NDIM),RR(NDIM)
 complex(dp) z1
 real(dp), allocatable :: vkl(:,:)
 real(dp), allocatable :: vrl(:,:)
-real(dp), allocatable :: HubU(:,:,:)
+real(dp), allocatable :: HubU(:,:,:,:,:)
+real(dp), allocatable :: HubUn(:,:,:)
 real(dp), allocatable :: HubUs(:,:,:)
 real(dp), allocatable :: wws(:,:,:)
 real(dp), allocatable :: wwsi(:,:,:)
-real(dp), allocatable :: wws_density(:,:,:)
-real(dp), allocatable :: wwsi_density(:,:,:)
 real(dp), allocatable :: rf1(:,:)
 real(dp), allocatable :: rf2(:,:)
 complex(dp), allocatable :: umat(:,:,:),udis(:,:,:)
@@ -913,12 +914,8 @@ call get_wfmloc(.false.,proj%norb,pars%nstates,kgrid%npt,rgrid%npt,&
    tbmodel%norb_TB,udis,umat,vkl,vrl,evec,wfmloc)
 allocate(wws(proj%norb,proj%norb,sym%nsym))
 allocate(wwsi(proj%norb,proj%norb,sym%nsym))
-allocate(wws_density(proj%norb,proj%norb,sym%nsym))
-allocate(wwsi_density(proj%norb,proj%norb,sym%nsym))
 wws=0._dp
 wwsi=0._dp
-wws_density=0._dp
-wwsi_density=0._dp
 do isym=1,sym%nsym
   do iw=1,proj%norb
      ic=proj%orb_icio(iw,1)
@@ -957,21 +954,15 @@ do isym=1,sym%nsym
          "inverse representation matrix derived from wfmloc is different from the one of projection block")
        end if
      end do
-     ! compute symreps of density
-     do jw=1,proj%norb
-       rf1=abs(wfmloc(:,jw,:))**2
-       rf2=abs(wf1(:,:))**2
-       wws_density(jw,iw,isym)=ddot(nn,rf1,1,rf2,1)
-       rf2=abs(wf2(:,:))**2
-       wwsi_density(jw,iw,isym)=ddot(nn,rf1,1,rf2,1)
-     end do
   end do
 end do
 deallocate(vrl)
 call rgrid%init_sphere(pars)
 allocate(vrl(NDIM,rgrid%npt_sphere))
-allocate(HubU(proj%norb,proj%norb,rgrid%npt_sphere))
-allocate(HubUs(proj%norb,proj%norb,rgrid%npt_sphere))
+nn=proj%norb
+allocate(HubU(nn,nn,nn,nn,rgrid%npt_sphere))
+allocate(HubUn(nn,nn,rgrid%npt_sphere))
+allocate(HubUs(nn,nn,rgrid%npt_sphere))
 open(140,file="UR.dat",action="read")
 read(140,*) npt_sphere,norb
 if (npt_sphere.ne.rgrid%npt_sphere) call throw("wannier_interface%symmetrize_hubbardu_rs()","npt_sphere is not what expected")
@@ -980,14 +971,34 @@ do jR_sphere=1,rgrid%npt_sphere
   read(140,*) vrl(:,jR_sphere)
   do nn=1,proj%norb
     do mm=1,proj%norb
-      read(140,*) mm_,nn_,HubU(mm,nn,jR_sphere)
-      if (mm.ne.mm_) call throw("wannier_interface%symmetrize_hubbardu_rs()","mm is not what expected")
-      if (nn.ne.nn_) call throw("wannier_interface%symmetrize_hubbardu_rs()","nn is not what expected")
+      do pp=1,proj%norb
+        do qq=1,proj%norb
+          read(140,'(4I6,2G18.10)') nn_,mm_,pp_,qq_,HubU(nn,mm,pp,qq,jR_sphere)
+          if (mm.ne.mm_) call throw("wannier_interface%symmetrize_hubbardu_rs()","mm is not what expected")
+          if (nn.ne.nn_) call throw("wannier_interface%symmetrize_hubbardu_rs()","nn is not what expected")
+          if (pp.ne.pp_) call throw("wannier_interface%symmetrize_hubbardu_rs()","pp is not what expected")
+          if (qq.ne.qq_) call throw("wannier_interface%symmetrize_hubbardu_rs()","qq is not what expected")
+        end do
+      end do
     end do
   end do
   read(140,*)
 end do
 close(140)
+if (mp_mpi) then
+  open(140,file="URN.dat",action="write")
+  write(140,*) rgrid%npt_sphere,proj%norb
+  do jR_sphere=1,rgrid%npt_sphere
+    write(140,*) nint(rgrid%vpl_sphere(jR_sphere))
+    do nn=1,proj%norb
+      do mm=1,proj%norb
+        write(140,*) mm,nn,HubU(mm,mm,nn,nn,jR_sphere)
+      end do
+    end do
+    write(140,*)
+  end do
+  close(140)
+end if
 HubUs=0._dp
 do isym=1,sym%nsym
   write(*,*) "isym(symmetrize): ",isym
@@ -1012,7 +1023,7 @@ do isym=1,sym%nsym
             iR=rgrid%homo_to_sphere(iv(NDIM+1))
             if (iR.le.0) cycle
             HubUs(iorb,jorb,jR_sphere)=HubUs(iorb,jorb,jR_sphere)+&
-                 wws_density(iorb,lorb,isym)*HubU(lorb,morb,iR)*wwsi_density(morb,jorb,isym)
+                 wws(iorb,lorb,isym)*HubUn(lorb,morb,iR)*wwsi(morb,jorb,isym)
           end do
         end do
       end do
@@ -1042,14 +1053,20 @@ class(CLpars), intent(in) :: pars
 class(CLtb), intent(in) :: tbmodel
 class(GRID), intent(inout) :: kgrid
 complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
+logical, parameter :: diagonal=.true.
 real(dp), parameter :: Upz=10._dp
 real(dp), parameter :: epscoul=10._dp
+real(dp), parameter :: eps=1.e-17_dp
 integer jR_sphere,iRp,iRpp
 integer iorb,jorb,ir,ik
 integer nn,mm,pp,qq
 real(dp) dij
 real(dp) v1(NDIM),v2(NDIM),rij(NDIM)
 complex(dp) z1
+complex(dp) zfn(pars%proj%norb)
+complex(dp) zfm(pars%proj%norb)
+complex(dp) zfp(pars%proj%norb)
+complex(dp) zfq(pars%proj%norb)
 real(dp), allocatable :: vkl(:,:),vrl(:,:),vpcorb(:,:)
 complex(dp), allocatable :: wf1(:,:,:)
 complex(dp), allocatable :: wf2(:,:,:)
@@ -1076,11 +1093,15 @@ call info("Wannier_interface%compute_hubbardu","WARNING this code is working for
 ! copy rgrid object from TB
 rgrid=tbmodel%rgrid
 if (.not.rgrid%sphere_allocated) call rgrid%init_sphere(pars)
+allocate(vpcorb(NDIM,tbmodel%norb_TB))
 allocate(udis(pars%nstates,proj%norb,kgrid%npt))
 allocate(umat(proj%norb,proj%norb,kgrid%npt))
 allocate(wfmloc(tbmodel%norb_TB,proj%norb,rgrid%npt))
 allocate(wf1(tbmodel%norb_TB,proj%norb,rgrid%npt_sphere))
-allocate(HubU(proj%norb,proj%norb,proj%norb,proj%norb,rgrid%npt_sphere))
+allocate(wf2(tbmodel%norb_TB,proj%norb,rgrid%npt_sphere))
+allocate(wf2z(tbmodel%norb_TB,rgrid%npt))
+nn=proj%norb
+allocate(HubU(nn,nn,nn,nn,rgrid%npt_sphere))
 ! k-point list
 allocate(vkl(NDIM,kgrid%npt))
 do ik=1,kgrid%npt
@@ -1105,44 +1126,46 @@ end do
   call mpi_barrier(mpi_com,mpi_err)
 #endif
 HubU=0._dp
-!$OMP PARALLEL DEFAULT (SHARED)&
-!$OMP PRIVATE(iRp,iRpp,iorb,jorb,rij,dij,v1,v2)&
-!$OMP PRIVATE(nn,mm,pp,qq,z1)&
-!$OMP PRIVATE(vpcorb,wf2,wf2z)
-!$OMP DO
 do jR_sphere=1,rgrid%npt_sphere
   if (mod(jR_sphere-1,np_mpi).ne.lp_mpi) cycle
-  !$OMP CRITICAL
   write(*,*) "JR: ",jR_sphere
-  !$OMP END CRITICAL
-  allocate(vpcorb(NDIM,tbmodel%norb_TB))
-  allocate(wf2(tbmodel%norb_TB,proj%norb,rgrid%npt_sphere))
-  allocate(wf2z(tbmodel%norb_TB,rgrid%npt))
   ! coordinates of basis orbitals
   do iorb=1,tbmodel%norb_TB
     vpcorb(:,iorb)=matmul(tbmodel%vplorb(iorb),pars%avec)
   end do
+  ! shift wave function to jR_sphere unit cell
   do nn=1,proj%norb
     call wannerfunc_at_R(rgrid,tbmodel%norb_TB,rgrid%vpl_sphere(jR_sphere),wfmloc(:,nn,:),wf2z(:,:))
     do iRp=1,rgrid%npt_sphere
       wf2(:,nn,iRp)=wf2z(:,rgrid%sphere_to_homo(iRp))
     end do
   end do
-  do iRp=1,rgrid%npt_sphere
-    do iRpp=1,rgrid%npt_sphere
-      do iorb=1,tbmodel%norb_TB
-        v1=vpcorb(:,iorb)
-        do jorb=1,tbmodel%norb_TB
-          v2=vpcorb(:,jorb)
-          rij=abs(v2+rgrid%vpc_sphere(iRpp)-v1-rgrid%vpc_sphere(iRp))
-          dij=sqrt(dot_product(rij,rij))
-          if (dij.gt.pars%rcut_grid) cycle
-          do qq=1,proj%norb
+  !$OMP PARALLEL DEFAULT (SHARED)&
+  !$OMP PRIVATE(iRp,iRpp,iorb,jorb,rij,dij,v1,v2)&
+  !$OMP PRIVATE(mm,nn,pp,qq,z1)&
+  !$OMP PRIVATE(zfn,zfm,zfp,zfq)
+  !$OMP DO
+  do qq=1,proj%norb
+    do iRp=1,rgrid%npt_sphere
+      do iRpp=1,rgrid%npt_sphere
+        do iorb=1,tbmodel%norb_TB
+          v1=vpcorb(:,iorb)
+          do jorb=1,tbmodel%norb_TB
+            v2=vpcorb(:,jorb)
+            rij=abs(v2+rgrid%vpc_sphere(iRpp)-v1-rgrid%vpc_sphere(iRp))
+            dij=sqrt(dot_product(rij,rij))
+            if (dij.gt.pars%rcut_grid) cycle
+            zfn(:)=conjg(wf1(iorb,:,iRp))
+            zfm(:)=wf1(iorb,:,iRp)
+            zfp(:)=conjg(wf2(jorb,:,iRpp))
+            zfq(:)=wf2(jorb,:,iRpp)
             do pp=1,proj%norb
+              if (diagonal.and.pp.ne.qq) cycle 
               do mm=1,proj%norb
                 do nn=1,proj%norb
-                  if (pp.ne.qq) cycle
-                  z1=conjg(wf1(iorb,nn,iRp))*wf1(iorb,mm,iRp)*conjg(wf2(jorb,pp,iRpp))*wf2(jorb,qq,iRpp)
+                  if (diagonal.and.nn.ne.mm) cycle 
+                  z1=zfn(nn)*zfm(mm)*zfp(pp)*zfq(qq)
+                  if (abs(z1).lt.eps) cycle
                   if (dij.lt.epslat) then
                      HubU(nn,mm,pp,qq,jR_sphere)=HubU(nn,mm,pp,qq,jR_sphere)+z1*Upz/CoulombForceConstant
                   else
@@ -1156,13 +1179,12 @@ do jR_sphere=1,rgrid%npt_sphere
       end do
     end do
   end do
-  deallocate(vpcorb,wf2,wf2z)
+  !$OMP END DO
+  !$OMP END PARALLEL
 end do
-!$OMP END DO
-!$OMP END PARALLEL
 #ifdef MPI
-  nn=proj%norb*proj%norb*proj%norb*proj%norb*rgrid%npt_sphere
-  call mpi_allreduce(mpi_in_place,HubU,nn,mpi_double_precision,mpi_sum, &
+  nn=rgrid%npt_sphere*proj%norb**4
+  call mpi_allreduce(mpi_in_place,HubU,nn,mpi_double_complex,mpi_sum, &
    mpi_com,mpi_err)
 #endif
 HubU=HubU*CoulombForceConstant/epscoul
@@ -1184,9 +1206,9 @@ if (mp_mpi) then
   end do
   close(140)
 end if
-deallocate(vkl,vrl,umat,udis)
+deallocate(vkl,vrl,vpcorb,umat,udis)
 deallocate(wfmloc,HubU)
-deallocate(wf1)
+deallocate(wf1,wf2,wf2z)
 #ifdef MPI
   call mpi_barrier(mpi_com,mpi_err)
 #endif
