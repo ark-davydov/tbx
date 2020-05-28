@@ -354,10 +354,11 @@ do ic=1,THIS%wbase%ncenters
       if (t1.lt.THIS%rcut_nn) then
         if (trim(adjustl(THIS%sktype)).eq.'tbgsk'.or.&
             trim(adjustl(THIS%sktype)).eq.'tbgsk1') then
-           if (abs(dv(ZAXIS)).lt.0.5_dp*tbg_ab_distance) then
+            t1=sqrt(dv(1)**2+dv(2)**2)
+           !if (abs(dv(ZAXIS)).lt.0.5_dp*tbg_ab_distance) then
               ! cut in-plane hopping for TBG (later for something else)
               if (t1.gt.THIS%rcut_tbg_nni) cycle
-           end if
+           !end if
         end if
         do ios=1,THIS%wbase%norb_ic(ic)
           iorb=THIS%wbase%icio_orb(ic,ios)
