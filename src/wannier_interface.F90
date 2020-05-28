@@ -827,9 +827,8 @@ do isym=1,sym%nsym
             mc=proj%orb_icio(morb,1)
             if (proj%ics2c(mc,isym).ne.jc) cycle
             tauml=proj%centers(:,pars%proj%iw2ic(morb))-proj%centers(:,pars%proj%iw2ic(lorb))
-       !     Tmlij=proj%Tmlij(dble(sym%lat(:,:,isym)),tauml,tauji)
-            RR=matmul(dble(sym%lat(:,:,sym%inv(isym))),wan%rgrid%vpl(iR))
-            !write(*,'(I4,6F10.4)') isym,RR,Tmlij
+            Tmlij=proj%Tmlij(dble(sym%lat(:,:,isym)),tauml,tauji)
+            RR=matmul(dble(sym%lat(:,:,sym%inv(isym))),wan%rgrid%vpl(iR)-Tmlij)
             iv=wan%rgrid%find(RR)
             if (iv(NDIM+1).le.0.or.sum(abs(iv(1:NDIM))).ne.0) cycle
             hams(iorb,jorb,iR)=hams(iorb,jorb,iR)+wws(iorb,lorb,isym)*wan%hame(lorb,morb,iv(NDIM+1))*wwsi(morb,jorb,isym)
@@ -853,20 +852,20 @@ integer jR_sphere,norb,npt_sphere
 integer nn,mm,pp,qq
 integer nn_,mm_,pp_,qq_
 integer isym,iR,iw,jw,ik
-integer iorb,jorb,morb,lorb
-integer ic,jc,mc,lc
+integer iorb,jorb,morb,lorb,porb,qorb
+integer ic,jc,mc,lc,pc,qc
 integer iv(NDIM+1)
-real(dp) Tmlij(NDIM),tauji(NDIM),tauml(NDIM),RR(NDIM)
+real(dp) t1,t2
 complex(dp) z1
+real(dp) Tmlij(NDIM),RR(NDIM)
+real(dp) tauji(NDIM),tauml(NDIM),taupq(NDIM)
 real(dp), allocatable :: vkl(:,:)
 real(dp), allocatable :: vrl(:,:)
-real(dp), allocatable :: HubU(:,:,:,:,:)
-real(dp), allocatable :: HubUn(:,:,:)
-real(dp), allocatable :: HubUs(:,:,:)
 real(dp), allocatable :: wws(:,:,:)
 real(dp), allocatable :: wwsi(:,:,:)
-real(dp), allocatable :: rf1(:,:)
-real(dp), allocatable :: rf2(:,:)
+complex(dp), allocatable :: HubU(:,:,:,:,:)
+complex(dp), allocatable :: HubUn(:,:,:)
+complex(dp), allocatable :: HubUs(:,:,:)
 complex(dp), allocatable :: umat(:,:,:),udis(:,:,:)
 complex(dp), allocatable :: wfmloc(:,:,:)
 complex(dp), allocatable :: wf1(:,:)
@@ -893,8 +892,6 @@ allocate(umat(proj%norb,proj%norb,kgrid%npt))
 allocate(wfmloc(tbmodel%norb_TB,proj%norb,rgrid%npt))
 allocate(wf1(tbmodel%norb_TB,rgrid%npt))
 allocate(wf2(tbmodel%norb_TB,rgrid%npt))
-allocate(rf1(tbmodel%norb_TB,rgrid%npt))
-allocate(rf2(tbmodel%norb_TB,rgrid%npt))
 ! k-point list
 allocate(vkl(NDIM,kgrid%npt))
 do ik=1,kgrid%npt
@@ -963,7 +960,7 @@ nn=proj%norb
 allocate(HubU(nn,nn,nn,nn,rgrid%npt_sphere))
 allocate(HubUn(nn,nn,rgrid%npt_sphere))
 allocate(HubUs(nn,nn,rgrid%npt_sphere))
-open(140,file="UR.dat",action="read")
+open(140,file="UH.dat",action="read")
 read(140,*) npt_sphere,norb
 if (npt_sphere.ne.rgrid%npt_sphere) call throw("wannier_interface%symmetrize_hubbardu_rs()","npt_sphere is not what expected")
 if (norb.ne.proj%norb) call throw("wannier_interface%symmetrize_hubbardu_rs()","npt_sphere is not what expected")
@@ -973,9 +970,10 @@ do jR_sphere=1,rgrid%npt_sphere
     do mm=1,proj%norb
       do pp=1,proj%norb
         do qq=1,proj%norb
-          read(140,'(4I6,2G18.10)') nn_,mm_,pp_,qq_,HubU(nn,mm,pp,qq,jR_sphere)
-          if (mm.ne.mm_) call throw("wannier_interface%symmetrize_hubbardu_rs()","mm is not what expected")
+          read(140,*) nn_,mm_,pp_,qq_,t1,t2
+          HubU(nn,mm,pp,qq,jR_sphere)=cmplx(t1,t2,kind=8)
           if (nn.ne.nn_) call throw("wannier_interface%symmetrize_hubbardu_rs()","nn is not what expected")
+          if (mm.ne.mm_) call throw("wannier_interface%symmetrize_hubbardu_rs()","mm is not what expected")
           if (pp.ne.pp_) call throw("wannier_interface%symmetrize_hubbardu_rs()","pp is not what expected")
           if (qq.ne.qq_) call throw("wannier_interface%symmetrize_hubbardu_rs()","qq is not what expected")
         end do
@@ -992,7 +990,7 @@ if (mp_mpi) then
     write(140,*) nint(rgrid%vpl_sphere(jR_sphere))
     do nn=1,proj%norb
       do mm=1,proj%norb
-        write(140,*) mm,nn,HubU(mm,mm,nn,nn,jR_sphere)
+        write(140,'(2I6,2G18.10)') mm,nn,HubU(mm,mm,nn,nn,jR_sphere)
       end do
     end do
     write(140,*)
@@ -1008,6 +1006,7 @@ do isym=1,sym%nsym
       do jorb=1,proj%norb
         jc=proj%orb_icio(jorb,1)
         tauji=proj%centers(:,pars%proj%iw2ic(jorb))-proj%centers(:,pars%proj%iw2ic(iorb))
+        ! next two loops are summation indices for "left" representation matrices pf D_il D_jm H D^-1_pi D^-1_qj
         do lorb=1,proj%norb
           lc=proj%orb_icio(lorb,1)
           if (proj%ics2c(lc,isym).ne.ic) cycle
@@ -1015,15 +1014,27 @@ do isym=1,sym%nsym
             mc=proj%orb_icio(morb,1)
             if (proj%ics2c(mc,isym).ne.jc) cycle
             tauml=proj%centers(:,pars%proj%iw2ic(morb))-proj%centers(:,pars%proj%iw2ic(lorb))
-            Tmlij=proj%Tmlij(dble(sym%lat(:,:,isym)),tauml,tauji)
-            RR=matmul(dble(sym%lat(:,:,sym%inv(isym))),rgrid%vpl_sphere(jR_sphere)-Tmlij)
-            !write(*,'(I4,6F10.4)') isym,RR,Tmlij
-            iv=rgrid%find(RR)
-            if (iv(NDIM+1).lt.0.or.sum(abs(iv(1:NDIM))).ne.0) cycle
-            iR=rgrid%homo_to_sphere(iv(NDIM+1))
-            if (iR.le.0) cycle
-            HubUs(iorb,jorb,jR_sphere)=HubUs(iorb,jorb,jR_sphere)+&
-                 wws(iorb,lorb,isym)*HubUn(lorb,morb,iR)*wwsi(morb,jorb,isym)
+            ! next two loops are summation indeices for "right" representation matrices of the expressin above
+            do porb=1,proj%norb
+              pc=proj%orb_icio(porb,1)
+              if (proj%ics2c(pc,isym).ne.ic) cycle
+              if (pc.ne.lc) cycle
+              do qorb=1,proj%norb
+                qc=proj%orb_icio(qorb,1)
+                if (proj%ics2c(qc,isym).ne.jc) cycle
+                if (qc.ne.mc) cycle
+                taupq=proj%centers(:,pars%proj%iw2ic(morb))-proj%centers(:,pars%proj%iw2ic(lorb))
+                ! Tmlij from Dominik Gresh paper
+                Tmlij=proj%Tmlij(dble(sym%lat(:,:,isym)),tauml,tauji)
+                RR=matmul(dble(sym%lat(:,:,sym%inv(isym))),rgrid%vpl_sphere(jR_sphere)-Tmlij)
+                iv=rgrid%find(RR)
+                if (iv(NDIM+1).lt.0.or.sum(abs(iv(1:NDIM))).ne.0) cycle
+                iR=rgrid%homo_to_sphere(iv(NDIM+1))
+                if (iR.le.0) cycle
+                HubUs(iorb,jorb,jR_sphere)=HubUs(iorb,jorb,jR_sphere)+&
+                     wws(iorb,lorb,isym)*wws(jorb,morb,isym)*HubU(lorb,porb,morb,qorb,iR)*wwsi(porb,iorb,isym)*wwsi(qorb,jorb,isym)
+              end do
+            end do
           end do
         end do
       end do
@@ -1038,7 +1049,7 @@ if (mp_mpi) then
     write(140,*) nint(rgrid%vpl_sphere(jR_sphere))
     do nn=1,proj%norb
       do mm=1,proj%norb
-        write(140,*) mm,nn,HubUs(mm,nn,jR_sphere)
+        write(140,'(2I6,2G18.10)') mm,nn,HubUs(mm,nn,jR_sphere)
       end do
     end do
     write(140,*)
