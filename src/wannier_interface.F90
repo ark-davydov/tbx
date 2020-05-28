@@ -873,7 +873,7 @@ complex(dp), allocatable :: wf2(:,:)
 type(wbase)  proj
 type(GRID) rgrid
 complex(dp) zdotc
-real(dp) ddot
+!real(dp) ddot
 if (pars%proj%norb.le.0) then
    call throw("wannier_interface%symmetrize_hubbardu_rs()",&
               "apparently 'projections' block was not specified, wannier projections not found")
@@ -1064,7 +1064,7 @@ class(CLpars), intent(in) :: pars
 class(CLtb), intent(in) :: tbmodel
 class(GRID), intent(inout) :: kgrid
 complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
-logical, parameter :: diagonal=.true.
+logical, parameter :: diagonal=.false.
 real(dp), parameter :: Upz=10._dp
 real(dp), parameter :: epscoul=10._dp
 real(dp), parameter :: eps=1.e-17_dp
