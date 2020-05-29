@@ -1143,11 +1143,11 @@ HubU=0._dp
 !$OMP PRIVATE(mm,nn,pp,qq,z1)&
 !$OMP PRIVATE(zfn,zfm,zfp,zfq)&
 !$OMP PRIVATE(wf2z,wf2,vpcorb)
-!$OMP DO
-do jR_sphere=1,rgrid%npt_sphere
   allocate(wf2(tbmodel%norb_TB,proj%norb,rgrid%npt_sphere))
   allocate(wf2z(tbmodel%norb_TB,rgrid%npt))
   allocate(vpcorb(NDIM,tbmodel%norb_TB))
+!$OMP DO
+do jR_sphere=1,rgrid%npt_sphere
   if (mod(jR_sphere-1,np_mpi).ne.lp_mpi) cycle
   !$OMP CRITICAL
   write(*,*) "JR: ",jR_sphere
@@ -1197,9 +1197,9 @@ do jR_sphere=1,rgrid%npt_sphere
       end do
     end do
   end do
-  deallocate(vpcorb,wf2,wf2z)
 end do
 !$OMP END DO
+  deallocate(vpcorb,wf2,wf2z)
 !$OMP END PARALLEL
 #ifdef MPI
   nn=rgrid%npt_sphere*proj%norb**4
