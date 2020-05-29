@@ -34,6 +34,7 @@ type, public :: CLpars
   character(len=100) :: tbfile=""
   character(len=100) :: character_file=""
   character(len=100) :: tbtype="sk"
+  logical :: HubU_diagonal=.false.
   logical :: readsym=.false.
   logical :: shifted=.false.
   logical :: symtshift=.true.
@@ -291,6 +292,13 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%sparse
     if (iostat.ne.0) call throw("paramters%read_input()","problem with sparse data")
     if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%sparse
+
+  ! .true. Only conventinal "diagonal" indexing of Hubbard U is assumed
+  else if (trim(block).eq."HubU_diagonal") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%HubU_diagonal
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with HubU_diagonal data")
+    if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%HubU_diagonal
 
   ! .true. to read symmetries from SYMCRYS.OUT file 
   else if (trim(block).eq."readsym") then

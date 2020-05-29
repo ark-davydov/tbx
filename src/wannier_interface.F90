@@ -1024,13 +1024,14 @@ do isym=1,sym%nsym
                 if (proj%ics2c(qc,isym).ne.jc) cycle
                 if (qc.ne.mc) cycle
                 taupq=proj%centers(:,pars%proj%iw2ic(morb))-proj%centers(:,pars%proj%iw2ic(lorb))
-                ! Tmlij from Dominik Gresh paper
+                ! Tmlij from Dominik Gresch paper
                 Tmlij=proj%Tmlij(dble(sym%lat(:,:,isym)),tauml,tauji)
                 RR=matmul(dble(sym%lat(:,:,sym%inv(isym))),rgrid%vpl_sphere(jR_sphere)-Tmlij)
                 iv=rgrid%find(RR)
                 if (iv(NDIM+1).lt.0.or.sum(abs(iv(1:NDIM))).ne.0) cycle
                 iR=rgrid%homo_to_sphere(iv(NDIM+1))
                 if (iR.le.0) cycle
+                ! inices in 4-point matrix element are correct, just different indices convention in symmetrisation formula
                 HubUs(iorb,jorb,jR_sphere)=HubUs(iorb,jorb,jR_sphere)+&
                      wws(iorb,lorb,isym)*wws(jorb,morb,isym)*HubU(lorb,porb,morb,qorb,iR)*wwsi(porb,iorb,isym)*wwsi(qorb,jorb,isym)
               end do
@@ -1057,6 +1058,10 @@ if (mp_mpi) then
   close(140)
 end if
 deallocate(udis,umat,wfmloc)
+deallocate(vkl,vrl)
+deallocate(wws,wwsi)
+deallocate(HubU,HubUn,HubUs)
+deallocate(wf1,wf2)
 end subroutine
 
 subroutine compute_hubbardu_rs(pars,tbmodel,kgrid,evec)
@@ -1064,7 +1069,6 @@ class(CLpars), intent(in) :: pars
 class(CLtb), intent(in) :: tbmodel
 class(GRID), intent(inout) :: kgrid
 complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
-logical, parameter :: diagonal=.false.
 real(dp), parameter :: Upz=10._dp
 real(dp), parameter :: epscoul=10._dp
 real(dp), parameter :: eps=1.e-17_dp
@@ -1104,13 +1108,10 @@ call info("Wannier_interface%compute_hubbardu","WARNING this code is working for
 ! copy rgrid object from TB
 rgrid=tbmodel%rgrid
 if (.not.rgrid%sphere_allocated) call rgrid%init_sphere(pars)
-allocate(vpcorb(NDIM,tbmodel%norb_TB))
 allocate(udis(pars%nstates,proj%norb,kgrid%npt))
 allocate(umat(proj%norb,proj%norb,kgrid%npt))
 allocate(wfmloc(tbmodel%norb_TB,proj%norb,rgrid%npt))
 allocate(wf1(tbmodel%norb_TB,proj%norb,rgrid%npt_sphere))
-allocate(wf2(tbmodel%norb_TB,proj%norb,rgrid%npt_sphere))
-allocate(wf2z(tbmodel%norb_TB,rgrid%npt))
 nn=proj%norb
 allocate(HubU(nn,nn,nn,nn,rgrid%npt_sphere))
 ! k-point list
@@ -1137,9 +1138,20 @@ end do
   call mpi_barrier(mpi_com,mpi_err)
 #endif
 HubU=0._dp
+!$OMP PARALLEL DEFAULT (SHARED)&
+!$OMP PRIVATE(iRp,iRpp,iorb,jorb,rij,dij,v1,v2)&
+!$OMP PRIVATE(mm,nn,pp,qq,z1)&
+!$OMP PRIVATE(zfn,zfm,zfp,zfq)&
+!$OMP PRIVATE(wf2z,wf2,vpcorb)
+!$OMP DO
 do jR_sphere=1,rgrid%npt_sphere
+  allocate(wf2(tbmodel%norb_TB,proj%norb,rgrid%npt_sphere))
+  allocate(wf2z(tbmodel%norb_TB,rgrid%npt))
+  allocate(vpcorb(NDIM,tbmodel%norb_TB))
   if (mod(jR_sphere-1,np_mpi).ne.lp_mpi) cycle
+  !$OMP CRITICAL
   write(*,*) "JR: ",jR_sphere
+  !$OMP END CRITICAL
   ! coordinates of basis orbitals
   do iorb=1,tbmodel%norb_TB
     vpcorb(:,iorb)=matmul(tbmodel%vplorb(iorb),pars%avec)
@@ -1151,30 +1163,25 @@ do jR_sphere=1,rgrid%npt_sphere
       wf2(:,nn,iRp)=wf2z(:,rgrid%sphere_to_homo(iRp))
     end do
   end do
-  !$OMP PARALLEL DEFAULT (SHARED)&
-  !$OMP PRIVATE(iRp,iRpp,iorb,jorb,rij,dij,v1,v2)&
-  !$OMP PRIVATE(mm,nn,pp,qq,z1)&
-  !$OMP PRIVATE(zfn,zfm,zfp,zfq)
-  !$OMP DO
-  do qq=1,proj%norb
-    do iRp=1,rgrid%npt_sphere
-      do iRpp=1,rgrid%npt_sphere
-        do iorb=1,tbmodel%norb_TB
-          v1=vpcorb(:,iorb)
-          do jorb=1,tbmodel%norb_TB
-            v2=vpcorb(:,jorb)
-            rij=abs(v2+rgrid%vpc_sphere(iRpp)-v1-rgrid%vpc_sphere(iRp))
-            dij=sqrt(dot_product(rij,rij))
-            if (dij.gt.pars%rcut_grid) cycle
-            zfn(:)=conjg(wf1(iorb,:,iRp))
-            zfm(:)=wf1(iorb,:,iRp)
-            zfp(:)=conjg(wf2(jorb,:,iRpp))
-            zfq(:)=wf2(jorb,:,iRpp)
+  do iRp=1,rgrid%npt_sphere
+    do iRpp=1,rgrid%npt_sphere
+      do iorb=1,tbmodel%norb_TB
+        v1=vpcorb(:,iorb)
+        do jorb=1,tbmodel%norb_TB
+          v2=vpcorb(:,jorb)
+          rij=abs(v2+rgrid%vpc_sphere(iRpp)-v1-rgrid%vpc_sphere(iRp))
+          dij=sqrt(dot_product(rij,rij))
+          if (dij.gt.pars%rcut_grid) cycle
+          zfn(:)=conjg(wf1(iorb,:,iRp))
+          zfm(:)=wf1(iorb,:,iRp)
+          zfp(:)=conjg(wf2(jorb,:,iRpp))
+          zfq(:)=wf2(jorb,:,iRpp)
+          do qq=1,proj%norb
             do pp=1,proj%norb
-              if (diagonal.and.pp.ne.qq) cycle 
+              if (pars%HubU_diagonal.and.pp.ne.qq) cycle 
               do mm=1,proj%norb
                 do nn=1,proj%norb
-                  if (diagonal.and.nn.ne.mm) cycle 
+                  if (pars%HubU_diagonal.and.nn.ne.mm) cycle 
                   z1=zfn(nn)*zfm(mm)*zfp(pp)*zfq(qq)
                   if (abs(z1).lt.eps) cycle
                   if (dij.lt.epslat) then
@@ -1190,9 +1197,10 @@ do jR_sphere=1,rgrid%npt_sphere
       end do
     end do
   end do
-  !$OMP END DO
-  !$OMP END PARALLEL
+  deallocate(vpcorb,wf2,wf2z)
 end do
+!$OMP END DO
+!$OMP END PARALLEL
 #ifdef MPI
   nn=rgrid%npt_sphere*proj%norb**4
   call mpi_allreduce(mpi_in_place,HubU,nn,mpi_double_complex,mpi_sum, &
@@ -1217,9 +1225,9 @@ if (mp_mpi) then
   end do
   close(140)
 end if
-deallocate(vkl,vrl,vpcorb,umat,udis)
+deallocate(vkl,vrl,umat,udis)
 deallocate(wfmloc,HubU)
-deallocate(wf1,wf2,wf2z)
+deallocate(wf1)
 #ifdef MPI
   call mpi_barrier(mpi_com,mpi_err)
 #endif
