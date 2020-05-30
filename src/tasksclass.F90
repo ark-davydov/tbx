@@ -222,9 +222,13 @@ eval=0._dp
 call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
 ! shift all eigenvalues by efermi
 eval=eval-pars%efermi
+!$OMP PARALLEL DEFAULT(SHARED)
+!$OMP DO
 do ik=1,kgrid%npt
   call get_dosk(pars%nstates,pars,eval(:,ik),dosk(:,ik))
 end do
+!$OMP END DO
+!$OMP END PARALLEL
 tdos=0._dp
 do ie=1,pars%negrid
   tdos(ie)=sum(dosk(ie,:))/dble(kgrid%npt)

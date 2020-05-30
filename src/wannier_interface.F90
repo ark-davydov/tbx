@@ -1006,7 +1006,9 @@ do isym=1,sym%nsym
       do jorb=1,proj%norb
         jc=proj%orb_icio(jorb,1)
         tauji=proj%centers(:,pars%proj%iw2ic(jorb))-proj%centers(:,pars%proj%iw2ic(iorb))
-        ! next two loops are summation indices for "left" representation matrices pf D_il D_jm H D^-1_pi D^-1_qj
+        ! next two loops are summation indices for "left" representation matrices pf D_il D_jm U D^-1_pi D^-1_qj
+        ! NOTE, that U in this formula has the following definition (*=cc): U_lmpq<lm|W|pq>=l*[r1] m*[r2] W[r2-r1] p[r1] q[r2]
+        ! different convention is used in U computation(*=cc): U_ijkt = i*[r1] j[r1] W(r2-r1) k*[r2] t[r2]
         do lorb=1,proj%norb
           lc=proj%orb_icio(lorb,1)
           if (proj%ics2c(lc,isym).ne.ic) cycle
