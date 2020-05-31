@@ -1150,7 +1150,6 @@ HubU=0._dp
   allocate(vpcorb(NDIM,tbmodel%norb_TB))
 !$OMP DO
 do jR_sphere=1,rgrid%npt_sphere
-  if (mod(jR_sphere-1,np_mpi).ne.lp_mpi) cycle
   !$OMP CRITICAL
   write(*,*) "JR: ",jR_sphere
   !$OMP END CRITICAL
@@ -1166,6 +1165,7 @@ do jR_sphere=1,rgrid%npt_sphere
     end do
   end do
   do iRp=1,rgrid%npt_sphere
+    if (mod(iRp-1,np_mpi).ne.lp_mpi) cycle
     do iRpp=1,rgrid%npt_sphere
       do iorb=1,tbmodel%norb_TB
         v1=vpcorb(:,iorb)
