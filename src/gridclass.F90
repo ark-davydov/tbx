@@ -164,19 +164,21 @@ if (fractional) then
   ! so define Coulomb interaction at q=0
   if (THIS%ip0.le.0) call throw("GRID%init()","not possible situtaion: ip0 not found")
   call gengclq(THIS%ngrid,THIS%vecs,THIS%vq0)
-  ! test the quality of approximation for vq0
- ! do ip=1,THIS%npt
- !   if (ip.eq.THIS%ip0) then
- !      write(155,*) THIS%dc(ip),THIS%vq0
- !   else
- !      if (NDIM_COUL.eq.2) then
- !        write(155,*) THIS%dc(ip),twopi*CoulombForceConstant/THIS%dc(ip)
- !      else
- !        write(155,*) THIS%dc(ip),fourpi*CoulombForceConstant/THIS%dc(ip)**2
- !      end if
- !   end if
- ! end do
- ! stop
+  if (.false.) then
+    ! test the quality of approximation for vq0
+    do ip=1,THIS%npt
+      if (ip.eq.THIS%ip0) then
+         write(155,*) THIS%dc(ip),THIS%vq0
+      else
+         if (NDIM_COUL.eq.2) then
+           write(155,*) THIS%dc(ip),twopi*CoulombForceConstant/THIS%dc(ip)
+         else
+           write(155,*) THIS%dc(ip),fourpi*CoulombForceConstant/THIS%dc(ip)**2
+         end if
+      end if
+    end do
+    stop
+  end if
 end if
 end subroutine
 
