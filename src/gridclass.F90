@@ -164,6 +164,7 @@ if (fractional) then
   ! so define Coulomb interaction at q=0
   if (THIS%ip0.le.0) call throw("GRID%init()","not possible situtaion: ip0 not found")
   call gengclq(THIS%ngrid,THIS%vecs,THIS%vq0)
+  if (mp_mpi) write(*,'("Info[GRID]: Average Coulomb interaction at q=0 for this ngrid(:): ",G18.10)') THIS%vq0
   if (.false.) then
     ! test the quality of approximation for vq0
     do ip=1,THIS%npt
