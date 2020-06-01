@@ -42,6 +42,7 @@ type, public :: CLpars
   logical :: sparse=.false.
   logical :: ignore_chiIq=.false.
   logical :: chi_exclude=.false.
+  integer :: ndim_coul=3
   integer :: geometry_index=0
   integer :: symtype=1
   integer :: nvert=0
@@ -288,6 +289,14 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%efermi
     if (iostat.ne.0) call throw("paramters%read_input()","problem with efermi data")
     if (mp_mpi) write(*,'(i6,": ",F10.6)') jline,THIS%efermi
+
+  ! dimensions of the Coulomb potential
+  else if (trim(block).eq."ndim_coul") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%ndim_coul
+    NDIM_COUL=THIS%ndim_coul
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with ndim_coul data")
+    if (mp_mpi) write(*,'(i6,": ",i6)') jline,THIS%ndim_coul
 
   ! criterium for neglection of Hamiltonian matrix elements
   else if (trim(block).eq."sparse_eps") then
@@ -609,6 +618,12 @@ if (THIS%sparse) then
 #endif
 end if
 
+if (THIS%ndim_coul.lt.NDIM) then
+  if (mp_mpi) call info("paramters%read_input()","NDIM not equal to NDIM_COUL, &
+    be sure that your principal dimensions are along the first NDIM_COUL vectors")
+else if (THIS%ndim_coul.gt.NDIM) then
+  call throw("paramters%read_input()","NDIM_COUL can not be larger than NDIM")
+end if
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
 #endif

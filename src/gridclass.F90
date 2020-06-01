@@ -25,9 +25,10 @@ type, public, extends(CLgrid) :: GRID
   logical centered
   logical fractional
   integer ngrid(NDIM)
-  integer ip0
+  integer :: ip0=-1
   integer nir
   integer npt_sphere
+  real(dp) :: vq0
   integer, allocatable :: sphere_to_homo(:)
   integer, allocatable :: homo_to_sphere(:)
   integer, allocatable :: iks2k(:,:)
@@ -158,6 +159,25 @@ do ip=1,THIS%npt
   end if
   if (sum(abs(THIS%vl_(:,ip))).lt.epslat) THIS%ip0=ip
 end do
+if (fractional) then
+  ! fractinal grid is most probably a k/q -grid in reciprocal space,
+  ! so define Coulomb interaction at q=0
+  if (THIS%ip0.le.0) call throw("GRID%init()","not possible situtaion: ip0 not found")
+  call gengclq(THIS%ngrid,THIS%vecs,THIS%vq0)
+  ! test the quality of approximation for vq0
+ ! do ip=1,THIS%npt
+ !   if (ip.eq.THIS%ip0) then
+ !      write(155,*) THIS%dc(ip),THIS%vq0
+ !   else
+ !      if (NDIM_COUL.eq.2) then
+ !        write(155,*) THIS%dc(ip),twopi*CoulombForceConstant/THIS%dc(ip)
+ !      else
+ !        write(155,*) THIS%dc(ip),fourpi*CoulombForceConstant/THIS%dc(ip)**2
+ !      end if
+ !   end if
+ ! end do
+ ! stop
+end if
 end subroutine
 
 subroutine init_path(THIS,nvert,np_per_vert,vert,vecs)
