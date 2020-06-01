@@ -22,7 +22,7 @@ type :: CLproj
   real(dp), allocatable :: centers(:,:)
   contains
   procedure :: write_base
-endtype 
+endtype
 
 type, public :: CLpars
   character(len=100) :: input_file
@@ -41,6 +41,7 @@ type, public :: CLpars
   logical :: writetb=.false.
   logical :: sparse=.false.
   logical :: ignore_chiIq=.false.
+  logical :: chi_exclude=.false.
   integer :: geometry_index=0
   integer :: symtype=1
   integer :: nvert=0
@@ -49,6 +50,8 @@ type, public :: CLpars
   integer :: istart=1
   integer :: istop=1000
   integer :: nstates=1000
+  integer :: chi_start=1
+  integer :: chi_stop=1000
   integer :: negrid=1
   integer :: ntasks=0
   integer :: natmtot
@@ -68,6 +71,7 @@ type, public :: CLpars
   real(dp) :: rcut_grid=100._dp
   real(dp) :: avec(NDIM,NDIM)
   real(dp) :: bvec(NDIM,NDIM)
+  real(dp) :: e_chi_exclude(2)
   type(CLproj) :: proj
   type(CLproj) :: base
   integer, allocatable :: nat_per_spec(:)
@@ -147,7 +151,7 @@ do iline=1,nlines_max
       if (iostat.ne.0) call throw("paramters%read_input()","problem with avec block")
       if(mp_mpi) write(*,'(i6,": ",5F10.6)') jline,THIS%avec(ii,:)
       THIS%avec(ii,:)=THIS%avec(ii,:)*t1
-    end do 
+    end do
     tvec=THIS%avec
     call dmatrix_inverse(tvec,THIS%bvec,NDIM)
     THIS%bvec=transpose(THIS%bvec)*twopi
@@ -207,6 +211,12 @@ do iline=1,nlines_max
     if (iostat.ne.0) call throw("paramters%read_input()","problem with Ggrid data")
     if (mp_mpi) write(*,'(i6,": ",5I6)') jline,THIS%Ggrid(:)
 
+  else if (trim(block).eq."chi_exclude") then
+    THIS%chi_exclude=.true.
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%e_chi_exclude(:)
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with chi_exclude data")
+    if (mp_mpi) write(*,'(i6,": ",5F19.6)') jline,THIS%e_chi_exclude(:)
   ! BZ k-papth block
   else if (trim(block).eq."path") then
     read(arg,*,iostat=iostat) THIS%nvert
@@ -257,7 +267,7 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%symtype
     if (iostat.ne.0) call throw("paramters%read_input()","problem with symtype data")
     if (mp_mpi) write(*,'(i6,": ",i4)') jline,THIS%symtype
- 
+
   ! index of the first flat band of TBG
   else if (trim(block).eq."iflat_band") then
     jline=jline+1
@@ -286,7 +296,7 @@ do iline=1,nlines_max
     if (iostat.ne.0) call throw("paramters%read_input()","problem with sparse_eps data")
     if (mp_mpi) write(*,'(i6,": ",F18.10)') jline,THIS%sparse_eps
 
-  ! .true. to use the sparse algorithms 
+  ! .true. to use the sparse algorithms
   else if (trim(block).eq."sparse") then
     jline=jline+1
     read(50,*,iostat=iostat) THIS%sparse
@@ -337,6 +347,15 @@ do iline=1,nlines_max
     if (mp_mpi) write(*,'(i6,": ",2I6)') jline,THIS%istart,THIS%istop
     if (THIS%istop.lt.THIS%istart) call throw("paramters%read_input()","istart state should be less or equal then istop")
     THIS%nstates=THIS%istop-THIS%istart+1
+    THIS%chi_stop=THIS%nstates
+
+  else if (trim(block).eq."chi_states") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%chi_start,THIS%chi_stop
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with chi states data")
+    if (mp_mpi) write(*,'(i6,": ",2I6)') jline,THIS%chi_start,THIS%chi_stop
+    if (THIS%chi_stop.lt.THIS%chi_start) call throw("paramters%read_input()", &
+    "chi start state should be less or equal then chi stop")
 
   ! seedname for Wannier90 interface
   else if (trim(block).eq."seedname") then
@@ -368,14 +387,12 @@ do iline=1,nlines_max
           read(50,*,iostat=iostat) THIS%tbfile
         end if
         if (mp_mpi) write(*,'(i6,": ",A)') jline,THIS%tbfile
-
   ! character table file of symmetry representations
   else if (trim(block).eq."character_file") then
         jline=jline+1
         read(50,*,iostat=iostat) THIS%character_file
         if (iostat.ne.0) call throw("paramters%read_input()","problem with haracter_file data")
         if (mp_mpi) write(*,'(i6,": ",A)') jline,trim(adjustl(THIS%character_file))
-  
   ! projection mode for wannier export
   else if (trim(block).eq."projections") then
         THIS%proj%allocatd=.true.
@@ -415,9 +432,9 @@ do iline=1,nlines_max
            do iw=1,THIS%proj%norb_ic(ic)
              jw=jw+1
              THIS%proj%iw2ic(jw)=ic
-           end do 
+           end do
         end do
-        deallocate(lmr,xaxis,zaxis)  
+        deallocate(lmr,xaxis,zaxis)
 
   ! the same block is projection, but now it defines a base for TB hamiltonian
   else if (trim(block).eq."basis") then
@@ -458,10 +475,10 @@ do iline=1,nlines_max
            do iw=1,THIS%base%norb_ic(ic)
              jw=jw+1
              THIS%base%iw2ic(jw)=ic
-           end do 
+           end do
         end do
-        deallocate(lmr,xaxis,zaxis)  
-  
+        deallocate(lmr,xaxis,zaxis)
+
 
   end if
 
@@ -488,7 +505,7 @@ if (trim(adjustl(THIS%geometry_source)).ne."") then
       call throw("paramters%read_input()","unknown geometry structure option")
    end if
    if (trim(adjustl(THIS%geometry_source)).eq.'tbg') THIS%symtshift=.false.
-   
+
    ! exclude translation vectors from symmetry analyser it will take too long to compute that
    call geometry%init(THIS%geometry_index,THIS%geometry_source)
    if (allocated(THIS%nat_per_spec)) deallocate(THIS%nat_per_spec)
@@ -528,7 +545,7 @@ if (trim(adjustl(THIS%geometry_source)).ne."") then
       do iw=1,THIS%base%norb_ic(ic)
         jw=jw+1
         THIS%base%iw2ic(jw)=ic
-      end do 
+      end do
    end do
    THIS%base%allocatd=.true.
 else

@@ -307,6 +307,10 @@ if (mp_mpi) then
   print *, "with BZ grid of", kgrid%ngrid
   print *, "Using ", pars%nstates, "states"
   print *, "with", tbmodel%norb_TB, "orbitals per unit cell"
+  if (pars%chi_exclude) then
+    print '(a,F7.5,a,F7.5)', "Excluding bands in the range  ", pars%e_chi_exclude(1), " < E - E_fermi < ", pars%e_chi_exclude(2)
+  end if
+  print *, "Restricting to states from ", pars%chi_start, " to ", pars%chi_stop
 end if
 ! do the computation. later we will attach MPI parallelisation here
 ! (you can see bands, eigen tasks how to do it), therefore arrays have to be zeroed
@@ -331,7 +335,7 @@ if (mp_mpi) then
       dc=sqrt(dot_product(vc,vc))
  !     do ie=1,pars%negrid
         ! temporary format, plottable with xmgrace as chi(|q|) for two first columns
-        write(2000,'(20F8.4)') dc,REAL(chi(1,ig,iq)),qgrid%vpl(iq)+Ggrid%vpl_sphere(ig)
+        write(2000,'(20F16.8)') dc,REAL(chi(1,ig,iq)),qgrid%vpl(iq)+Ggrid%vpl_sphere(ig)
  !     end do
     end do
   end do
@@ -617,6 +621,7 @@ integer ikg(NDIM+1)
 integer ic, iv, iorb
 integer fermi_index_kq(1)
 integer fermi_index_k(1)
+real(dp) ec, ev
 real(dp) delta,pwo,dc
 real(dp) vkq(NDIM),vl(NDIM),vc(NDIM)
 complex(dp) overlap
@@ -657,14 +662,20 @@ do ik=1,kgrid%npt
     dc=sqrt(dot_product(vc,vc))
     ! overlap I(q)=<local_orb|e^iqr|local_orb>, currently only the pz orbital
     pwo = pwave_ovlp(dc)
-    do iv=1, fermi_index_k(1)
-      do ic=fermi_index_kq(1)+1, pars%nstates
+    do iv=pars%chi_start, fermi_index_k(1)
+      do ic=fermi_index_kq(1)+1, pars%chi_stop
+        ev = eval(iv, ik)
+        ec = eval(ic, ikg(4))
+        if (pars%chi_exclude) then
+          if (((ev < pars%e_chi_exclude(2)) .and. (ev > pars%e_chi_exclude(1))) &
+          .AND. ((ec < pars%e_chi_exclude(2)) .and. (ec > pars%e_chi_exclude(1)))) cycle
+        end if
         if (pars%ignore_chiIq) then
           overlap = ABS(DOT_PRODUCT(eveckq(1:tbmodel%norb_TB,ic), eitqG(:,ig)*eveck(1:tbmodel%norb_TB,iv)))
         else
           overlap = ABS(DOT_PRODUCT(eveckq(1:tbmodel%norb_TB,ic), eitqG(:,ig)*eveck(1:tbmodel%norb_TB,iv))) * pwo
         end if
-        delta = eval(ic, ikg(4)) - eval(iv, ik)
+        delta = ec - ev
         if (delta > 1e-7) then
           chiq(1,ig) = chiq(1,ig) + overlap*overlap/delta
         end if
