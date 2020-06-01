@@ -1150,9 +1150,6 @@ HubU=0._dp
   allocate(vpcorb(NDIM,tbmodel%norb_TB))
 !$OMP DO
 do jR_sphere=1,rgrid%npt_sphere
-  !$OMP CRITICAL
-  write(*,*) "JR: ",jR_sphere
-  !$OMP END CRITICAL
   ! coordinates of basis orbitals
   do iorb=1,tbmodel%norb_TB
     vpcorb(:,iorb)=matmul(tbmodel%vplorb(iorb),pars%avec)
@@ -1166,6 +1163,9 @@ do jR_sphere=1,rgrid%npt_sphere
   end do
   do iRp=1,rgrid%npt_sphere
     if (mod(iRp-1,np_mpi).ne.lp_mpi) cycle
+    !$OMP CRITICAL
+    write(*,*) "JR*iRP: ",jR_sphere*iRp," of ",rgrid%npt_sphere*rgrid%npt_sphere
+    !$OMP END CRITICAL
     do iRpp=1,rgrid%npt_sphere
       do iorb=1,tbmodel%norb_TB
         v1=vpcorb(:,iorb)
