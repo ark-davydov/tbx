@@ -730,7 +730,7 @@ do ip=1,np
   ns=ns+nss
 end do
 ! extrapolate the volume element to zero with a polynomial
-gclq=polynm(0,np,xa,ya,0._dp)
+gclq=polynm(0,np,xa,ya,0._dp,c)
 return
 end subroutine
 !EOC
@@ -743,7 +743,7 @@ end subroutine
 !BOP
 ! !ROUTINE: polynm
 ! !INTERFACE:
-real(8) function polynm(m,np,xa,ya,x)
+real(8) function polynm(m,np,xa,ya,x,c)
 ! !INPUT/OUTPUT PARAMETERS:
 !   m  : order of derivative (in,integer)
 !   np : number of points to fit (in,integer)
@@ -765,13 +765,12 @@ implicit none
 integer, intent(in) :: m,np
 real(8), intent(in) :: xa(np),ya(np)
 real(8), intent(in) :: x
+real(8), intent(inout) :: c(np)
 ! local variables
 integer i,j,k
 real(8) x0,x1,x2,x3,y0,y1,y2,y3
 real(8) t0,t1,t2,t3,t4,t5,t6
 real(8) c1,c2,c3,sum
-! automatic arrays
-real(8) c(np)
 ! fast evaluations for small np
 select case(np)
 case(1)

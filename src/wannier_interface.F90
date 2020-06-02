@@ -39,8 +39,103 @@ type, public :: CLwan
   procedure, private :: writewin
 endtype CLwan
 
+type, private :: coulrs
+  integer :: npoly=25
+  real(dp) :: rcut_bare
+  real(dp) :: scale_bare
+  real(dp), allocatable :: polyc(:)
+  real(dp), allocatable :: xpoly(:)
+  contains 
+  procedure :: init=>init_coulrs
+  procedure :: evaluate=>evaluate_coulrs
+  procedure, nopass :: compute_poly
+endtype
+
 contains
 
+real(dp) function compute_poly(np,xa,c,x)
+integer, intent(in) :: np
+real(dp), intent(in) :: xa(np),c(np),x
+integer i
+real(dp) t1,sum
+sum=c(1)
+t1=1.d0
+do i=2,np
+  t1=t1*(x-xa(i-1))
+  sum=sum+c(i)*t1
+end do
+compute_poly=sum
+end function
+subroutine init_coulrs(THIS,fname)
+class(coulrs), intent(inout) :: THIS
+character(len=*), intent(in) :: fname
+integer, parameter :: maxpoints=10000
+logical exs
+integer il,ix,nx,iline,counter
+real(dp) a,b,t1,t2,t3
+real(dp), allocatable :: xx(:),yy(:)
+real(dp) yl(THIS%npoly)
+inquire(file=trim(adjustl(fname)),exist=exs)
+if (.not.exs) call throw("coulrs%init()","file '"//trim(adjustl(fname))//"' with Coulomb interaction not found")
+call info("coulrs%init()","assuming meV units in the '"//trim(adjustl(fname))//"' file")
+allocate(xx(maxpoints),yy(maxpoints))
+open(44,file=trim(adjustl(fname)))
+nx=0
+do iline=1,maxpoints
+  read(44,*,end=100) a,b
+  if (a.lt.epslat) cycle
+  nx=nx+1
+  xx(nx)=a
+  yy(nx)=b*0.001_dp
+end do
+call throw("coulrs%init()","maxpoints exceeded")
+100 continue 
+close(44)
+allocate(THIS%xpoly(THIS%npoly))
+allocate(THIS%polyc(THIS%npoly))
+! take x from xx and corresponding y from log-like distribution
+THIS%rcut_bare=xx(nx)
+THIS%scale_bare=yy(nx)*xx(nx)
+t1=1.d0/dble(THIS%npoly-1)
+t2=log(THIS%rcut_bare/epslat)
+counter=1
+do il=1,THIS%npoly
+  t3=epslat*exp(dble(il-1)*t1*t2)
+  if (t3.lt.xx(counter)) then
+    THIS%xpoly(il)=xx(counter)
+    yl(il)=yy(counter)
+    counter=counter+1
+  else
+    do ix=1,nx
+      if (xx(ix).ge.t3) exit
+    end do
+    THIS%xpoly(il)=xx(ix)
+    yl(il)=yy(ix)
+  end if
+end do
+THIS%xpoly=1._dp/THIS%xpoly
+t1=polynm(0,THIS%npoly,THIS%xpoly,yl,1._dp,THIS%polyc)
+!do ix=1,nx
+!  write(156,*) xx(ix),yy(ix)
+!  write(157,*) 10._dp*xx(ix),THIS%evaluate(10._dp*xx(ix))
+!  write(158,*) 10._dp*xx(ix),CoulombForceConstant/(10._dp*xx(ix))
+!end do
+!stop
+deallocate(xx,yy)
+return
+end subroutine
+real(dp) function evaluate_coulrs(THIS,rij)
+class(coulrs), intent(in) :: THIS
+real(dp), intent(in) :: rij
+real(dp), parameter :: eps=1.e-8_dp
+if (abs(rij).lt.eps) then
+  evaluate_coulrs=0._dp
+else if (rij.lt.THIS%rcut_bare) then
+  evaluate_coulrs=THIS%compute_poly(THIS%npoly,THIS%xpoly,THIS%polyc,1._dp/rij)
+else
+  evaluate_coulrs=THIS%scale_bare/rij
+end if
+end function
 
 subroutine init(THIS,kgrid,kpath,pars,eval)
 class(CLwan), intent(inout) :: THIS
@@ -1077,7 +1172,7 @@ real(dp), parameter :: eps=1.e-17_dp
 integer jR_sphere,iRp,iRpp
 integer iorb,jorb,ir,ik
 integer nn,mm,pp,qq
-real(dp) dij
+real(dp) dij,vcl
 real(dp) v1(NDIM),v2(NDIM),rij(NDIM)
 complex(dp) z1
 complex(dp) zfn(pars%proj%norb)
@@ -1093,6 +1188,7 @@ complex(dp), allocatable :: wfmloc(:,:,:)
 complex(dp), allocatable :: wf2z(:,:)
 type(wbase)  proj
 type(GRID) rgrid
+type(coulrs) vcoul
 !complex(dp) ddot
 if (pars%proj%norb.le.0) then
    call throw("wannier_interface%compute_hubbardu()",&
@@ -1107,6 +1203,7 @@ call proj%init(pars,pars%proj%ncenters,pars%proj%norb,pars%proj%norb_ic,&
                    pars%proj%lmr,pars%proj%waxis,pars%proj%centers)
 call info("Wannier_interface%compute_hubbardu","constructing U parameters on the grid")
 call info("Wannier_interface%compute_hubbardu","WARNING this code is working for pz basis orbitals only")
+call vcoul%init(pars%coulrs_file)
 ! copy rgrid object from TB
 rgrid=tbmodel%rgrid
 if (.not.rgrid%sphere_allocated) call rgrid%init_sphere(pars)
@@ -1142,7 +1239,7 @@ end do
 HubU=0._dp
 !$OMP PARALLEL DEFAULT (SHARED)&
 !$OMP PRIVATE(iRp,iRpp,iorb,jorb,rij,dij,v1,v2)&
-!$OMP PRIVATE(mm,nn,pp,qq,z1)&
+!$OMP PRIVATE(mm,nn,pp,qq,vcl,z1)&
 !$OMP PRIVATE(zfn,zfm,zfp,zfq)&
 !$OMP PRIVATE(wf2z,wf2,vpcorb)
   allocate(wf2(tbmodel%norb_TB,proj%norb,rgrid%npt_sphere))
@@ -1178,6 +1275,7 @@ do jR_sphere=1,rgrid%npt_sphere
           zfm(:)=wf1(iorb,:,iRp)
           zfp(:)=conjg(wf2(jorb,:,iRpp))
           zfq(:)=wf2(jorb,:,iRpp)
+          vcl=vcoul%evaluate(dij)
           do qq=1,proj%norb
             do pp=1,proj%norb
               if (pars%HubU_diagonal.and.pp.ne.qq) cycle 
@@ -1187,9 +1285,11 @@ do jR_sphere=1,rgrid%npt_sphere
                   z1=zfn(nn)*zfm(mm)*zfp(pp)*zfq(qq)
                   if (abs(z1).lt.eps) cycle
                   if (dij.lt.epslat) then
-                     HubU(nn,mm,pp,qq,jR_sphere)=HubU(nn,mm,pp,qq,jR_sphere)+z1*Upz/CoulombForceConstant
+                     !HubU(nn,mm,pp,qq,jR_sphere)=HubU(nn,mm,pp,qq,jR_sphere)+z1*Upz/CoulombForceConstant
+                     HubU(nn,mm,pp,qq,jR_sphere)=HubU(nn,mm,pp,qq,jR_sphere)+z1*Upz
                   else
-                     HubU(nn,mm,pp,qq,jR_sphere)=HubU(nn,mm,pp,qq,jR_sphere)+z1/dij
+                     !HubU(nn,mm,pp,qq,jR_sphere)=HubU(nn,mm,pp,qq,jR_sphere)+z1/dij
+                     HubU(nn,mm,pp,qq,jR_sphere)=HubU(nn,mm,pp,qq,jR_sphere)+z1*vcl
                   end if
                 end do
               end do
@@ -1208,7 +1308,7 @@ end do
   call mpi_allreduce(mpi_in_place,HubU,nn,mpi_double_complex,mpi_sum, &
    mpi_com,mpi_err)
 #endif
-HubU=HubU*CoulombForceConstant/epscoul
+!HubU=HubU*CoulombForceConstant/epscoul
 if (mp_mpi) then
   open(140,file="UH.dat",action="write")
   write(140,*) rgrid%npt_sphere,proj%norb
@@ -1235,7 +1335,6 @@ deallocate(wf1)
 #endif
 return
 end subroutine
-
 
 subroutine compute_hubbardj_rs(pars,tbmodel,kgrid,evec)
 class(CLpars), intent(in) :: pars

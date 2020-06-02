@@ -34,6 +34,7 @@ type, public :: CLpars
   character(len=100) :: tbfile=""
   character(len=100) :: character_file=""
   character(len=100) :: tbtype="sk"
+  character(len=100) :: coulrs_file=""
   logical :: HubU_diagonal=.false.
   logical :: readsym=.false.
   logical :: shifted=.false.
@@ -396,6 +397,14 @@ do iline=1,nlines_max
           read(50,*,iostat=iostat) THIS%tbfile
         end if
         if (mp_mpi) write(*,'(i6,": ",A)') jline,THIS%tbfile
+
+  ! file with coulomb interaction in the real space
+  else if (trim(block).eq."coulrs_file") then
+        jline=jline+1
+        read(50,*,iostat=iostat) THIS%coulrs_file
+        if (iostat.ne.0) call throw("paramters%read_input()","problem with coulrs_file data")
+        if (mp_mpi) write(*,'(i6,": ",A)') jline,THIS%coulrs_file
+
   ! character table file of symmetry representations
   else if (trim(block).eq."character_file") then
         jline=jline+1
