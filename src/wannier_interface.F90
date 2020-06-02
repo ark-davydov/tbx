@@ -518,6 +518,7 @@ ovlp=0._dp
 #endif
 !$OMP PARALLEL DEFAULT(SHARED)&
 !$OMP PRIVATE(ist,jst,ik,ikp,isym,wf_t)
+  allocate(wf_t(tbmodel%norb_TB))
 !$OMP DO
 do ir=1,kgrid%nir
   if (mod(ir-1,np_mpi).ne.lp_mpi) cycle
@@ -525,7 +526,6 @@ do ir=1,kgrid%nir
   WRITE (*,'(i8)',advance='no') ir
   IF( MOD(ir,10) == 0 ) WRITE (*,*)
   !$OMP END CRITICAL
-  allocate(wf_t(tbmodel%norb_TB))
   ik=kgrid%ir2ik(ir)
   do isym=1,sym%nsym
     ikp=kgrid%iks2k(ik,isym)
@@ -536,9 +536,9 @@ do ir=1,kgrid%nir
       end do
     end do
   end do
-  deallocate(wf_t)
 end do
 !$OMP END DO
+  deallocate(wf_t)
 !$OMP END PARALLEL
 #ifdef MPI
   nn=pars%nstates*pars%nstates*sym%nsym*kgrid%nir
@@ -766,11 +766,11 @@ wftrial=0._dp
 !$OMP PARALLEL DEFAULT(SHARED)&
 !$OMP PRIVATE(l1,l2,m1,m2,ic,jc,iorb,ir,jr,t1,vc)&
 !$OMP PRIVATE(vaxis1,vaxis2,rr,ylm1,ylm2)
-!$OMP DO
-do iw=1,proj%norb
   allocate(rr(NDIM,nr))
   allocate(ylm1(nr))
   allocate(ylm2(nr))
+!$OMP DO
+do iw=1,proj%norb
   l1=proj%lmr(1,iw)
   m1=proj%lmr(2,iw)
   ic=proj%orb_icio(iw,1)
@@ -812,9 +812,9 @@ do iw=1,proj%norb
      t1=t1+abs(dot_product(wftrial(:,iw,iR),wftrial(:,iw,iR)))
   end do
   wftrial(:,iw,:)=wftrial(:,iw,:)/sqrt(t1)
-  deallocate(rr,ylm1,ylm2)
 end do
 !$OMP END DO
+  deallocate(rr,ylm1,ylm2)
 !$OMP END PARALLEL
 deallocate(r0)
 end subroutine
@@ -1406,15 +1406,15 @@ end do
 !$OMP PARALLEL DEFAULT (SHARED)&
 !$OMP PRIVATE(iRp,iRpp,iorb,jorb,nn,rij,dij,v1,v2)&
 !$OMP PRIVATE(zmni,zmnj,vpcorb,wf2,wf2z)
+  allocate(vpcorb(NDIM,tbmodel%norb_TB))
+  allocate(wf2(tbmodel%norb_TB,proj%norb,rgrid%npt_sphere))
+  allocate(wf2z(tbmodel%norb_TB,rgrid%npt))
 !$OMP DO
 do jR_sphere=1,rgrid%npt_sphere
   if (mod(jR_sphere-1,np_mpi).ne.lp_mpi) cycle
   !$OMP CRITICAL
   write(*,*) "JR: ",jR_sphere
   !$OMP END CRITICAL
-  allocate(vpcorb(NDIM,tbmodel%norb_TB))
-  allocate(wf2(tbmodel%norb_TB,proj%norb,rgrid%npt_sphere))
-  allocate(wf2z(tbmodel%norb_TB,rgrid%npt))
   ! coordinates of basis orbitals
   do iorb=1,tbmodel%norb_TB
     vpcorb(:,iorb)=matmul(tbmodel%vplorb(iorb),pars%avec)
@@ -1450,9 +1450,9 @@ do jR_sphere=1,rgrid%npt_sphere
       end do
     end do
   end do
-  deallocate(vpcorb,wf2,wf2z)
 end do
 !$OMP END DO
+  deallocate(vpcorb,wf2,wf2z)
 !$OMP END PARALLEL
 #ifdef MPI
   nn=proj%norb*proj%norb*rgrid%npt_sphere
