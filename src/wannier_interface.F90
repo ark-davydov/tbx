@@ -523,8 +523,7 @@ ovlp=0._dp
 do ir=1,kgrid%nir
   if (mod(ir-1,np_mpi).ne.lp_mpi) cycle
   !$OMP CRITICAL
-  WRITE (*,'(i8)',advance='no') ir
-  IF( MOD(ir,10) == 0 ) WRITE (*,*)
+  WRITE (*,*) "ir: ",ir
   !$OMP END CRITICAL
   ik=kgrid%ir2ik(ir)
   do isym=1,sym%nsym
