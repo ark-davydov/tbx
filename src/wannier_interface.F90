@@ -1258,10 +1258,10 @@ do jR_sphere=1,rgrid%npt_sphere
     end do
   end do
   do iRp=1,rgrid%npt_sphere
-    if (mod(iRp-1,np_mpi).ne.lp_mpi) cycle
     !$OMP CRITICAL
     write(*,*) "JR*iRP: ",jR_sphere*iRp," of ",rgrid%npt_sphere*rgrid%npt_sphere
     !$OMP END CRITICAL
+    if (mod(iRp-1,np_mpi).ne.lp_mpi) cycle
     do iRpp=1,rgrid%npt_sphere
       do iorb=1,tbmodel%norb_TB
         v1=vpcorb(:,iorb)
