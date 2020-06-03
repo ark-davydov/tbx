@@ -941,23 +941,24 @@ class(CLtb), intent(in) :: tbmodel
 class(GRID), intent(inout) :: kgrid
 complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
 integer jR_sphere,norb,npt_sphere
-integer nn,mm,pp,qq
-integer nn_,mm_,pp_,qq_
-integer isym,iR,iw,jw,ik
-integer iorb,jorb,morb,lorb,porb,qorb
-integer ic,jc,mc,lc,pc,qc
-integer iv(NDIM+1)
+integer ik,ir,jR
+integer isym,jsym
+integer nsize
+integer n1,n2,n3,n4
+integer m1,m2,m3,m4
+integer jc1,jc2,jc3,jc4
+integer nc1,nc2,nc3,nc4
+integer mc1,mc2,mc3,mc4
+integer jv(NDIM+1)
 real(dp) t1,t2
+real(dp) RR(NDIM),RJ(NDIM),SI(NDIM,NDIM),SJ(NDIM,NDIM)
+real(dp) vl1(NDIM),vl2(NDIM),vl3(NDIM),vl4(NDIM)
 complex(dp) z1
-real(dp) Tmlij(NDIM),RR(NDIM)
-real(dp) tauji(NDIM),tauml(NDIM),taupq(NDIM)
 real(dp), allocatable :: vkl(:,:)
 real(dp), allocatable :: vrl(:,:)
 real(dp), allocatable :: wws(:,:,:)
-real(dp), allocatable :: wwsi(:,:,:)
-complex(dp), allocatable :: HubU(:,:,:,:,:)
-complex(dp), allocatable :: HubUn(:,:,:)
-complex(dp), allocatable :: HubUs(:,:,:)
+complex(dp), allocatable :: UH(:,:,:,:,:)
+complex(dp), allocatable :: UHS(:,:,:,:,:)
 complex(dp), allocatable :: umat(:,:,:),udis(:,:,:)
 complex(dp), allocatable :: wfmloc(:,:,:)
 complex(dp), allocatable :: wf1(:,:)
@@ -1002,45 +1003,33 @@ call read_umat(pars%seedname,kgrid%npt,proj%norb,vkl,umat)
 call get_wfmloc(.false.,proj%norb,pars%nstates,kgrid%npt,rgrid%npt,&
    tbmodel%norb_TB,udis,umat,vkl,vrl,evec,wfmloc)
 allocate(wws(proj%norb,proj%norb,sym%nsym))
-allocate(wwsi(proj%norb,proj%norb,sym%nsym))
 wws=0._dp
-wwsi=0._dp
 do isym=1,sym%nsym
-  do iw=1,proj%norb
-     ic=proj%orb_icio(iw,1)
-     jc=proj%ics2c(ic,isym)
-     do jw=1,proj%norb
-        if(proj%orb_icio(jw,1).ne.jc) cycle
-        wws(jw,iw,isym)=proj%wws(sym%car(:,:,isym),iw,jw)
-        wwsi(jw,iw,isym)=proj%wws(sym%car(:,:,sym%inv(isym)),iw,jw)
+  do n1=1,proj%norb
+     nc1=proj%orb_icio(n1,1)
+     nc2=proj%ics2c(nc1,isym)
+     do n2=1,proj%norb
+        if(proj%orb_icio(n2,1).ne.nc1) cycle
+        wws(n2,n1,isym)=proj%wws(sym%car(:,:,isym),n1,n2)
      end do
   end do
 end do
-nn=tbmodel%norb_TB*rgrid%npt
+nsize=tbmodel%norb_TB*rgrid%npt
 do isym=1,sym%nsym
   write(*,*) "isym(wws): ",isym
-  do iw=1,proj%norb
+  do n1=1,proj%norb
      ! check
      wf1=0._dp
      wf2=0._dp
-     do jw=1,proj%norb
-        wf1(:,:)=wf1(:,:)+wws(jw,iw,isym)*wfmloc(:,jw,:)
-        wf2(:,:)=wf2(:,:)+wwsi(jw,iw,isym)*wfmloc(:,jw,:)
+     do n2=1,proj%norb
+        wf1(:,:)=wf1(:,:)+wws(n2,n1,isym)*wfmloc(:,n2,:)
      end do
-     do jw=1,proj%norb
-       z1=zdotc(nn,wfmloc(:,jw,:),1,wf1,1)
-       if (abs(z1-wws(jw,iw,isym)).gt.epslat) then
-          write(*,*) iw,jw
-          write(*,*) z1,wwsi(jw,iw,isym)
+     do n2=1,proj%norb
+       z1=zdotc(nsize,wfmloc(:,n2,:),1,wf1,1)
+       if (abs(z1-wws(n2,n1,isym)).gt.epslat) then
+          write(*,*) n1,n2
           call throw("wannier_interface%symmetrize_hubbardu_rs()",&
          "representation matrix derived from wfmloc is different from the one of projection block")
-       end if
-       z1=zdotc(nn,wfmloc(:,jw,:),1,wf2,1)
-       if (abs(z1-wwsi(jw,iw,isym)).gt.epslat) then
-          write(*,*) iw,jw
-          write(*,*) z1,wwsi(jw,iw,isym)
-          call throw("wannier_interface%symmetrize_hubbardu_rs()",&
-         "inverse representation matrix derived from wfmloc is different from the one of projection block")
        end if
      end do
   end do
@@ -1048,26 +1037,25 @@ end do
 deallocate(vrl)
 call rgrid%init_sphere(pars)
 allocate(vrl(NDIM,rgrid%npt_sphere))
-nn=proj%norb
-allocate(HubU(nn,nn,nn,nn,rgrid%npt_sphere))
-allocate(HubUn(nn,nn,rgrid%npt_sphere))
-allocate(HubUs(nn,nn,rgrid%npt_sphere))
+nsize=proj%norb
+allocate(UH(nsize,nsize,nsize,nsize,rgrid%npt_sphere))
+allocate(UHS(nsize,nsize,nsize,nsize,rgrid%npt_sphere))
 open(140,file="UH.dat",action="read")
 read(140,*) npt_sphere,norb
 if (npt_sphere.ne.rgrid%npt_sphere) call throw("wannier_interface%symmetrize_hubbardu_rs()","npt_sphere is not what expected")
 if (norb.ne.proj%norb) call throw("wannier_interface%symmetrize_hubbardu_rs()","npt_sphere is not what expected")
 do jR_sphere=1,rgrid%npt_sphere
   read(140,*) vrl(:,jR_sphere)
-  do nn=1,proj%norb
-    do mm=1,proj%norb
-      do pp=1,proj%norb
-        do qq=1,proj%norb
-          read(140,*) nn_,mm_,pp_,qq_,t1,t2
-          HubU(nn,mm,pp,qq,jR_sphere)=cmplx(t1,t2,kind=8)
-          if (nn.ne.nn_) call throw("wannier_interface%symmetrize_hubbardu_rs()","nn is not what expected")
-          if (mm.ne.mm_) call throw("wannier_interface%symmetrize_hubbardu_rs()","mm is not what expected")
-          if (pp.ne.pp_) call throw("wannier_interface%symmetrize_hubbardu_rs()","pp is not what expected")
-          if (qq.ne.qq_) call throw("wannier_interface%symmetrize_hubbardu_rs()","qq is not what expected")
+  do n1=1,proj%norb
+    do n2=1,proj%norb
+      do n3=1,proj%norb
+        do n4=1,proj%norb
+          read(140,*) m1,m2,m3,m4,t1,t2
+          UH(n1,n2,n3,n4,jR_sphere)=cmplx(t1,t2,kind=8)
+          if (n1.ne.m1) call throw("wannier_interface%symmetrize_hubbardu_rs()","n1 is not what expected")
+          if (n2.ne.m2) call throw("wannier_interface%symmetrize_hubbardu_rs()","n2 is not what expected")
+          if (n3.ne.m3) call throw("wannier_interface%symmetrize_hubbardu_rs()","n3 is not what expected")
+          if (n4.ne.m4) call throw("wannier_interface%symmetrize_hubbardu_rs()","n4 is not what expected")
         end do
       end do
     end do
@@ -1080,54 +1068,63 @@ if (mp_mpi) then
   write(140,*) rgrid%npt_sphere,proj%norb
   do jR_sphere=1,rgrid%npt_sphere
     write(140,*) nint(rgrid%vpl_sphere(jR_sphere))
-    do nn=1,proj%norb
-      do mm=1,proj%norb
-        write(140,'(2I6,2G18.10)') mm,nn,HubU(mm,mm,nn,nn,jR_sphere)
+    do n1=1,proj%norb
+      do n2=1,proj%norb
+        write(140,'(2I6,2G18.10)') n1,n2,UH(n1,n2,n2,n1,jR_sphere)
       end do
     end do
     write(140,*)
   end do
   close(140)
 end if
-HubUs=0._dp
+UHS=0._dp
 do isym=1,sym%nsym
+  jsym=sym%inv(isym)
   write(*,*) "isym(symmetrize): ",isym
   do jR_sphere=1,rgrid%npt_sphere
-    do iorb=1,proj%norb
-      ic=proj%orb_icio(iorb,1)
-      do jorb=1,proj%norb
-        jc=proj%orb_icio(jorb,1)
-        tauji=proj%centers(:,pars%proj%iw2ic(jorb))-proj%centers(:,pars%proj%iw2ic(iorb))
-        ! next two loops are summation indices for "left" representation matrices pf D_il D_jm U D^-1_pi D^-1_qj
-        ! NOTE, that U in this formula has the following definition (*=cc): U_lmpq<lm|W|pq>=l*[r1] m*[r2] W[r2-r1] p[r1] q[r2]
-        ! different convention is used in U computation(*=cc): U_ijkt = i*[r1] j[r1] W(r2-r1) k*[r2] t[r2]
-        do lorb=1,proj%norb
-          lc=proj%orb_icio(lorb,1)
-          if (proj%ics2c(lc,isym).ne.ic) cycle
-          do morb=1,proj%norb
-            mc=proj%orb_icio(morb,1)
-            if (proj%ics2c(mc,isym).ne.jc) cycle
-            tauml=proj%centers(:,pars%proj%iw2ic(morb))-proj%centers(:,pars%proj%iw2ic(lorb))
-            ! next two loops are summation indeices for "right" representation matrices of the expressin above
-            do porb=1,proj%norb
-              pc=proj%orb_icio(porb,1)
-              if (proj%ics2c(pc,isym).ne.ic) cycle
-              if (pc.ne.lc) cycle
-              do qorb=1,proj%norb
-                qc=proj%orb_icio(qorb,1)
-                if (proj%ics2c(qc,isym).ne.jc) cycle
-                if (qc.ne.mc) cycle
-                taupq=proj%centers(:,pars%proj%iw2ic(morb))-proj%centers(:,pars%proj%iw2ic(lorb))
-                ! Tmlij from Dominik Gresch paper
-                Tmlij=proj%Tmlij(dble(sym%lat(:,:,isym)),tauml,tauji)
-                RR=matmul(dble(sym%lat(:,:,sym%inv(isym))),rgrid%vpl_sphere(jR_sphere)-Tmlij)
-                iv=rgrid%find(RR)
-                if (iv(NDIM+1).lt.0.or.sum(abs(iv(1:NDIM))).ne.0) cycle
-                iR=rgrid%homo_to_sphere(iv(NDIM+1))
-                if (iR.le.0) cycle
-                ! inices in 4-point matrix element are correct, just different indices convention in symmetrisation formula
-                HubUs(iorb,jorb,jR_sphere)=HubUs(iorb,jorb,jR_sphere)+&
-                     wws(iorb,lorb,isym)*wws(jorb,morb,isym)*HubU(lorb,porb,morb,qorb,iR)*wwsi(porb,iorb,isym)*wwsi(qorb,jorb,isym)
+    RJ=rgrid%vpl_sphere(jR_sphere)
+    SI=dble(sym%lat(:,:,isym))
+    SJ=dble(sym%lat(:,:,jsym))
+    do n1=1,proj%norb
+      do n2=1,proj%norb
+        do n3=1,proj%norb
+          do n4=1,proj%norb
+            nc1=proj%orb_icio(n1,1)
+            nc2=proj%orb_icio(n2,1)
+            nc3=proj%orb_icio(n3,1)
+            nc4=proj%orb_icio(n4,1)
+            jc1=proj%ics2c(nc1,jsym)
+            jc2=proj%ics2c(nc2,jsym)
+            jc3=proj%ics2c(nc3,jsym)
+            jc4=proj%ics2c(nc4,jsym)
+            vl1=matmul(SJ,proj%centers(:,nc1)+sym%vtl(:,jsym))-proj%centers(:,jc1)
+            vl2=matmul(SJ,proj%centers(:,nc2)+sym%vtl(:,jsym))-proj%centers(:,jc2)
+            vl3=matmul(SJ,proj%centers(:,nc3)+sym%vtl(:,jsym))-proj%centers(:,jc3)
+            vl4=matmul(SJ,proj%centers(:,nc4)+sym%vtl(:,jsym))-proj%centers(:,jc4)
+            write(*,*) jR_sphere,"|",n1,n2,n3,n4
+            write(*,'(6F10.4)') vl1,vl4
+            write(*,'(6F10.4)') vl2,vl3
+            RR=matmul(SJ,RJ+proj%centers(:,nc2)-proj%centers(:,nc1))-(proj%centers(:,jc2)-proj%centers(:,jc1))
+            jv=rgrid%find(RR)
+            if (jv(NDIM+1).lt.0.or.sum(abs(jv(1:NDIM))).ne.0) cycle
+            jR=rgrid%homo_to_sphere(jv(NDIM+1))
+            if (jR.le.0) cycle
+            do m1=1,proj%norb
+              do m2=1,proj%norb
+                do m3=1,proj%norb
+                  do m4=1,proj%norb
+                    mc1=proj%orb_icio(m1,1)
+                    mc2=proj%orb_icio(m2,1)
+                    mc3=proj%orb_icio(m3,1)
+                    mc4=proj%orb_icio(m4,1)
+                    if (proj%ics2c(mc1,isym).ne.nc1) cycle
+                    if (proj%ics2c(mc2,isym).ne.nc2) cycle
+                    if (proj%ics2c(mc3,isym).ne.nc3) cycle
+                    if (proj%ics2c(mc4,isym).ne.nc4) cycle
+                    UHS(n1,n2,n3,n4,jR_sphere)=UHS(n1,n2,n3,n4,jR_sphere)+&
+                         wws(n1,m1,isym)*wws(n2,m2,isym)*UH(m1,m2,m3,m4,jR)*wws(m3,n3,jsym)*wws(m4,n4,jsym)
+                  end do
+                end do
               end do
             end do
           end do
@@ -1136,15 +1133,31 @@ do isym=1,sym%nsym
     end do
   end do
 end do
-HubUs=HubUs/dble(sym%nsym)
+UHS=UHS/dble(sym%nsym)
 if (mp_mpi) then
+  open(140,file="UHS.dat",action="write")
+  write(140,*) rgrid%npt_sphere,proj%norb
+  do jR_sphere=1,rgrid%npt_sphere
+    write(140,*) nint(rgrid%vpl_sphere(jR_sphere))
+    do n1=1,proj%norb
+      do n2=1,proj%norb
+        do n3=1,proj%norb
+          do n4=1,proj%norb
+            write(140,'(4I6,2G18.10)') n1,n2,n3,n4,UHS(n1,n2,n3,n4,jR_sphere)
+          end do
+        end do
+      end do
+    end do
+    write(140,*)
+  end do
+  close(140)
   open(140,file="URS.dat",action="write")
   write(140,*) rgrid%npt_sphere,proj%norb
   do jR_sphere=1,rgrid%npt_sphere
     write(140,*) nint(rgrid%vpl_sphere(jR_sphere))
-    do nn=1,proj%norb
-      do mm=1,proj%norb
-        write(140,'(2I6,2G18.10)') mm,nn,HubUs(mm,nn,jR_sphere)
+    do n1=1,proj%norb
+      do n2=1,proj%norb
+        write(140,'(2I6,2G18.10)') n1,n2,UHS(n1,n2,n2,n1,jR_sphere)
       end do
     end do
     write(140,*)
@@ -1153,8 +1166,8 @@ if (mp_mpi) then
 end if
 deallocate(udis,umat,wfmloc)
 deallocate(vkl,vrl)
-deallocate(wws,wwsi)
-deallocate(HubU,HubUn,HubUs)
+deallocate(wws)
+deallocate(UH,UHS)
 deallocate(wf1,wf2)
 end subroutine
 
@@ -1267,9 +1280,9 @@ do jR_sphere=1,rgrid%npt_sphere
           dij=sqrt(dot_product(rij,rij))
           if (dij.gt.pars%rcut_grid) cycle
           zfn(:)=conjg(wf1(iorb,:,iRp))
-          zfm(:)=wf1(iorb,:,iRp)
-          zfp(:)=conjg(wf2(jorb,:,iRpp))
-          zfq(:)=wf2(jorb,:,iRpp)
+          zfm(:)=conjg(wf2(jorb,:,iRpp))
+          zfp(:)=wf2(jorb,:,iRpp)
+          zfq(:)=wf1(iorb,:,iRp)
           vcl=vcoul%evaluate(dij)
           do qq=1,proj%norb
             do pp=1,proj%norb
