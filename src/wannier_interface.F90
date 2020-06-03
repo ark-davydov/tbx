@@ -1286,10 +1286,10 @@ do jR_sphere=1,rgrid%npt_sphere
           vcl=vcoul%evaluate(dij)
           do qq=1,proj%norb
             do pp=1,proj%norb
-              if (pars%HubU_diagonal.and.pp.ne.qq) cycle 
               do mm=1,proj%norb
                 do nn=1,proj%norb
-                  if (pars%HubU_diagonal.and.nn.ne.mm) cycle 
+                  if (pars%HubU_diagonal.and.nn.ne.qq) cycle 
+                  if (pars%HubU_diagonal.and.mm.ne.pp) cycle 
                   z1=zfn(nn)*zfm(mm)*zfp(pp)*zfq(qq)
                   if (abs(z1).lt.eps) cycle
                   if (dij.lt.epslat) then
