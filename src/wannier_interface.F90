@@ -1407,9 +1407,7 @@ end do
 !$OMP DO
 do jR_sphere=1,rgrid%npt_sphere
   if (mod(jR_sphere-1,np_mpi).ne.lp_mpi) cycle
-  !$OMP CRITICAL
   write(*,*) "JR: ",jR_sphere
-  !$OMP END CRITICAL
   ! coordinates of basis orbitals
   do iorb=1,tbmodel%norb_TB
     vpcorb(:,iorb)=matmul(tbmodel%vplorb(iorb),pars%avec)
