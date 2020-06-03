@@ -521,10 +521,8 @@ ovlp=0._dp
   allocate(wf_t(tbmodel%norb_TB))
 !$OMP DO
 do ir=1,kgrid%nir
-  !$OMP CRITICAL
-  WRITE (*,*) "ir: ",ir
-  !$OMP END CRITICAL
   if (mod(ir-1,np_mpi).ne.lp_mpi) cycle
+  WRITE (*,*) "ir: ",ir
   ik=kgrid%ir2ik(ir)
   do isym=1,sym%nsym
     ikp=kgrid%iks2k(ik,isym)
@@ -1258,10 +1256,8 @@ do jR_sphere=1,rgrid%npt_sphere
     end do
   end do
   do iRp=1,rgrid%npt_sphere
-    !$OMP CRITICAL
-    write(*,*) "JR*iRP: ",jR_sphere*iRp," of ",rgrid%npt_sphere*rgrid%npt_sphere
-    !$OMP END CRITICAL
     if (mod(iRp-1,np_mpi).ne.lp_mpi) cycle
+    write(*,*) "JR*iRP: ",jR_sphere*iRp," of ",rgrid%npt_sphere*rgrid%npt_sphere
     do iRpp=1,rgrid%npt_sphere
       do iorb=1,tbmodel%norb_TB
         v1=vpcorb(:,iorb)
