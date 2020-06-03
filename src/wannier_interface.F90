@@ -521,10 +521,10 @@ ovlp=0._dp
   allocate(wf_t(tbmodel%norb_TB))
 !$OMP DO
 do ir=1,kgrid%nir
-  if (mod(ir-1,np_mpi).ne.lp_mpi) cycle
   !$OMP CRITICAL
   WRITE (*,*) "ir: ",ir
   !$OMP END CRITICAL
+  if (mod(ir-1,np_mpi).ne.lp_mpi) cycle
   ik=kgrid%ir2ik(ir)
   do isym=1,sym%nsym
     ikp=kgrid%iks2k(ik,isym)
