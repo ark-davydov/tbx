@@ -1104,6 +1104,8 @@ do isym=1,sym%nsym
             write(*,*) jR_sphere,"|",n1,n2,n3,n4
             write(*,'(6F10.4)') vl1,vl4
             write(*,'(6F10.4)') vl2,vl3
+            if (sum(abs(vl1-vl4)).gt.epslat) cycle
+            if (sum(abs(vl2-vl3)).gt.epslat) cycle
             RR=matmul(SJ,RJ+proj%centers(:,nc2)-proj%centers(:,nc1))-(proj%centers(:,jc2)-proj%centers(:,jc1))
             jv=rgrid%find(RR)
             if (jv(NDIM+1).lt.0.or.sum(abs(jv(1:NDIM))).ne.0) cycle
@@ -1195,7 +1197,6 @@ complex(dp), allocatable :: wf2(:,:,:)
 complex(dp), allocatable :: HubU(:,:,:,:,:)
 complex(dp), allocatable :: umat(:,:,:),udis(:,:,:)
 complex(dp), allocatable :: wfmloc(:,:,:)
-complex(dp), allocatable :: wf2z(:,:)
 type(wbase)  proj
 type(GRID) rgrid
 type(coulrs) vcoul
@@ -1251,9 +1252,8 @@ HubU=0._dp
 !$OMP PRIVATE(iRp,iRpp,iorb,jorb,rij,dij,v1,v2)&
 !$OMP PRIVATE(mm,nn,pp,qq,vcl,z1)&
 !$OMP PRIVATE(zfn,zfm,zfp,zfq)&
-!$OMP PRIVATE(wf2z,wf2,vpcorb)
+!$OMP PRIVATE(wf2,vpcorb)
   allocate(wf2(tbmodel%norb_TB,proj%norb,rgrid%npt_sphere))
-  allocate(wf2z(tbmodel%norb_TB,rgrid%npt))
   allocate(vpcorb(NDIM,tbmodel%norb_TB))
 !$OMP DO
 do jR_sphere=1,rgrid%npt_sphere
@@ -1263,20 +1263,19 @@ do jR_sphere=1,rgrid%npt_sphere
   end do
   ! shift wave function to jR_sphere unit cell
   do nn=1,proj%norb
-    call wannerfunc_at_R(rgrid,tbmodel%norb_TB,rgrid%vpl_sphere(jR_sphere),wfmloc(:,nn,:),wf2z(:,:))
-    do iRp=1,rgrid%npt_sphere
-      wf2(:,nn,iRp)=wf2z(:,rgrid%sphere_to_homo(iRp))
-    end do
+    call wannerfunc_at_R(rgrid,tbmodel%norb_TB,rgrid%vpl_sphere(jR_sphere),wfmloc(:,nn,:),wf2(:,nn,:))
   end do
-  do iRp=1,rgrid%npt_sphere
+  do iRp=1,rgrid%npt
     if (mod(iRp-1,np_mpi).ne.lp_mpi) cycle
-    write(*,*) "JR*iRP: ",jR_sphere*iRp," of ",rgrid%npt_sphere*rgrid%npt_sphere
-    do iRpp=1,rgrid%npt_sphere
+    nn=rgrid%npt*(jR_sphere-1)+iRp
+    mm=rgrid%npt_sphere*rgrid%npt
+    if (mod(nn-1,rgrid%npt).eq.0.and.mm.gt.1000) write(*,*) "NRP*(JR-1)+iRP: ",nn," of ",mm
+    do iRpp=1,rgrid%npt
       do iorb=1,tbmodel%norb_TB
         v1=vpcorb(:,iorb)
         do jorb=1,tbmodel%norb_TB
           v2=vpcorb(:,jorb)
-          rij=abs(v2+rgrid%vpc_sphere(iRpp)-v1-rgrid%vpc_sphere(iRp))
+          rij=abs(v2+rgrid%vpc(iRpp)-v1-rgrid%vpc(iRp))
           dij=sqrt(dot_product(rij,rij))
           if (dij.gt.pars%rcut_grid) cycle
           zfn(:)=conjg(wf1(iorb,:,iRp))
@@ -1309,7 +1308,7 @@ do jR_sphere=1,rgrid%npt_sphere
   end do
 end do
 !$OMP END DO
-  deallocate(vpcorb,wf2,wf2z)
+  deallocate(vpcorb,wf2)
 !$OMP END PARALLEL
 #ifdef MPI
   nn=rgrid%npt_sphere*proj%norb**4
