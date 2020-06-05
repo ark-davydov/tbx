@@ -629,7 +629,7 @@ end if
 
 if (THIS%ndim_coul.lt.NDIM) then
   if (mp_mpi) call info("paramters%read_input()","NDIM not equal to NDIM_COUL, &
-    be sure that your principal dimensions are along the first NDIM_COUL vectors")
+    &be sure that your principal dimensions are along the first NDIM_COUL vectors")
 else if (THIS%ndim_coul.gt.NDIM) then
   call throw("paramters%read_input()","NDIM_COUL can not be larger than NDIM")
 end if

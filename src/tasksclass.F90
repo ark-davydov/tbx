@@ -550,8 +550,8 @@ eval=0._dp
 ! read eigenvalues, subroutine in modcom.f90
 call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
 ! init minimal wannier variables
-call compute_hubbardu_rs(pars,tbmodel,kgrid,evec)
-!call compute_hubbardj_rs(pars,tbmodel,kgrid,sym,evec)
+call compute_hubbardu_rs(pars,sym,tbmodel,kgrid,evec)
+!call compute_hubbardj_rs(pars,sym,tbmodel,kgrid,sym,evec)
 deallocate(eval,evec,vkl)
 end subroutine
 
