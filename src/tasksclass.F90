@@ -63,10 +63,10 @@ do itask=1,pars%ntasks
      call message("")
      call hubbard_tbg(pars)
      call message("")
-  else if (trim(adjustl(pars%tasks(itask))).eq."symmetrize_u") then
-     call message("*** symmetrize Hubbard parameters ***")
+  else if (trim(adjustl(pars%tasks(itask))).eq."write_hubbardu") then
+     call message("*** extract Hubbard parameters ***")
      call message("")
-     call symmetrize_u(pars)
+     call write_hubu(pars)
      call message("")
   else if (trim(adjustl(pars%tasks(itask))).eq."symmetrize_tb") then
      call message("*** symmetrize Tight-Binding Hamiltonian ***")
@@ -555,7 +555,7 @@ call compute_hubbardu_rs(pars,sym,tbmodel,kgrid,evec)
 deallocate(eval,evec,vkl)
 end subroutine
 
-subroutine symmetrize_u(pars)
+subroutine write_hubu(pars)
 class(CLpars), intent(inout) :: pars
 real(dp), allocatable :: eval(:,:)
 real(dp), allocatable :: vkl(:,:)
@@ -591,7 +591,7 @@ eval=0._dp
 call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
 ! init minimal wannier variables
 call sym%init(pars)
-call symmetrize_hubbardu_rs(pars,sym,tbmodel,kgrid,evec)
+call write_hubbardu(pars,sym,tbmodel,kgrid,evec)
 deallocate(eval,evec,vkl)
 end subroutine
 
