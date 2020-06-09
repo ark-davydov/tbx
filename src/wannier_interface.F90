@@ -435,7 +435,7 @@ logical exs
 real(dp) err,t1,t2
 real(dp) v1(NDIM),v2(NDIM)
 complex(dp), allocatable :: phs(:,:)
-complex(dp), allocatable :: wf_t(:)
+complex(dp), allocatable :: wf_t(:,:)
 complex(dp), allocatable :: ovlp(:,:,:,:)
 inquire(file=trim(adjustl(pars%seedname))//'.dmn',exist=exs)
 if (exs) then
@@ -512,31 +512,30 @@ if (mp_mpi) then
   write(*,'(a,i8)') '  DMN(d_matrix_band) [could be not ordered]: nir = ',kgrid%nir
 end if
 allocate(ovlp(pars%nstates,pars%nstates,sym%nsym,kgrid%nir))
+allocate(wf_t(tbmodel%norb_TB,pars%nstates))
 ovlp=0._dp
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
 #endif
-!$OMP PARALLEL DEFAULT(SHARED)&
-!$OMP PRIVATE(ist,jst,ik,ikp,isym,wf_t)
-  allocate(wf_t(tbmodel%norb_TB))
-!$OMP DO
 do ir=1,kgrid%nir
   if (mod(ir-1,np_mpi).ne.lp_mpi) cycle
   WRITE (*,*) "ir: ",ir
   ik=kgrid%ir2ik(ir)
   do isym=1,sym%nsym
     ikp=kgrid%iks2k(ik,isym)
+    !$OMP PARALLEL DEFAULT(SHARED)&
+    !$OMP PRIVATE(ist)
+    !$OMP DO
     do jst=1,pars%nstates
-      call tbmodel%bloch_wf_transform(kgrid,ik,sym,isym,wf_t,evec(:,jst,ik))
+      call tbmodel%bloch_wf_transform(kgrid,ik,sym,isym,wf_t(:,jst),evec(:,jst,ik))
       do ist=1,pars%nstates
-         ovlp(ist,jst,isym,ir)=dot_product(evec(:,ist,ikp),wf_t)
+         ovlp(ist,jst,isym,ir)=dot_product(evec(:,ist,ikp),wf_t(:,jst))
       end do
     end do
+    !$OMP END DO
+    !$OMP END PARALLEL
   end do
 end do
-!$OMP END DO
-  deallocate(wf_t)
-!$OMP END PARALLEL
 #ifdef MPI
   nn=pars%nstates*pars%nstates*sym%nsym*kgrid%nir
   call mpi_allreduce(mpi_in_place,ovlp,nn,mpi_double_complex,mpi_sum, &
@@ -557,6 +556,7 @@ if (mp_mpi) then
   write(*,*)
 end if
 deallocate(phs,ovlp)
+deallocate(wf_t)
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
 #endif
