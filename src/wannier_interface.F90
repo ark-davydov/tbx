@@ -1385,34 +1385,34 @@ do IRR_POINT=1,nir
   do n1=1,proj%norb
     call wannerfunc_at_R(rgrid,tbmodel%norb_TB,rgrid%vpl_sphere(jR_irr),wfmloc(:,n1,:),wf(:,n1,:))
   end do
-  do iRp=1,rgrid%npt
-    if (rgrid%dc(iRp).gt.2._dp*pars%rcut_grid) cycle
-    do jRp=1,rgrid%npt
-      if (rgrid%dc(jRp).gt.2._dp*pars%rcut_grid) cycle
-      rij=abs(vpc(:,jRp)-vpc(:,iRp))
-      dij=sqrt(dot_product(rij,rij))
-      if (dij.gt.2._dp*pars%rcut_grid) cycle
-      do iorb=1,tbmodel%norb_TB
-        if (mod(iorb-1,np_mpi).ne.lp_mpi) cycle
-        do jorb=1,tbmodel%norb_TB
-          rij=abs(vpcorb(:,jorb)+vpc(:,jRp)-vpcorb(:,iorb)-vpc(:,iRp))
-          dij=sqrt(dot_product(rij,rij))
-          if (dij.gt.pars%rcut_grid) cycle
-          vcl=vcoul%evaluate(dij)
-          do n4=1,proj%norb
-            do n3=1,proj%norb
-              do n2=1,proj%norb
-                do n1=1,proj%norb
-                  nc4=proj%orb_icio(n4,1)
-                  nc3=proj%orb_icio(n3,1)
-                  nc2=proj%orb_icio(n2,1)
-                  nc1=proj%orb_icio(n1,1)
-                  if (jc1_irr.ne.nc1) cycle
-                  if (jc2_irr.ne.nc2) cycle
-                  if (nc1.ne.nc4) cycle ! this condition enters symmetry transformation formulas of U 
-                  if (nc2.ne.nc3) cycle ! so we also can impose it here
-                  if (pars%HubU_diagonal.and.n1.ne.n4) cycle 
-                  if (pars%HubU_diagonal.and.n2.ne.n3) cycle 
+  do n4=1,proj%norb
+    do n3=1,proj%norb
+      do n2=1,proj%norb
+        do n1=1,proj%norb
+          nc4=proj%orb_icio(n4,1)
+          nc3=proj%orb_icio(n3,1)
+          nc2=proj%orb_icio(n2,1)
+          nc1=proj%orb_icio(n1,1)
+          if (jc1_irr.ne.nc1) cycle
+          if (jc2_irr.ne.nc2) cycle
+          if (nc1.ne.nc4) cycle ! this condition enters symmetry transformation formulas of U 
+          if (nc2.ne.nc3) cycle ! so we also can impose it here
+          if (pars%HubU_diagonal.and.n1.ne.n4) cycle 
+          if (pars%HubU_diagonal.and.n2.ne.n3) cycle 
+          do iRp=1,rgrid%npt
+            if (rgrid%dc(iRp).gt.2._dp*pars%rcut_grid) cycle
+            do jRp=1,rgrid%npt
+              if (rgrid%dc(jRp).gt.2._dp*pars%rcut_grid) cycle
+              rij=abs(vpc(:,jRp)-vpc(:,iRp))
+              dij=sqrt(dot_product(rij,rij))
+              if (dij.gt.2._dp*pars%rcut_grid) cycle
+              do iorb=1,tbmodel%norb_TB
+                if (mod(iorb-1,np_mpi).ne.lp_mpi) cycle
+                do jorb=1,tbmodel%norb_TB
+                  rij=abs(vpcorb(:,jorb)+vpc(:,jRp)-vpcorb(:,iorb)-vpc(:,iRp))
+                  dij=sqrt(dot_product(rij,rij))
+                  if (dij.gt.pars%rcut_grid) cycle
+                  vcl=vcoul%evaluate(dij)
                   if (abs(conjg(wfmloc(iorb,n1,iRp))).lt.epsengy) cycle
                   if (abs(conjg(wf(jorb,n2,jRp))).lt.epsengy) cycle
                   if (abs(wf(jorb,n3,jRp)).lt.epsengy) cycle
