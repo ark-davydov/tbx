@@ -932,18 +932,14 @@ wan%hame=hams/dble(sym%nsym)
 call wan%write_tb_file(pars,proj%norb)
 end subroutine
 
-subroutine write_hubbardu(pars,sym,tbmodel,kgrid,evec)
+subroutine write_hubbardu(pars,sym)
 class(CLpars), intent(in) :: pars
 class(CLsym), intent(in) :: sym
-class(CLtb), intent(in) :: tbmodel
-class(GRID), intent(inout) :: kgrid
-complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
 logical exst
 character(len=4) snum
 integer iR_sphere,jR_sphere,IRR_POINT
 integer norb,npt_sphere
 integer mc1p,mc2p
-integer ik,ir
 integer isym,jsym
 integer nsize
 integer n1,n2,n3,n4
@@ -952,14 +948,9 @@ integer nc1,nc2,nc3,nc4
 integer mc1,mc2,mc3,mc4
 real(dp) t1,t2
 real(dp) RR(NDIM)
-!real(dp) vl1(NDIM),vl2(NDIM),vl3(NDIM),vl4(NDIM)
-real(dp), allocatable :: vkl(:,:)
-real(dp), allocatable :: vrl(:,:)
 real(dp), allocatable :: wws(:,:,:)
 complex(dp), allocatable :: UH(:,:,:,:,:)
 complex(dp), allocatable :: UHS(:,:,:,:,:)
-complex(dp), allocatable :: umat(:,:,:),udis(:,:,:)
-complex(dp), allocatable :: wfmloc(:,:,:)
 integer, allocatable     :: irr2cR(:,:)
 integer, allocatable     :: cR2irr(:,:,:,:)
 integer                  :: nir
@@ -980,26 +971,6 @@ call proj%init(pars,pars%proj%ncenters,pars%proj%norb,pars%proj%norb_ic,&
 call proj%init_smap(sym,pars)
 call rgrid%init(pars%ngrid,pars%avec,.true.,.false.)
 call rgrid%init_sphere(pars)
-allocate(udis(pars%nstates,proj%norb,kgrid%npt))
-allocate(umat(proj%norb,proj%norb,kgrid%npt))
-allocate(wfmloc(tbmodel%norb_TB,proj%norb,rgrid%npt))
-! k-point list
-allocate(vkl(NDIM,kgrid%npt))
-do ik=1,kgrid%npt
-  vkl(:,ik)=kgrid%vpl(ik)
-end do
-! r-point list
-allocate(vrl(NDIM,rgrid%npt))
-do ir=1,rgrid%npt
-  vrl(:,ir)=rgrid%vpl(ir)
-end do
-if (pars%nstates.gt.proj%norb) then
-  call read_udis(pars%seedname,kgrid%npt,proj%norb,pars%nstates,vkl,udis)
-end if
-call read_umat(pars%seedname,kgrid%npt,proj%norb,vkl,umat)
-! obtain wannier functions
-call get_wfmloc(.false.,proj%norb,pars%nstates,kgrid%npt,rgrid%npt,&
-   tbmodel%norb_TB,udis,umat,vkl,vrl,evec,wfmloc)
 allocate(wws(proj%norb,proj%norb,sym%nsym))
 call init_wws(sym,proj,wws)
 nsize=proj%norb
@@ -1105,8 +1076,6 @@ do jR_sphere=1,rgrid%npt_sphere
   if (mp_mpi) write(140,*)
 end do
 if (mp_mpi) close(140)
-deallocate(udis,umat,wfmloc)
-deallocate(vkl,vrl)
 deallocate(wws)
 deallocate(UH)
 end subroutine
