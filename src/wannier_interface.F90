@@ -17,6 +17,7 @@ public :: compute_hubbardu_rs
 public :: compute_hubbardj_rs
 public :: write_hubbardu
 public :: symmetrize_tbfile
+public :: symmetrize_hubbardu
 
 type, public :: CLwan
   integer :: nnk=0
@@ -1076,8 +1077,141 @@ do jR_sphere=1,rgrid%npt_sphere
   if (mp_mpi) write(140,*)
 end do
 if (mp_mpi) close(140)
+if (mp_mpi) open(140,file="_UH/UH.dat",action="write")
+do jR_sphere=1,rgrid%npt_sphere
+  do n1=1,proj%norb ; do n2=1,proj%norb ; do n3=1,proj%norb ;do n4=1,proj%norb
+    if (mp_mpi) write(140,'(2G18.10)') UH(n1,n2,n3,n4,jR_sphere)
+  end do ; end do ; end do ; end do
+end do
+if (mp_mpi) close(140)
 deallocate(wws)
 deallocate(UH)
+end subroutine
+
+subroutine symmetrize_hubbardu(pars,sym)
+class(CLpars), intent(in) :: pars
+class(CLsym), intent(in) :: sym
+integer iR_sphere,jR_sphere
+integer isym,jsym
+integer nsize
+integer jc1,jc2
+integer n1,n2,n3,n4
+integer m1,m2,m3,m4
+integer nc1,nc2,nc3,nc4
+integer mc1,mc2,mc3,mc4
+integer iv(NDIM+1)
+real(dp) t1,t2
+real(dp) RI(NDIM),RJ(NDIM)
+real(dp) SJ(NDIM,NDIM)
+real(dp), allocatable :: wws(:,:,:)
+complex(dp), allocatable :: UH(:,:,:,:,:)
+complex(dp), allocatable :: UHS(:,:,:,:,:)
+type(wbase)  proj
+type(GRID) rgrid
+!real(dp) ddot
+if (pars%proj%norb.le.0) then
+   call throw("wannier_interface%write_hubbardu()",&
+              "apparently 'projections' block was not specified, wannier projections not found")
+else
+  if (pars%nstates.lt.pars%proj%norb) then
+    call throw("wannier_interface%write_hubbardu()",&
+               "number of bands is less than the number of requested projections")
+  end if
+end if
+if (pars%HubU_diagonal) call throw("wannier_interface%write_hubbardu()",&
+                          "symmetrization does not work with pars%HubU_diagonal")
+
+call proj%init(pars,pars%proj%ncenters,pars%proj%norb,pars%proj%norb_ic,&
+                   pars%proj%lmr,pars%proj%waxis,pars%proj%centers)
+call proj%init_smap(sym,pars)
+call rgrid%init(pars%ngrid,pars%avec,.true.,.false.)
+call rgrid%init_sphere(pars)
+allocate(wws(proj%norb,proj%norb,sym%nsym))
+call init_wws(sym,proj,wws)
+nsize=proj%norb
+allocate(UH(nsize,nsize,nsize,nsize,rgrid%npt_sphere))
+allocate(UHS(nsize,nsize,nsize,nsize,rgrid%npt_sphere))
+UH=0._dp
+if (mp_mpi) open(140,file="_UH/UH.dat",action="read")
+do jR_sphere=1,rgrid%npt_sphere
+  do n1=1,proj%norb ; do n2=1,proj%norb ; do n3=1,proj%norb ; do n4=1,proj%norb
+    if (mp_mpi) read(140,*) t1,t2
+    UH(n1,n2,n3,n4,jR_sphere)=cmplx(t1,t2,kind=dp)
+  end do ; end do ; end do ; end do
+end do
+if (mp_mpi) close(140)
+UHS=0._dp
+do isym=1,sym%nsym
+  jsym=sym%inv(isym)
+  SJ=dble(sym%lat(:,:,isym))
+  do jR_sphere=1,rgrid%npt_sphere
+    RJ=rgrid%vpl_sphere(jR_sphere)
+    do n1=1,proj%norb
+      do n2=1,proj%norb
+        do n3=1,proj%norb
+          do n4=1,proj%norb
+            nc1=proj%orb_icio(n1,1)
+            nc2=proj%orb_icio(n2,1)
+            nc3=proj%orb_icio(n3,1)
+            nc4=proj%orb_icio(n4,1)
+            ! this gives the diagonal (IN SITE INDEX) Hubbard 
+            if (nc1.ne.nc4) cycle
+            if (nc2.ne.nc3) cycle
+            jc1=proj%ics2c(nc1,jsym)
+            jc2=proj%ics2c(nc2,jsym)
+            RI=matmul(SJ,RJ+proj%centers(:,nc2)-proj%centers(:,nc1))-(proj%centers(:,jc2)-proj%centers(:,jc1))
+            iv=rgrid%find(RI)
+            if (iv(NDIM+1).lt.0.or.sum(abs(iv(1:NDIM))).ne.0) cycle
+            iR_sphere=rgrid%homo_to_sphere(iv(NDIM+1))
+            if (iR_sphere.le.0) cycle
+            do m1=1,proj%norb
+              do m2=1,proj%norb
+                do m3=1,proj%norb
+                  do m4=1,proj%norb
+                    mc1=proj%orb_icio(m1,1)
+                    mc2=proj%orb_icio(m2,1)
+                    mc3=proj%orb_icio(m3,1)
+                    mc4=proj%orb_icio(m4,1)
+                    if (mc1.ne.mc4) cycle
+                    if (mc2.ne.mc3) cycle
+                    if (proj%ics2c(mc1,isym).ne.nc1) cycle
+                    if (proj%ics2c(mc2,isym).ne.nc2) cycle
+                    if (proj%ics2c(mc3,isym).ne.nc3) cycle
+                    if (proj%ics2c(mc4,isym).ne.nc4) cycle
+                    UHS(n1,n2,n3,n4,jR_sphere)=UHS(n1,n2,n3,n4,jR_sphere)+&
+                         wws(n1,m1,isym)*wws(n2,m2,isym)*UH(m1,m2,m3,m4,iR_sphere)*wws(m3,n3,jsym)*wws(m4,n4,jsym)
+                  end do
+                end do
+              end do
+            end do
+          end do
+        end do
+      end do
+    end do
+  end do
+end do
+UHS=UHS/dble(sym%nsym)
+if (mp_mpi) open(140,file="URS.dat",action="write")
+if (mp_mpi) write(140,*) rgrid%npt_sphere,proj%norb
+do jR_sphere=1,rgrid%npt_sphere
+  if (mp_mpi) write(140,*) nint(rgrid%vpl_sphere(jR_sphere))
+  do n1=1,proj%norb
+    do n2=1,proj%norb
+      if (mp_mpi) write(140,'(2I6,2G18.10)') n1,n2,UHS(n1,n2,n2,n1,jR_sphere)
+    end do
+  end do
+  if (mp_mpi) write(140,*)
+end do
+if (mp_mpi) close(140)
+if (mp_mpi) open(140,file="_UH/UHS.dat",action="write")
+do jR_sphere=1,rgrid%npt_sphere
+  do n1=1,proj%norb ; do n2=1,proj%norb ; do n3=1,proj%norb ; do n4=1,proj%norb
+    if (mp_mpi) write(140,'(2G18.10)') UHS(n1,n2,n3,n4,jR_sphere)
+  end do ; end do ; end do ; end do
+end do
+if (mp_mpi) close(140)
+deallocate(wws)
+deallocate(UH,UHS)
 end subroutine
 
 subroutine find_irrcR_sphere(proj,sym,rgrid,irr2cR,cR2irr,nir)

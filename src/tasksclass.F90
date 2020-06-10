@@ -68,6 +68,11 @@ do itask=1,pars%ntasks
      call message("")
      call write_hubu(pars)
      call message("")
+  else if (trim(adjustl(pars%tasks(itask))).eq."symmetrize_hubbardu") then
+     call message("*** symmetrize Hubbard parameters ***")
+     call message("")
+     call symmetrize_hubu(pars)
+     call message("")
   else if (trim(adjustl(pars%tasks(itask))).eq."symmetrize_tb") then
      call message("*** symmetrize Tight-Binding Hamiltonian ***")
      call message("")
@@ -559,7 +564,6 @@ subroutine write_hubu(pars)
 class(CLpars), intent(inout) :: pars
 real(dp), allocatable :: eval(:,:)
 real(dp), allocatable :: vkl(:,:)
-complex(dp), allocatable :: evec(:,:,:)
 type(GRID) kgrid
 type(CLtb) tbmodel
 type(CLsym) sym
@@ -575,15 +579,11 @@ call tbmodel%init(pars,sym,"noham")
 call kgrid%io(1000,"_grid","read",pars,tbmodel%norb_TB)
 ! allocate array for eigen values
 allocate(eval(pars%nstates,kgrid%npt))
-! allocate array for eigen vectors
-allocate(evec(tbmodel%norb_TB,pars%nstates,kgrid%npt))
 ! this is needed to copy the private data of kgrid object, i.e., k-points in lattice coordinates
 allocate(vkl(NDIM,kgrid%npt))
 do ik=1,kgrid%npt
   ! copy the private data
   vkl(:,ik)=kgrid%vpl(ik)
-  ! read eigenvectors, subroutine in modcom.f90
-  call io_evec(ik,"read","_evec",tbmodel%norb_TB,pars%nstates,evec(:,:,ik))
 end do
 ! zero the arrays for security reasons
 eval=0._dp
@@ -591,9 +591,45 @@ eval=0._dp
 call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
 ! init minimal wannier variables
 call sym%init(pars)
-call write_hubbardu(pars,sym,tbmodel,kgrid,evec)
-deallocate(eval,evec,vkl)
+call write_hubbardu(pars,sym)
+deallocate(eval,vkl)
 end subroutine
+
+subroutine symmetrize_hubu(pars)
+class(CLpars), intent(inout) :: pars
+real(dp), allocatable :: eval(:,:)
+real(dp), allocatable :: vkl(:,:)
+type(GRID) kgrid
+type(CLtb) tbmodel
+type(CLsym) sym
+integer ik
+#ifdef MPI
+  call MPI_barrier(mpi_com,mpi_err)
+#endif
+! generater spatial symmetries
+call sym%init(pars)
+! initialise TB model, to have centers coordinates and other data
+call tbmodel%init(pars,sym,"noham")
+! read the k-point grid on which eigenvales/eigenvectors are computed
+call kgrid%io(1000,"_grid","read",pars,tbmodel%norb_TB)
+! allocate array for eigen values
+allocate(eval(pars%nstates,kgrid%npt))
+! this is needed to copy the private data of kgrid object, i.e., k-points in lattice coordinates
+allocate(vkl(NDIM,kgrid%npt))
+do ik=1,kgrid%npt
+  ! copy the private data
+  vkl(:,ik)=kgrid%vpl(ik)
+end do
+! zero the arrays for security reasons
+eval=0._dp
+! read eigenvalues, subroutine in modcom.f90
+call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
+! init minimal wannier variables
+call sym%init(pars)
+call symmetrize_hubbardu(pars,sym)
+deallocate(eval,vkl)
+end subroutine
+
 
 subroutine symmetrize_tb(pars)
 class(CLpars), intent(inout) :: pars
