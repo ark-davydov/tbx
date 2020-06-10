@@ -940,7 +940,6 @@ class(GRID), intent(inout) :: kgrid
 complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
 logical exst
 character(len=4) snum
-logical lsymmetric
 integer iR_sphere,jR_sphere,IRR_POINT
 integer norb,npt_sphere
 integer mc1p,mc2p
@@ -1002,12 +1001,12 @@ call read_umat(pars%seedname,kgrid%npt,proj%norb,vkl,umat)
 call get_wfmloc(.false.,proj%norb,pars%nstates,kgrid%npt,rgrid%npt,&
    tbmodel%norb_TB,udis,umat,vkl,vrl,evec,wfmloc)
 allocate(wws(proj%norb,proj%norb,sym%nsym))
-call init_wws_check_wfmloc(sym,proj,tbmodel%norb_TB,rgrid%npt,wfmloc,wws,lsymmetric)
+call init_wws(sym,proj,wws)
 nsize=proj%norb
 allocate(UH(nsize,nsize,nsize,nsize,rgrid%npt_sphere))
 UH=0._dp
-if (lsymmetric.and..not.pars%HubU_diagonal) then
-  allocate(irr2cR(3,proj%ncenters*rgrid%npt_sphere))
+if (.not.pars%HubU_diagonal) then
+  allocate(irr2cR(3,proj%ncenters*proj%ncenters*rgrid%npt_sphere))
   allocate(cR2irr(2,proj%ncenters,proj%ncenters,rgrid%npt_sphere))
   call find_irrcR_sphere(proj,sym,rgrid,irr2cR,cR2irr,nir)
   do IRR_POINT=1,nir
@@ -1116,7 +1115,7 @@ subroutine find_irrcR_sphere(proj,sym,rgrid,irr2cR,cR2irr,nir)
 class(wbase), intent(in) :: proj
 class(CLsym), intent(in) :: sym
 class(GRID), intent(in)  :: rgrid
-integer, intent(out)     :: irr2cR(3,proj%ncenters*rgrid%npt_sphere)
+integer, intent(out)     :: irr2cR(3,proj%ncenters*proj%ncenters*rgrid%npt_sphere)
 integer, intent(out)     :: cR2irr(2,proj%ncenters,proj%ncenters,rgrid%npt_sphere)
 integer, intent(out)     :: nir
 integer isym
@@ -1167,20 +1166,11 @@ do jR_sphere=1,rgrid%npt_sphere
 end do
 return
 end subroutine
-
-subroutine init_wws_check_wfmloc(sym,proj,norb_TB,nrpt,wfmloc,wws,lfine)
+subroutine init_wws(sym,proj,wws)
 class(CLsym), intent(in) :: sym
 class(wbase), intent(in)  :: proj
-integer, intent(in)      :: norb_TB,nrpt
-complex(dp), intent(in)  :: wfmloc(norb_TB,proj%norb,nrpt)
 real(dp), intent(out)    :: wws(proj%norb,proj%norb,sym%nsym)
-logical, intent(out)     :: lfine
 integer isym,iw,jw,ic,jc
-complex(dp) z1
-complex(dp), allocatable :: wf(:,:)
-complex(dp) zdotc
-allocate(wf(norb_TB,nrpt))
-lfine=.false.
 wws=0._dp
 do isym=1,sym%nsym
   do iw=1,proj%norb
@@ -1192,21 +1182,7 @@ do isym=1,sym%nsym
      end do
   end do
 end do
-do isym=1,sym%nsym
-  do iw=1,proj%norb
-     wf=0._dp
-     do jw=1,proj%norb
-        wf(:,:)=wf(:,:)+wws(jw,iw,isym)*wfmloc(:,jw,:)
-     end do
-     do jw=1,proj%norb
-       z1=zdotc(norb_TB*nrpt,wfmloc(:,jw,:),1,wf,1)
-       if (abs(z1-wws(jw,iw,isym)).gt.epslat) return
-     end do
-  end do
-end do
-lfine=.true.
 return
-deallocate(wf)
 end subroutine
 
 subroutine compute_hubbardu_rs(pars,sym,tbmodel,kgrid,evec)
@@ -1215,11 +1191,8 @@ class(CLsym), intent(in) :: sym
 class(CLtb), intent(in) :: tbmodel
 class(GRID), intent(inout) :: kgrid
 complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
-logical lsymmetric
-integer jR_sphere,n1,n2,n3,n4
 integer ir,ik
 real(dp), allocatable    :: vkl(:,:),vrl(:,:)
-real(dp), allocatable    :: wws(:,:,:)
 complex(dp), allocatable :: umat(:,:,:),udis(:,:,:)
 complex(dp), allocatable :: wfmloc(:,:,:)
 ! variables for symmetry maps
@@ -1250,7 +1223,6 @@ if (.not.rgrid%sphere_allocated) call rgrid%init_sphere(pars)
 allocate(udis(pars%nstates,proj%norb,kgrid%npt))
 allocate(umat(proj%norb,proj%norb,kgrid%npt))
 allocate(wfmloc(tbmodel%norb_TB,proj%norb,rgrid%npt))
-allocate(wws(proj%norb,proj%norb,sym%nsym))
 ! k-point list
 allocate(vkl(NDIM,kgrid%npt))
 do ik=1,kgrid%npt
@@ -1268,11 +1240,10 @@ call read_umat(pars%seedname,kgrid%npt,proj%norb,vkl,umat)
 ! obtain wannier functions
 call get_wfmloc(.false.,proj%norb,pars%nstates,kgrid%npt,rgrid%npt,&
    tbmodel%norb_TB,udis,umat,vkl,vrl,evec,wfmloc)
-call init_wws_check_wfmloc(sym,proj,tbmodel%norb_TB,rgrid%npt,wfmloc,wws,lsymmetric)
 if (mp_mpi) write(*,*) "available OMP_NUM_THREADS, if used: ",proj%norb
 if (mp_mpi) write(*,*) "available number of mpi processes, if used: ",tbmodel%norb_TB
-if (lsymmetric.and..not.pars%HubU_diagonal) then
-  allocate(irr2cR(3,proj%ncenters*rgrid%npt_sphere))
+if (.not.pars%HubU_diagonal) then
+  allocate(irr2cR(3,proj%ncenters*proj%ncenters*rgrid%npt_sphere))
   allocate(cR2irr(2,proj%ncenters,proj%ncenters,rgrid%npt_sphere))
   call find_irrcR_sphere(proj,sym,rgrid,irr2cR,cR2irr,nir)
   call UH_irr(pars,rgrid,tbmodel,proj,wfmloc,irr2cR,nir)
@@ -1280,8 +1251,8 @@ else
   call UH_full(pars,rgrid,tbmodel,proj,wfmloc)
 end if
 deallocate(vkl,vrl,umat,udis)
-deallocate(wws,wfmloc)
-if (lsymmetric.and..not.pars%HubU_diagonal) then
+deallocate(wfmloc)
+if (.not.pars%HubU_diagonal) then
   deallocate(irr2cR)
   deallocate(cR2irr)
 end if
@@ -1297,7 +1268,7 @@ class(GRID), intent(in) :: rgrid
 class(CLtb), intent(in) :: tbmodel
 class(wbase), intent(in) :: proj
 complex(dp), intent(in) :: wfmloc(tbmodel%norb_TB,proj%norb,rgrid%npt)
-integer, intent(in)     :: irr2cR(3,proj%ncenters*rgrid%npt_sphere)
+integer, intent(in)     :: irr2cR(3,proj%ncenters*proj%ncenters*rgrid%npt_sphere)
 integer, intent(in)     :: nir
 real(dp), parameter :: Upz=10._dp
 real(dp), parameter :: eps=1.e-17_dp
