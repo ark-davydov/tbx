@@ -906,6 +906,8 @@ do iter=1,pars%niter_symmetrize
         do n2=1,proj%norb
           nc1=proj%orb_icio(n1,1)
           nc2=proj%orb_icio(n2,1)
+          jc1=proj%ics2c(nc1,jsym)
+          jc2=proj%ics2c(nc2,jsym)
           RI=matmul(SJ,RJ+proj%centers(:,nc2)-proj%centers(:,nc1))-(proj%centers(:,jc2)-proj%centers(:,jc1))
           iv=rgrid%find(RI)
           if (iv(NDIM+1).lt.0.or.sum(abs(iv(1:NDIM))).ne.0) cycle
