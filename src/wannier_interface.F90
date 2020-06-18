@@ -869,11 +869,13 @@ complex(dp), allocatable :: hams(:,:,:)
 type(wbase)  proj
 type(GRID) rgrid
 type(CLwan) wan
-real(dp) Tmlij(NDIM),tauji(NDIM),tauml(NDIM),RR(NDIM)
-integer isym,iR,iw,jw
-integer iorb,jorb,morb,lorb
-integer ic,jc,mc,lc
+integer iter
+integer isym,jsym,iR,jR
+integer n1,n2,m1,m2
+integer nc1,nc2,mc1,mc2
+integer jc1,jc2
 integer iv(NDIM+1)
+real(dp) RI(NDIM),RJ(NDIM),SJ(NDIM,NDIM)
 if (pars%tbtype.ne.'tbfile') call throw("wannier_interface%symmetrize_tbfile()",&
               "only tbtype=tbfile is supported,i.e, onlt _tb.dat format of wannier90 is accepted")
 if (pars%proj%norb.le.0) then
@@ -891,45 +893,38 @@ call proj%init_smap(sym,pars)
 call rgrid%init(pars%ngrid,pars%avec,.true.,.false.)
 call wan%read_tb_file(pars,proj%norb)
 allocate(wws(proj%norb,proj%norb,sym%nsym))
-do isym=1,sym%nsym
-  do iw=1,proj%norb
-     ic=proj%orb_icio(iw,1)
-     jc=proj%ics2c(ic,isym)
-     do jw=1,proj%norb
-        if(proj%orb_icio(jw,1).ne.jc) cycle
-        wws(jw,iw,isym)=proj%wws(sym%car(:,:,isym),iw,jw)
-     end do
-  end do
-end do
 allocate(hams(proj%norb,proj%norb,wan%rgrid%npt))
-hams=0._dp
-do isym=1,sym%nsym
-  do iR=1,wan%rgrid%npt
-    do iorb=1,proj%norb
-      ic=proj%orb_icio(iorb,1)
-      do jorb=1,proj%norb
-        jc=proj%orb_icio(jorb,1)
-        tauji=proj%centers(:,pars%proj%iw2ic(jorb))-proj%centers(:,pars%proj%iw2ic(iorb))
-        do lorb=1,proj%norb
-          lc=proj%orb_icio(lorb,1)
-          if (proj%ics2c(lc,isym).ne.ic) cycle
-          do morb=1,proj%norb
-            mc=proj%orb_icio(morb,1)
-            if (proj%ics2c(mc,isym).ne.jc) cycle
-            tauml=proj%centers(:,pars%proj%iw2ic(morb))-proj%centers(:,pars%proj%iw2ic(lorb))
-            Tmlij=proj%Tmlij(dble(sym%lat(:,:,isym)),tauml,tauji)
-            RR=matmul(dble(sym%lat(:,:,sym%inv(isym))),wan%rgrid%vpl(iR)-Tmlij)
-            iv=wan%rgrid%find(RR)
-            if (iv(NDIM+1).le.0.or.sum(abs(iv(1:NDIM))).ne.0) cycle
-            hams(iorb,jorb,iR)=hams(iorb,jorb,iR)+wws(iorb,lorb,isym)*wan%hame(lorb,morb,iv(NDIM+1))*&
-                               wws(morb,jorb,sym%inv(isym))
+call init_wws(sym,proj,wws)
+do iter=1,pars%niter_symmetrize
+  hams=0._dp
+  do isym=1,sym%nsym
+    jsym=sym%inv(isym)
+    SJ=dble(sym%lat(:,:,isym))
+    do jR=1,wan%rgrid%npt
+      RJ=wan%rgrid%vpl(jR)
+      do n1=1,proj%norb
+        do n2=1,proj%norb
+          nc1=proj%orb_icio(n1,1)
+          nc2=proj%orb_icio(n2,1)
+          RI=matmul(SJ,RJ+proj%centers(:,nc2)-proj%centers(:,nc1))-(proj%centers(:,jc2)-proj%centers(:,jc1))
+          iv=rgrid%find(RI)
+          if (iv(NDIM+1).lt.0.or.sum(abs(iv(1:NDIM))).ne.0) cycle
+          iR=iv(NDIM+1)
+          do m1=1,proj%norb
+            do m2=1,proj%norb
+              mc1=proj%orb_icio(m1,1)
+              mc2=proj%orb_icio(m2,1)
+              if (proj%ics2c(mc1,isym).ne.nc1) cycle
+              if (proj%ics2c(mc2,isym).ne.nc2) cycle
+              hams(n1,n2,jR)=hams(n1,n2,jR)+wws(n1,m1,isym)*wan%hame(m1,m2,iR)*wws(m2,n2,jsym)
+            end do
           end do
         end do
       end do
     end do
   end do
+  wan%hame=hams/dble(sym%nsym)
 end do
-wan%hame=hams/dble(sym%nsym)
 call wan%write_tb_file(pars,proj%norb)
 end subroutine
 
@@ -938,6 +933,7 @@ class(CLpars), intent(in) :: pars
 class(CLsym), intent(in) :: sym
 logical exst
 character(len=4) snum
+integer iv(NDIM+1)
 integer iR_sphere,jR_sphere,IRR_POINT
 integer norb,npt_sphere
 integer mc1p,mc2p
@@ -997,7 +993,7 @@ if (.not.pars%HubU_diagonal) then
     140 continue
     close(140)
   end do
-  ! symmetrize UH into UHS
+  ! reconstruct full UH from irreducible wedge
   allocate(UHS(nsize,nsize,nsize,nsize,rgrid%npt_sphere))
   UHS=0._dp
   do jR_sphere=1,rgrid%npt_sphere
@@ -1065,6 +1061,18 @@ else
     close(141)
   end do
 end if
+! take Hermitian part
+do jR_sphere=1,rgrid%npt_sphere
+  do n1=1,proj%norb ; do n2=1,proj%norb ; do n3=1,proj%norb ; do n4=1,proj%norb
+    iv=rgrid%find(rgrid%vpl_sphere(jR_sphere))
+    if (iv(NDIM+1).lt.0.or.sum(abs(iv(1:NDIM))).ne.0) cycle
+    iR_sphere=rgrid%homo_to_sphere(iv(NDIM+1))
+    if (iR_sphere.le.0) cycle
+    UH(n1,n2,n3,n4,jR_sphere)=0.5_dp*(UH(n1,n2,n3,n4,jR_sphere)+conjg(UH(n4,n3,n2,n1,iR_sphere)))
+    UH(n4,n3,n2,n1,iR_sphere)=conjg(UH(n1,n2,n3,n4,jR_sphere))
+  end do ; end do ; end do ; end do
+end do
+! write into files
 if (mp_mpi) open(140,file="UR.dat",action="write")
 if (mp_mpi) write(140,*) rgrid%npt_sphere,proj%norb
 do jR_sphere=1,rgrid%npt_sphere
@@ -1093,7 +1101,7 @@ class(CLpars), intent(in) :: pars
 class(CLsym), intent(in) :: sym
 integer iR_sphere,jR_sphere
 integer isym,jsym
-integer nsize
+integer nsize,iter
 integer jc1,jc2
 integer n1,n2,n3,n4
 integer m1,m2,m3,m4
@@ -1103,7 +1111,7 @@ integer iv(NDIM+1)
 real(dp) t1,t2
 real(dp) RI(NDIM),RJ(NDIM)
 real(dp) SJ(NDIM,NDIM)
-real(dp), allocatable :: wws(:,:,:)
+real(dp), allocatable :: wws(:,:,:),wwst(:,:)
 complex(dp), allocatable :: UH(:,:,:,:,:)
 complex(dp), allocatable :: UHS(:,:,:,:,:)
 type(wbase)  proj
@@ -1127,6 +1135,7 @@ call proj%init_smap(sym,pars)
 call rgrid%init(pars%ngrid,pars%avec,.true.,.false.)
 call rgrid%init_sphere(pars)
 allocate(wws(proj%norb,proj%norb,sym%nsym))
+allocate(wwst(proj%norb,proj%norb))
 call init_wws(sym,proj,wws)
 nsize=proj%norb
 allocate(UH(nsize,nsize,nsize,nsize,rgrid%npt_sphere))
@@ -1140,46 +1149,59 @@ do jR_sphere=1,rgrid%npt_sphere
   end do ; end do ; end do ; end do
 end do
 if (mp_mpi) close(140)
-UHS=0._dp
-do isym=1,sym%nsym
-  jsym=sym%inv(isym)
-  SJ=dble(sym%lat(:,:,isym))
-  do jR_sphere=1,rgrid%npt_sphere
-    RJ=rgrid%vpl_sphere(jR_sphere)
-    do n1=1,proj%norb
-      do n2=1,proj%norb
-        do n3=1,proj%norb
-          do n4=1,proj%norb
-            nc1=proj%orb_icio(n1,1)
-            nc2=proj%orb_icio(n2,1)
-            nc3=proj%orb_icio(n3,1)
-            nc4=proj%orb_icio(n4,1)
-            ! this gives the diagonal (IN SITE INDEX) Hubbard 
-            if (nc1.ne.nc4) cycle
-            if (nc2.ne.nc3) cycle
-            jc1=proj%ics2c(nc1,jsym)
-            jc2=proj%ics2c(nc2,jsym)
-            RI=matmul(SJ,RJ+proj%centers(:,nc2)-proj%centers(:,nc1))-(proj%centers(:,jc2)-proj%centers(:,jc1))
-            iv=rgrid%find(RI)
-            if (iv(NDIM+1).lt.0.or.sum(abs(iv(1:NDIM))).ne.0) cycle
-            iR_sphere=rgrid%homo_to_sphere(iv(NDIM+1))
-            if (iR_sphere.le.0) cycle
-            do m1=1,proj%norb
-              do m2=1,proj%norb
-                do m3=1,proj%norb
-                  do m4=1,proj%norb
-                    mc1=proj%orb_icio(m1,1)
-                    mc2=proj%orb_icio(m2,1)
-                    mc3=proj%orb_icio(m3,1)
-                    mc4=proj%orb_icio(m4,1)
-                    if (mc1.ne.mc4) cycle
-                    if (mc2.ne.mc3) cycle
-                    if (proj%ics2c(mc1,isym).ne.nc1) cycle
-                    if (proj%ics2c(mc2,isym).ne.nc2) cycle
-                    if (proj%ics2c(mc3,isym).ne.nc3) cycle
-                    if (proj%ics2c(mc4,isym).ne.nc4) cycle
-                    UHS(n1,n2,n3,n4,jR_sphere)=UHS(n1,n2,n3,n4,jR_sphere)+&
-                         wws(n1,m1,isym)*wws(n2,m2,isym)*UH(m1,m2,m3,m4,iR_sphere)*wws(m3,n3,jsym)*wws(m4,n4,jsym)
+! take Hermitian part
+do jR_sphere=1,rgrid%npt_sphere
+  do n1=1,proj%norb ; do n2=1,proj%norb ; do n3=1,proj%norb ; do n4=1,proj%norb
+    iv=rgrid%find(rgrid%vpl_sphere(jR_sphere))
+    if (iv(NDIM+1).lt.0.or.sum(abs(iv(1:NDIM))).ne.0) cycle
+    iR_sphere=rgrid%homo_to_sphere(iv(NDIM+1))
+    if (iR_sphere.le.0) cycle
+    UH(n1,n2,n3,n4,jR_sphere)=0.5_dp*(UH(n1,n2,n3,n4,jR_sphere)+conjg(UH(n4,n3,n2,n1,iR_sphere)))
+    UH(n4,n3,n2,n1,iR_sphere)=conjg(UH(n1,n2,n3,n4,jR_sphere))
+  end do ; end do ; end do ; end do
+end do
+do iter=1,pars%niter_symmetrize
+  UHS=0._dp
+  do isym=1,sym%nsym
+    jsym=sym%inv(isym)
+    SJ=dble(sym%lat(:,:,jsym))
+    do jR_sphere=1,rgrid%npt_sphere
+      RJ=rgrid%vpl_sphere(jR_sphere)
+      do n1=1,proj%norb
+        do n2=1,proj%norb
+          do n3=1,proj%norb
+            do n4=1,proj%norb
+              nc1=proj%orb_icio(n1,1)
+              nc2=proj%orb_icio(n2,1)
+              nc3=proj%orb_icio(n3,1)
+              nc4=proj%orb_icio(n4,1)
+              ! this gives the diagonal (IN SITE INDEX) Hubbard 
+              if (nc1.ne.nc4) cycle
+              if (nc2.ne.nc3) cycle
+              jc1=proj%ics2c(nc1,jsym)
+              jc2=proj%ics2c(nc2,jsym)
+              RI=matmul(SJ,RJ+proj%centers(:,nc2)-proj%centers(:,nc1))-(proj%centers(:,jc2)-proj%centers(:,jc1))
+              iv=rgrid%find(RI)
+              if (iv(NDIM+1).lt.0.or.sum(abs(iv(1:NDIM))).ne.0) cycle
+              iR_sphere=rgrid%homo_to_sphere(iv(NDIM+1))
+              if (iR_sphere.le.0) cycle
+              do m1=1,proj%norb
+                do m2=1,proj%norb
+                  do m3=1,proj%norb
+                    do m4=1,proj%norb
+                      mc1=proj%orb_icio(m1,1)
+                      mc2=proj%orb_icio(m2,1)
+                      mc3=proj%orb_icio(m3,1)
+                      mc4=proj%orb_icio(m4,1)
+                      if (mc1.ne.mc4) cycle
+                      if (mc2.ne.mc3) cycle
+                      if (proj%ics2c(mc1,isym).ne.nc1) cycle
+                      if (proj%ics2c(mc2,isym).ne.nc2) cycle
+                      if (proj%ics2c(mc3,isym).ne.nc3) cycle
+                      if (proj%ics2c(mc4,isym).ne.nc4) cycle
+                      UHS(n1,n2,n3,n4,jR_sphere)=UHS(n1,n2,n3,n4,jR_sphere)+&
+                           wws(n1,m1,isym)*wws(n2,m2,isym)*UH(m1,m2,m3,m4,iR_sphere)*wws(m3,n3,jsym)*wws(m4,n4,jsym)
+                    end do
                   end do
                 end do
               end do
@@ -1189,15 +1211,15 @@ do isym=1,sym%nsym
       end do
     end do
   end do
+  UH=UHS/dble(sym%nsym)
 end do
-UHS=UHS/dble(sym%nsym)
 if (mp_mpi) open(140,file="URS.dat",action="write")
 if (mp_mpi) write(140,*) rgrid%npt_sphere,proj%norb
 do jR_sphere=1,rgrid%npt_sphere
   if (mp_mpi) write(140,*) nint(rgrid%vpl_sphere(jR_sphere))
   do n1=1,proj%norb
     do n2=1,proj%norb
-      if (mp_mpi) write(140,'(2I6,2G18.10)') n1,n2,UHS(n1,n2,n2,n1,jR_sphere)
+      if (mp_mpi) write(140,'(2I6,2G18.10)') n1,n2,UH(n1,n2,n2,n1,jR_sphere)
     end do
   end do
   if (mp_mpi) write(140,*)
@@ -1206,7 +1228,7 @@ if (mp_mpi) close(140)
 if (mp_mpi) open(140,file="_UH/UHS.dat",action="write")
 do jR_sphere=1,rgrid%npt_sphere
   do n1=1,proj%norb ; do n2=1,proj%norb ; do n3=1,proj%norb ; do n4=1,proj%norb
-    if (mp_mpi) write(140,'(2G18.10)') UHS(n1,n2,n3,n4,jR_sphere)
+    if (mp_mpi) write(140,'(2G18.10)') UH(n1,n2,n3,n4,jR_sphere)
   end do ; end do ; end do ; end do
 end do
 if (mp_mpi) close(140)

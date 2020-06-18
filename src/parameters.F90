@@ -43,6 +43,7 @@ type, public :: CLpars
   logical :: sparse=.false.
   logical :: ignore_chiIq=.false.
   logical :: chi_exclude=.false.
+  integer :: niter_symmetrize=1
   integer :: ndim_coul=3
   integer :: geometry_index=0
   integer :: symtype=1
@@ -411,6 +412,14 @@ do iline=1,nlines_max
         read(50,*,iostat=iostat) THIS%character_file
         if (iostat.ne.0) call throw("paramters%read_input()","problem with haracter_file data")
         if (mp_mpi) write(*,'(i6,": ",A)') jline,trim(adjustl(THIS%character_file))
+
+  ! Numver of iteration in HubbardU symmetrization (in principle, 1 should be enough)
+  else if (trim(block).eq."niter_symmetrize") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%niter_symmetrize
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with niter_symmetrize data")
+    if (mp_mpi) write(*,'(i6,": ",i6)') jline,THIS%niter_symmetrize
+
   ! projection mode for wannier export
   else if (trim(block).eq."projections") then
         THIS%proj%allocatd=.true.
