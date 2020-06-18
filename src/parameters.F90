@@ -342,6 +342,13 @@ do iline=1,nlines_max
     if (iostat.ne.0) call throw("paramters%read_input()","problem with ignore_chiIq data")
     if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%ignore_chiIq
 
+  ! if .true. lattice is not shifted prior to symmetry analysis
+  else if (trim(block).eq."symtshift") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%symtshift
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with symtshift data")
+    if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%symtshift
+
   ! energy grid for DOS or spectral functions
   else if (trim(block).eq."egrid") then
     read(arg,*,iostat=iostat) THIS%negrid
@@ -642,6 +649,7 @@ if (THIS%ndim_coul.lt.NDIM) then
 else if (THIS%ndim_coul.gt.NDIM) then
   call throw("paramters%read_input()","NDIM_COUL can not be larger than NDIM")
 end if
+
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
 #endif
