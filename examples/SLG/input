@@ -1,6 +1,6 @@
-# The following combination of tasks profuce the bandstructure 
-# and the electron polarisability within Random Phase approximation for 
-# Single Layer Grahene (SLG)
+# The following combination of tasks produces the bandstructure 
+# and the electron polarisability within the Random Phase Approximation (RPA) for 
+# Single Layer Graphene (SLG)
 tasks 3
  bands
  eigen
@@ -18,7 +18,7 @@ path 4
  0.0 0. 0. 40
  0.333333 0.666666 0. 40
 
-# Use geometry library to generate lattice vectors and atom postions for the SLG.
+# Use geometry library to generate lattice vectors and atomic postions for the SLG.
 # The integer parameter of the next line is ignored in the SLG case
 geometry_source slg
  104
@@ -31,11 +31,11 @@ efermi
 states
  1 2
 
-# Type of Hamiltonian parametrisation, Currently it is the Slater-Koster Hamiltonian
+# Type of Hamiltonian parametrisation. Currently it is the Slater-Koster one
 sktype
  tbgsk
 
-# One could truncate the Hopping terms with distances beyond this rcut_nn
+# One could truncate the hopping terms with distances beyond this rcut_nn
 rcut_nn
  1.5
 
@@ -51,7 +51,7 @@ Ggrid
 rcut_grid
  6.0
 
-# Ignore <loc_orb_i|e^iqr|loc_orb_j> overlap on a site in compiting bloch wave overlap <k|e^iqr|k+q>
+# Ignore the on-site <loc_orb_i|e^iqr|loc_orb_j> overlap in the computation of the <k|e^iqr|k+q> overlap for the bloch waves k,k+q
 ignore_chiIq
  .false.
 
