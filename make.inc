@@ -14,7 +14,7 @@ F90FLAGS = -O3 -funroll-loops
 # uncomment to use OpenMP parallisation
 OMP = -fopenmp
 
-# Normal blas/lapack. If MKL is aliased by these, the PARDISO (if included) will crush
+# Normal blas/lapack. If MKL is aliased by these, the PARDISO (if included) will crash
 #BLAS = -lblas
 #LAPACK = -llapack
 
@@ -25,5 +25,5 @@ DPARDI=-DPARDI
 #BLAS = -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lm 
 
 # MKL Parallel blask/lapack. MKL allows for sparse PARDISO solver.
-# Note the importanse to have a correct threading option of MKL
+# Note the importance to have a correct threading option of MKL
 BLAS = -lmkl_intel_lp64 -lmkl_gnu_thread -lmkl_core -lm
