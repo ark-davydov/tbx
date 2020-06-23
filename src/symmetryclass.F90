@@ -195,6 +195,17 @@ integer, intent(in) :: nsym_check
 integer nsym,icl,irep,j
 character(len=256) line,line1,line2
 logical exs
+!#file format example for D3:
+!D3
+!6 
+!3
+!1 ! E
+!2 5 ! C3
+!3 4 6 ! C2
+!C1 C2 C3
+! 1  1  1 A
+! 1  1 -1 B
+! 2 -1  0 E
 inquire(file=trim(adjustl(fname)),exist=exs)
 if (.not.exs) then
   call throw("char_table%read_character_table","symmetry representation file '"//trim(adjustl(fname))//"' not present")
