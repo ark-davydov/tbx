@@ -451,17 +451,6 @@ integer ic,jc
 real(dp) t1,t2
 real(dp) :: v1(NDIM),v2(NDIM)
 complex(dp) :: zz
-real(dp), allocatable :: wws(:,:)
-allocate(wws(THIS%wbase%norb,THIS%wbase%norb))
-wws=0._dp
-do iw=1,THIS%wbase%norb
-   ic=THIS%wbase%orb_icio(iw,1)
-   jc=THIS%wbase%ics2c(ic,isym)
-   do jw=1,THIS%wbase%norb
-      if(THIS%wbase%orb_icio(jw,1).ne.jc) cycle
-      wws(jw,iw)=THIS%wbase%wws(sym%car(:,:,isym),iw,jw)
-   end do
-end do
 wfout=0._dp
 do iw=1,THIS%wbase%norb
    ic=THIS%wbase%orb_icio(iw,1)
@@ -472,10 +461,12 @@ do iw=1,THIS%wbase%norb
    t2=dot_product(sym%vtc(:,isym),v2)
    zz=cmplx(cos(t1+t2),sin(t1+t2),kind=dp)
    do jw=1,THIS%wbase%norb
-     wfout(iw)=wfout(iw)+wws(iw,jw)*wfin(jw)*zz
+     ic=THIS%wbase%orb_icio(jw,1)
+     jc=THIS%wbase%ics2c(ic,isym)
+     if(THIS%wbase%orb_icio(iw,1).ne.jc) cycle
+     wfout(iw)=wfout(iw)+THIS%wbase%wws(sym%car(:,:,isym),jw,iw)*wfin(jw)*zz
    end do
 end do
-deallocate(wws)
 return
 end subroutine
 
@@ -491,18 +482,7 @@ integer iw,jw
 integer ic,jc
 real(dp) t1,t2
 complex(dp) :: zz
-real(dp), allocatable :: wws(:,:)
 real(dp) :: v1(NDIM),v2(NDIM)
-allocate(wws(THIS%wbase%norb,THIS%wbase%norb))
-wws=0._dp
-do iw=1,THIS%wbase%norb
-   ic=THIS%wbase%orb_icio(iw,1)
-   jc=THIS%wbase%ics2c(ic,isym)
-   do jw=1,THIS%wbase%norb
-      if(THIS%wbase%orb_icio(jw,1).ne.jc) cycle
-      wws(jw,iw)=THIS%wbase%wws(sym%car(:,:,isym),iw,jw)
-   end do
-end do
 wfout=0._dp
 do iw=1,THIS%wbase%norb
    ic=THIS%wbase%orb_icio(iw,1)
@@ -513,10 +493,12 @@ do iw=1,THIS%wbase%norb
    t2=dot_product(sym%vtc(:,isym),v2)
    zz=cmplx(cos(t1+t2),sin(t1+t2),kind=dp)
    do jw=1,THIS%wbase%norb
-     wfout(iw)=wfout(iw)+wws(iw,jw)*wfin(jw)*zz
+     ic=THIS%wbase%orb_icio(jw,1)
+     jc=THIS%wbase%ics2c(ic,isym)
+     if(THIS%wbase%orb_icio(iw,1).ne.jc) cycle
+     wfout(iw)=wfout(iw)+THIS%wbase%wws(sym%car(:,:,isym),jw,iw)*wfin(jw)*zz
    end do
 end do
-deallocate(wws)
 return
 end subroutine
 

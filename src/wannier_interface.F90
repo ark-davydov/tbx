@@ -235,6 +235,7 @@ if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band'.or.&
                   "it can be deduced from eval.dat file")
     end if
   end if
+  call generate_dmn_orb(tbmodel,proj,sym,pars,kgrid,evec,.false.,wws)
   ! PHYSICAL REVIEW X 8, 031088 (2018)
   ! first we find \psi_{\Gamma,E+,\epsilon} and \psi_{\Gamma,E-,\epsilon} 
   ! where E+ is dublet above Ef and E- is dublet below Ef
@@ -344,7 +345,6 @@ if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band'.or.&
     end if
   end do
   !if (mp_mpi) call write_wf_universe(tbmodel,pars,nr,wftrial(:,:,1:nr),'wftrial','')
-  call generate_dmn_orb(tbmodel,proj,sym,pars,kgrid,evec,.false.,wws)
   deallocate(wftrial)
 else if (trim(adjustl(pars%wannier_proj_mode)).eq.'input_file') then
    ! find the home unit cel
@@ -393,6 +393,7 @@ else if (trim(adjustl(pars%wannier_proj_mode)).eq.'wannier_file') then
    !if (mp_mpi) call write_wf_universe(tbmodel,pars,nr,wftrial(:,:,1:nr),'wftrial','')
    deallocate(wftrial)
 else if (trim(adjustl(pars%wannier_proj_mode)).eq.'real_space') then
+   call generate_dmn_orb(tbmodel,proj,sym,pars,kgrid,evec,.false.,wws)
    ! find the home unit cel
    allocate(wftrial(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt))
    wftrial(:,:,:)=0._dp
@@ -411,7 +412,6 @@ else if (trim(adjustl(pars%wannier_proj_mode)).eq.'real_space') then
      end if
    end do
    if (mp_mpi) call write_wf_universe(tbmodel,pars,nr,wftrial(:,:,1:nr),'wftrial','')
-   call generate_dmn_orb(tbmodel,proj,sym,pars,kgrid,evec,.false.,wws)
    deallocate(wftrial)
 else
   call throw("wannier_interface%generate_trial_wavefunctions()","unknown projection option")
@@ -455,7 +455,7 @@ if (.not.lwws) then
        end do
     end do
     do iw=1,base%norb
-       err=abs((sum(wws(:,iw,isym)**2)+sum(wws(iw,:,isym)**2))*.5_dp-1._dp)
+       err=abs((sum(abs(wws(:,iw,isym))**2)+sum(abs(wws(iw,:,isym))**2))*.5_dp-1._dp)
        if(err.gt.1.e-3_dp) then
           if (mp_mpi) write(*,*) "wannier_interface%generate_dmn_orb","compute_dmn: Symmetry operator (",isym, &
                   ") could not transform Wannier function (",iw,")."
@@ -864,7 +864,7 @@ end subroutine
 subroutine symmetrize_tbfile(pars,sym)
 class(CLpars), intent(in) :: pars
 class(CLsym), intent(in) :: sym
-real(dp), allocatable :: wws(:,:,:)
+complex(dp), allocatable :: wws(:,:,:)
 complex(dp), allocatable :: hams(:,:,:)
 type(wbase)  proj
 type(GRID) rgrid
@@ -947,7 +947,7 @@ integer nc1,nc2,nc3,nc4
 integer mc1,mc2,mc3,mc4
 real(dp) t1,t2
 real(dp) RR(NDIM)
-real(dp), allocatable :: wws(:,:,:)
+complex(dp), allocatable :: wws(:,:,:)
 complex(dp), allocatable :: UH(:,:,:,:,:)
 complex(dp), allocatable :: UHS(:,:,:,:,:)
 integer, allocatable     :: irr2cR(:,:)
@@ -1113,7 +1113,7 @@ integer iv(NDIM+1)
 real(dp) t1,t2
 real(dp) RI(NDIM),RJ(NDIM)
 real(dp) SJ(NDIM,NDIM)
-real(dp), allocatable :: wws(:,:,:),wwst(:,:)
+complex(dp), allocatable :: wws(:,:,:),wwst(:,:)
 complex(dp), allocatable :: UH(:,:,:,:,:)
 complex(dp), allocatable :: UHS(:,:,:,:,:)
 type(wbase)  proj
@@ -1296,7 +1296,7 @@ end subroutine
 subroutine init_wws(sym,proj,wws)
 class(CLsym), intent(in) :: sym
 class(wbase), intent(in)  :: proj
-real(dp), intent(out)    :: wws(proj%norb,proj%norb,sym%nsym)
+complex(dp), intent(out)    :: wws(proj%norb,proj%norb,sym%nsym)
 integer isym,iw,jw,ic,jc
 wws=0._dp
 do isym=1,sym%nsym

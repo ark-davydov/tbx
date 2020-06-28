@@ -23,6 +23,8 @@ real(dp), parameter :: twopi=6.283185307179586231995926937088370323181152343750_
 real(dp), parameter :: fourpi=12.5663706143591724639918538741767406463623046875_dp
 real(dp), parameter :: pihalf=1.570796326794896557998981734272092580795288085937_dp
 real(dp), parameter :: sqrtpi=1.77245385091_dp
+real(dp), parameter :: sqrt2=1.41421356237
+real(dp), parameter :: sqrt12=0.707106781187
 real(dp), parameter :: epslat=1.e-6_dp
 real(dp), parameter :: epsengy=1.e-7_dp
 real(dp), parameter :: Hartree_to_ev=27.211386245988_dp
@@ -448,6 +450,17 @@ t1=(x/sig)**2
 gauss=exp(-t1)/sig/sqrtpi
 end function
 
+subroutine clmr(ll,mm,l,m1,m2,sgn)
+integer, intent(in) :: ll,mm
+integer, intent(out) :: l,m1,m2,sgn
+if (ll.lt.10) call throw("modcom%clmr","ll should be > 10 here")
+l=ll-10
+sgn=sign(1,mm)
+m1=abs(mm)/10
+m2=mod(abs(mm),10)
+return
+end subroutine
+
 function string_to_lmr(str_orbital) result(lmr)
 character(len=*), intent(in) :: str_orbital
 integer lmr(2)
@@ -468,6 +481,8 @@ case('fz(x2-y2)')  ;  lmr=(/3,4/)
 case('fxyz')       ;  lmr=(/3,5/)
 case('fx(x2-3y2)') ;  lmr=(/3,6/)
 case('fy(3x2-y2)') ;  lmr=(/3,7/)
+case('pp')         ;  lmr=(/11,23/)
+case('pm')         ;  lmr=(/11,-23/)
 ! hybridized
 case('sp-1')       ;  lmr=(/-1,1/)
 case('sp-2')       ;  lmr=(/-1,2/)
