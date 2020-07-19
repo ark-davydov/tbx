@@ -51,6 +51,12 @@ else if (trim(adjustl(option)).eq."tbgsk4") then
   qpz_sig=3.1294_dp
   tpz_pi0=-57.0311_dp
   tpz_sig0=0.3317_dp
+else if (trim(adjustl(option)).eq."tbgsk_old") then
+  ! in this case in-planle hoppins should be read from the table
+  qpz_pi=2.484913272_dp
+  qpz_sig=3.031741524_dp
+  tpz_pi0=-32.872337923_dp
+  tpz_sig0=0.306297655_dp
 else
   call throw("SK%init_sk_pars()","unknown option")
 end if
@@ -74,7 +80,7 @@ if (abs(rr).gt.epslat) then
     ! full SK from the literature
     tij=(  tpz_pi(rr)*(1._dp-zz**2)+tpz_sig(rr)*zz**2  )!*fcut(rr)
   else if (trim(adjustl(option)).eq.'tbgsk1'.or.trim(adjustl(option)).eq.'tbgsk2'&
-   .or.trim(adjustl(option)).eq.'tbgsk3'.or.trim(adjustl(option)).eq.'tbgsk4') then
+   .or.trim(adjustl(option)).eq.'tbgsk3'.or.trim(adjustl(option)).eq.'tbgsk4'.or.trim(adjustl(option)).eq.'tbgsk_old') then
     ! full mixed SK (out-of-plane) with ab-initio (in-plane)
     if (abs(dvec(ZAXIS)).gt.0.5_dp*tbg_ab_distance) then
        ! out-of-plane
@@ -99,7 +105,7 @@ character(len=*), intent(in) :: option
 real(dp), intent(in) :: rr
 real(dp) units_of_lvec
 units_of_lvec=rr/graphene_lvec_length
-if (trim(adjustl(option)).eq.'tbgsk1') then
+if (trim(adjustl(option)).eq.'tbgsk1'.or.trim(adjustl(option)).eq.'tbgsk_old') then
   ! single-zeta bais
   if (units_of_lvec.lt.epslat) then
     tbg_inplane_table=0._dp ! 0nn
@@ -211,6 +217,8 @@ else if (trim(adjustl(option)).eq.'tbgsk4') then
   else 
     tbg_inplane_table= 0._dp
   end if
+else
+  call throw("slater_koster%tij()","unknown input otion")
 end if 
 end function
 
