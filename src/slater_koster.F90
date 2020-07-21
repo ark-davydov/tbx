@@ -63,6 +63,11 @@ else if (trim(adjustl(option)).eq."tbgsk1piold") then
   qpz_sig=3.2911_dp
   tpz_pi0=-32.0000_dp
   tpz_sig0=0.3073_dp
+else if (trim(adjustl(option)).eq."tbgsk1sigmaold") then
+  qpz_pi=2.5603_dp
+  qpz_sig=3.0300_dp
+  tpz_pi0=-35.6714_dp
+  tpz_sig0=0.3073_dp
 else
   call throw("SK%init_sk_pars()","unknown option")
 end if
@@ -86,7 +91,7 @@ if (abs(rr).gt.epslat) then
   case('tbgsk')
     ! full SK from the literature
     tij=(  tpz_pi(rr)*(1._dp-zz**2)+tpz_sig(rr)*zz**2  )!*fcut(rr)
-  case('tbgsk1','tbgsk2','tbgsk3','tbgsk4','tbgsk_old','tbgsk1piold')
+  case('tbgsk1','tbgsk2','tbgsk3','tbgsk4','tbgsk_old','tbgsk1piold','tbgsk1sigmaold')
     ! full mixed SK (out-of-plane) with ab-initio (in-plane)
     if (abs(dvec(ZAXIS)).gt.0.5_dp*tbg_ab_distance) then
        ! out-of-plane
@@ -109,7 +114,7 @@ real(dp), intent(in) :: rr
 real(dp) units_of_lvec
 units_of_lvec=rr/graphene_lvec_length
 select case(trim(adjustl(option))) 
-case('tbgsk1','tbgsk_old','tbgsk1piold')
+case('tbgsk1','tbgsk_old','tbgsk1piold','tbgsk1sigmaold')
   ! single-zeta bais
   if (units_of_lvec.lt.epslat) then
     tbg_inplane_table=0._dp ! 0nn
