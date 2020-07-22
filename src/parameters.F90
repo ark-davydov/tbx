@@ -583,6 +583,14 @@ if (trim(adjustl(THIS%geometry_source)).ne."") then
    end do
    THIS%base%allocatd=.true.
 else
+   if (.not.avec_block_found) then
+     call throw("parameters%read_input",&
+         "if geometry library is not used, introduce the geometry with avec and atoms block")
+   end if
+   if (.not.atoms_block_found) then
+     call throw("parameters%read_input",&
+         "if geometry library is not used, introduce the geometry with avec and atoms block")
+   end if
    if (.not.THIS%base%allocatd) then
      call throw("parameters%read_input",&
          "if geometry library is not used, introduce the basis via the 'basis' input block")
