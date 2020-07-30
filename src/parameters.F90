@@ -56,6 +56,7 @@ type, public :: CLpars
   integer :: ngrid(NDIM)
   integer :: qgrid(NDIM)
   integer :: Ggrid(NDIM)
+  integer :: nshift=0
   real(dp) :: gauss_sigma=0.1_dp
   real(dp) :: sparse_eps=0.e-6_dp
   real(dp) :: efermi=0._dp
@@ -76,6 +77,7 @@ type, public :: CLpars
   real(dp), allocatable :: egrid(:)
   real(dp), allocatable :: atml(:,:,:)
   real(dp), allocatable :: vert(:,:)
+  real(dp), allocatable :: shift(:,:)
   contains
   procedure :: init=>read_input
   procedure :: atmc=>calc_atmc
@@ -214,7 +216,7 @@ do iline=1,nlines_max
   ! BZ k-papth block
   else if (trim(block).eq."path") then
     read(arg,*,iostat=iostat) THIS%nvert
-    if (iostat.ne.0) call throw("paramters%read_input()","problem with path's nvert argumet")
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with path's nvert argument")
     allocate(THIS%np_per_vert(THIS%nvert))
     allocate(THIS%vert(NDIM,THIS%nvert))
     do ivert=1,THIS%nvert
@@ -223,6 +225,17 @@ do iline=1,nlines_max
       if (iostat.ne.0) call throw("paramters%read_input()","problem with path data")
       if (mp_mpi) write(*,'(i6,": ",5F10.6)',advance='no') jline,THIS%vert(:,ivert)
       if (mp_mpi) write(*,'(I6)') THIS%np_per_vert(ivert)
+    end do
+
+  else if (trim(block).eq."shift") then
+    read(arg,*,iostat=iostat) THIS%nshift
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with shift's nshift argument")
+    allocate(THIS%shift(NDIM,THIS%nshift))
+    do ivert=1,THIS%nshift
+      jline=jline+1
+      read(50,*,iostat=iostat) THIS%shift(:,ivert)
+      if (iostat.ne.0) call throw("paramters%read_input()","problem with shift data")
+      if (mp_mpi) write(*,'(i6,": ",5F10.6)') jline,THIS%shift(:,ivert)
     end do
 
   ! BZ k-papth block

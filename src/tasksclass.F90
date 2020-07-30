@@ -125,7 +125,8 @@ class(CLpars), intent(inout) :: pars
 type(GRID) kgrid
 type(CLtb) tbmodel
 type(CLsym) sym
-integer ik
+integer ik, ij
+character(20) filename
 real(dp), allocatable :: vkl(:,:)
 #ifdef MPI
   integer nn
@@ -142,33 +143,45 @@ call message("")
 call tbmodel%init(pars,sym,"SK")
 allocate(eval(pars%nstates,kgrid%npt))
 allocate(evec(tbmodel%norb_TB,pars%nstates))
-eval=0._dp
-evec=0._dp
 call message("  Eigenproblem calculation. some k-points progress below ..")
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
 #endif
-do ik=1,kgrid%npt
-   if (mod(ik-1,np_mpi).ne.lp_mpi) cycle
-   if (mod(ik-1,max(np_mpi,kgrid%npt/10)).eq.0) write(*,*) "ik, of: ",ik,kgrid%npt
-   call tbmodel%evalk(.true.,pars,kgrid%vpl(ik),eval(:,ik),evec)
-   call io_evec(ik,"write","_evec",tbmodel%norb_TB,pars%nstates,evec)
-end do
+
+! shifted grids
+do ij=1,pars%nshift
+  eval=0._dp
+  evec=0._dp
+  do ik=1,kgrid%npt
+     if (mod(ik-1,np_mpi).ne.lp_mpi) cycle
+     if (mod(ik-1,max(np_mpi,kgrid%npt/10)).eq.0) write(*,*) "ik, of: ",ik,kgrid%npt
+     write(filename,'(a,i0,a)') '_evec_',ij,'_'
+     call tbmodel%evalk(.true.,pars,kgrid%vpl(ik)+pars%shift(:,ij),eval(:,ik),evec)
+     call io_evec(ik,"write",filename,tbmodel%norb_TB,pars%nstates,evec)
+  end do
 #ifdef MPI
   nn=pars%nstates*kgrid%npt
   call mpi_allreduce(mpi_in_place,eval,nn,mpi_double_precision,mpi_sum, &
    mpi_com,mpi_err)
 #endif
+
+  if (mp_mpi) then
+    allocate(vkl(NDIM,kgrid%npt))
+    do ik=1,kgrid%npt
+      vkl(:,ik)=kgrid%vpl(ik)
+    end do
+    write(filename,'(a,i0,a)') 'eval_', ij, '.dat'
+    call io_eval(1001,"write",filename,.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
+    deallocate(vkl)
+  end if
+end do
+
 if (mp_mpi) then
-  allocate(vkl(NDIM,kgrid%npt))
-  do ik=1,kgrid%npt
-    vkl(:,ik)=kgrid%vpl(ik)
-  end do
-  call io_eval(1001,"write","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
   call kgrid%io(1003,"_grid","write",pars,tbmodel%norb_TB)
-  deallocate(vkl)
 end if
+
 deallocate(eval,evec)
+
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
 #endif
@@ -199,7 +212,7 @@ do ik=1,kgrid%npt
  vkl(:,ik)=kgrid%vpl(ik)
 end do
 eval=0._dp
-call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
+call io_eval(1001,"read","eval_1.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
 ! shift all eigenvalues by efermi
 eval=eval-pars%efermi
 do ik=1,kgrid%npt
@@ -227,9 +240,7 @@ class(CLpars), intent(inout) :: pars
 character(len=*), intent(in) :: opt
 integer ik,iq,ie,id,ig
 real(dp) vc(NDIM),dc
-real(dp), allocatable :: eval(:,:)
-real(dp), allocatable :: vkl(:,:)
-complex(dp), allocatable :: chi(:,:,:)
+complex(dp), allocatable :: chi(:,:,:,:)
 type(GRID) kgrid,qgrid,Ggrid
 type(CLtb) tbmodel
 type(CLsym) sym
@@ -260,23 +271,10 @@ if (sum(abs(pars%Ggrid)).eq.0) pars%Ggrid=pars%ngrid
 call Ggrid%init(pars%Ggrid,pars%bvec,.true.,.false.)
 ! take remember its spherical part only, defined by pars%rcut_grid
 call Ggrid%init_sphere(pars)
-! allocate array for eigen values
-allocate(eval(pars%nstates,kgrid%npt))
-! this is needed to copy the private data of kgrid object, i.e., k-points in lattice coordinates
-allocate(vkl(NDIM,kgrid%npt))
+
 ! array for RPA response function which can be dynamic (on pars%negrid frequencies), and at different q-points
-allocate(chi(pars%negrid,Ggrid%npt_sphere,qgrid%npt))
-! copy the private data
-do ik=1,kgrid%npt
-  ! copy the private data
-  vkl(:,ik)=kgrid%vpl(ik)
-end do
-! zero the arrays for security reasons
-eval=0._dp
-! read eigenvalues, subroutine in modcom.f90
-call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
-! shift all eigenvalues by efermi (so, it should not be changend in the input file)
-eval=eval-pars%efermi
+allocate(chi(pars%negrid,pars%nshift,Ggrid%npt_sphere,qgrid%npt))
+
 if (mp_mpi) then
   print *, "Calculating RPA Chi"
   print *, "on a q grid of", qgrid%ngrid
@@ -288,36 +286,35 @@ if (mp_mpi) then
   end if
   print *, "Restricting to states from ", pars%chi_start, " to ", pars%chi_stop
 end if
+
 ! do the computation. later we will attach MPI parallelisation here
 ! (you can see bands, eigen tasks how to do it), therefore arrays have to be zeroed
-chi(:,:,:)=0._dp
+chi(:,:,:,:)=0._dp
 do iq=1,qgrid%npt
   if (mod(iq-1,np_mpi).ne.lp_mpi) cycle
   if (mod(iq-1,max(np_mpi,qgrid%npt/10)).eq.0) write(*,*) "ik, of: ",iq,qgrid%npt
-  call get_chiq(iq,qgrid,kgrid,Ggrid,pars,tbmodel,eval,chi(:,:,iq))
+  call get_chiq(iq,qgrid,kgrid,Ggrid,pars,tbmodel,chi(:,:,:,iq))
 end do
 
 #ifdef MPI
-  nn=pars%negrid*Ggrid%npt_sphere*qgrid%npt
+  nn=pars%negrid*Ggrid%npt_sphere*qgrid%npt*pars%nshift
   call mpi_allreduce(mpi_in_place,chi,nn,MPI_DOUBLE_COMPLEX,mpi_sum, &
    mpi_com,mpi_err)
 #endif
 
 if (mp_mpi) then
   open(2000,file="chi.dat")
-  do iq=1,qgrid%npt
-    do ig=1,Ggrid%npt_sphere
-      vc=qgrid%vpc(iq)+Ggrid%vpc_sphere(ig)
-      dc=sqrt(dot_product(vc,vc))
- !     do ie=1,pars%negrid
-        ! temporary format, plottable with xmgrace as chi(|q|) for two first columns
-        write(2000,'(20F16.8)') dc,REAL(chi(1,ig,iq)),qgrid%vpl(iq)+Ggrid%vpl_sphere(ig)
- !     end do
+  do ik=1, pars%nshift
+    do iq=1,qgrid%npt
+      do ig=1,Ggrid%npt_sphere
+        vc=qgrid%vpc(iq)+Ggrid%vpc_sphere(ig)+ MATMUL(TRANSPOSE(pars%bvec), pars%shift(:,ik))
+        dc=sqrt(dot_product(vc,vc))
+        write(2000,'(20F16.8)') dc,REAL(chi(1,ik,ig,iq)),qgrid%vpl(iq)+Ggrid%vpl_sphere(ig)+pars%shift(:,ik)
+      end do
     end do
   end do
 end if
 
-deallocate(eval,vkl)
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
 #endif
@@ -355,12 +352,12 @@ do ik=1,kgrid%npt
   ! copy the private data
   vkl(:,ik)=kgrid%vpl(ik)
   ! read eigenvectors, subroutine in modcom.f90
-  call io_evec(ik,"read","_evec",tbmodel%norb_TB,pars%nstates,evec(:,:,ik))
+  call io_evec(ik,"read","_evec_1_",tbmodel%norb_TB,pars%nstates,evec(:,:,ik))
 end do
 ! zero the arrays for security reasons
 eval=0._dp
 ! read eigenvalues, subroutine in modcom.f90
-call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
+call io_eval(1001,"read","eval_1.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
 ! init minimal wannier variables
 call wannier%init(kgrid,kpath,pars,eval)
 ! do the computation. later we will attach MPI parallelisation here
@@ -405,12 +402,12 @@ do ik=1,kgrid%npt
   ! copy the private data
   vkl(:,ik)=kgrid%vpl(ik)
   ! read eigenvectors, subroutine in modcom.f90
-  call io_evec(ik,"read","_evec",tbmodel%norb_TB,pars%nstates,evec(:,:,ik))
+  call io_evec(ik,"read","_evec_1_",tbmodel%norb_TB,pars%nstates,evec(:,:,ik))
 end do
 ! zero the arrays for security reasons
 eval=0._dp
 ! read eigenvalues, subroutine in modcom.f90
-call io_eval(1001,"read","eval.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
+call io_eval(1001,"read","eval_1.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
 ! init minimal wannier variables
 !call wannier%init(kgrid,kpath,pars,eval)
 allocate(wfmloc(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt))
@@ -434,16 +431,16 @@ end subroutine
 ! Side subroutines, could be placed into another file
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-subroutine get_chiq(iq,qgrid,kgrid,Ggrid,pars,tbmodel,eval,chiq)
+subroutine get_chiq(iq,qgrid,kgrid,Ggrid,pars,tbmodel,chiq)
 integer, intent(in) :: iq
 class(GRID), intent(in) :: qgrid,kgrid,Ggrid
 class(CLpars), intent(in) :: pars
 class(CLtb), intent(in) :: tbmodel
-real(dp), intent(in) :: eval(pars%nstates,kgrid%npt)
-complex(dp), intent(out) :: chiq(pars%negrid,Ggrid%npt_sphere)
+complex(dp), intent(out) :: chiq(pars%negrid,pars%nshift,Ggrid%npt_sphere)
 
 ! local
-integer ik, ig
+character(20) filename
+integer ik, ig, ij
 integer ikg(NDIM+1)
 integer ic, iv, iorb
 integer fermi_index_kq(1)
@@ -454,69 +451,95 @@ real(dp) vkq(NDIM),vpl(NDIM),vl(NDIM),vc(NDIM)
 complex(dp) overlap
 complex(dp), allocatable :: eitqG(:,:)
 complex(dp), allocatable :: eveck(:,:),eveckq(:,:)
+real(dp), allocatable :: eval(:,:,:)
+real(dp), allocatable :: vkl(:,:)
+
 ! allocate array for eigen vectors
 allocate(eveck(tbmodel%norb_TB,pars%nstates))
 allocate(eveckq(tbmodel%norb_TB,pars%nstates))
-! array for phase factors inside matrix elements
+! allocate array for eigenvalues
+allocate(eval(pars%nshift,pars%nstates,kgrid%npt))
+allocate(vkl(NDIM,kgrid%npt))
+! allocate array for phase factors
 allocate(eitqG(tbmodel%norb_TB,Ggrid%npt_sphere))
-do ig=1,Ggrid%npt_sphere
-  vl=qgrid%vpl(iq)+Ggrid%vpl_sphere(ig)
-  do iorb=1,tbmodel%norb_tb
-    ! compute phase factors e^(i(q+G)t) for all t, atomic positions
-    eitqG(iorb,ig)=EXP(CMPLX(0._dp, twopi*dot_product(vl,tbmodel%vplorb(iorb)) ,kind=dp))
-  end do
-end do
-! I guess, chi has to be zeroed again, since it is intent(out)
-chiq = 0._dp
+
 do ik=1,kgrid%npt
-  vkq=qgrid%vpl(iq)+kgrid%vpl(ik)
-  ikg=kgrid%find(vkq)
+  ! copy the private data
+  vkl(:,ik)=kgrid%vpl(ik)
+end do
 
-  ! read eigenvectors, subroutine in modcom.f90
-  call io_evec(ik,"read","_evec",tbmodel%norb_TB,pars%nstates,eveck)
-  call io_evec(ikg(4),"read","_evec",tbmodel%norb_TB,pars%nstates,eveckq)
+eval = 0._dp
+do ik=1, pars%nshift
+  write(filename,'(a,i0,a)') 'eval_', ik, '.dat'
+  call io_eval(1001,"read",filename,.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval(ik,:,:))
+end do
+eval=eval-pars%efermi
 
-  ! Get the index corresponding to fermi level
-  fermi_index_kq =  minloc(eval(:,ikg(4)), mask=(eval(:,ikg(4)) > 0))
-  fermi_index_k =  minloc(eval(:,ik), mask=(eval(:,ik) > 0))
-  fermi_index_kq(1) = merge(fermi_index_kq(1)-1,pars%nstates, fermi_index_kq(1) > 0)
-  fermi_index_k(1) = merge(fermi_index_k(1)-1,pars%nstates, fermi_index_k(1) > 0)
-  !$OMP PARALLEL DEFAULT(SHARED)&
-  !$OMP PRIVATE(ig,vc,dc,pwo,iv,ic,overlap,delta)
-  !$OMP DO
+chiq = 0._dp
+do ij=1, pars%nshift
+  ! array for phase factors inside matrix elements
   do ig=1,Ggrid%npt_sphere
-    vc=qgrid%vpc(iq)+Ggrid%vpc_sphere(ig)
-    dc=sqrt(dot_product(vc,vc))
-    ! overlap I(q)=<local_orb|e^iqr|local_orb>, currently only the pz orbital
-    pwo = pwave_ovlp(dc)
-    do iv=pars%chi_start, fermi_index_k(1)
-      do ic=fermi_index_kq(1)+1, pars%chi_stop
-        ev = eval(iv, ik)
-        ec = eval(ic, ikg(4))
-        if (pars%chi_exclude) then
-          if (((ev < pars%e_chi_exclude(2)) .and. (ev > pars%e_chi_exclude(1))) &
-          .AND. ((ec < pars%e_chi_exclude(2)) .and. (ec > pars%e_chi_exclude(1)))) cycle
-        end if
-        if (pars%ignore_chiIq) then
-          overlap = ABS(DOT_PRODUCT(eveckq(1:tbmodel%norb_TB,ic), eitqG(:,ig)*eveck(1:tbmodel%norb_TB,iv)))
-        else
-          overlap = ABS(DOT_PRODUCT(eveckq(1:tbmodel%norb_TB,ic), eitqG(:,ig)*eveck(1:tbmodel%norb_TB,iv))) * pwo
-        end if
-        delta = ec - ev
-        if (delta > 1e-7) then
-          chiq(1,ig) = chiq(1,ig) + overlap*overlap/delta
-        end if
-      end do
+    vl=qgrid%vpl(iq)+Ggrid%vpl_sphere(ig)+pars%shift(:,ij)
+    do iorb=1,tbmodel%norb_tb
+      ! compute phase factors e^(i(q+G)t) for all t, atomic positions
+      eitqG(iorb,ig)=EXP(CMPLX(0._dp, twopi*dot_product(vl,tbmodel%vplorb(iorb)) ,kind=dp))
     end do
   end do
-  !$OMP END DO
-  !$OMP END PARALLEL
+
+  do ik=1,kgrid%npt
+    vkq=qgrid%vpl(iq)+kgrid%vpl(ik)
+    ikg=kgrid%find(vkq)
+
+    ! read eigenvectors, subroutine in modcom.f90
+    write(filename,'(a,i0,a)') '_evec_',1,'_'
+    call io_evec(ik,"read",filename,tbmodel%norb_TB,pars%nstates,eveck)
+    write(filename,'(a,i0,a)') '_evec_',ij,'_'
+    call io_evec(ikg(4),"read",filename,tbmodel%norb_TB,pars%nstates,eveckq)
+
+    ! Get the index corresponding to fermi level
+    fermi_index_kq =  minloc(eval(ij,:,ikg(4)), mask=(eval(ij,:,ikg(4)) > 0))
+    fermi_index_k =  minloc(eval(1,:,ik), mask=(eval(1,:,ik) > 0))
+    fermi_index_kq(1) = merge(fermi_index_kq(1)-1,pars%nstates, fermi_index_kq(1) > 0)
+    fermi_index_k(1) = merge(fermi_index_k(1)-1,pars%nstates, fermi_index_k(1) > 0)
+    
+    !$OMP PARALLEL DEFAULT(SHARED)&
+    !$OMP PRIVATE(ig,vc,dc,pwo,iv,ic,overlap,delta)
+    !$OMP DO
+    do ig=1,Ggrid%npt_sphere
+      vc=qgrid%vpc(iq)+Ggrid%vpc_sphere(ig)
+      dc=sqrt(dot_product(vc,vc))
+      ! overlap I(q)=<local_orb|e^iqr|local_orb>, currently only the pz orbital
+      pwo = pwave_ovlp(dc)
+      do iv=pars%chi_start, fermi_index_k(1)
+        do ic=fermi_index_kq(1)+1, pars%chi_stop
+          ev = eval(1, iv, ik)
+          ec = eval(ij, ic, ikg(4))
+          if (pars%chi_exclude) then
+            if (((ev < pars%e_chi_exclude(2)) .and. (ev > pars%e_chi_exclude(1))) &
+            .AND. ((ec < pars%e_chi_exclude(2)) .and. (ec > pars%e_chi_exclude(1)))) cycle
+          end if
+          if (pars%ignore_chiIq) then
+            overlap = ABS(DOT_PRODUCT(eveckq(1:tbmodel%norb_TB,ic), eitqG(:,ig)*eveck(1:tbmodel%norb_TB,iv)))
+          else
+            overlap = ABS(DOT_PRODUCT(eveckq(1:tbmodel%norb_TB,ic), eitqG(:,ig)*eveck(1:tbmodel%norb_TB,iv))) * pwo
+          end if
+          delta = ec - ev
+          if (delta > 1e-7) then
+            chiq(1,ij,ig) = chiq(1,ij,ig) + overlap*overlap/delta
+          end if
+        end do
+      end do
+    end do
+    !$OMP END DO
+    !$OMP END PARALLEL
+
+  end do
 end do
 
 ! Normalise
 chiq = (4.0/(kgrid%npt)) * chiq
 
-deallocate(eveck,eveckq,eitqG)
+deallocate(eveck,eveckq,eitqG,eval)
 end subroutine
 
 
