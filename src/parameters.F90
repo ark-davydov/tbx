@@ -8,6 +8,7 @@ implicit none
 private
 logical :: atoms_block_found=.false.
 logical :: avec_block_found=.false.
+logical :: kshift_block_found=.false.
 integer, parameter :: nmaxtasks=10
 integer, parameter :: nlines_max=100000
 !integer, parameter :: dp = SELECTED_REAL_KIND (15,300)
@@ -57,6 +58,7 @@ type, public :: CLpars
   integer :: chi_stop=1000
   integer :: negrid=1
   integer :: ntasks=0
+  integer :: nkshift=1
   integer :: natmtot
   integer :: nmaxatm_pspec
   integer :: ngrid(NDIM)
@@ -84,6 +86,7 @@ type, public :: CLpars
   real(dp), allocatable :: egrid(:)
   real(dp), allocatable :: atml(:,:,:)
   real(dp), allocatable :: vert(:,:)
+  real(dp), allocatable :: kshift(:,:)
   contains
   procedure :: init=>read_input
   procedure :: atmc=>calc_atmc
@@ -223,7 +226,7 @@ do iline=1,nlines_max
   ! BZ k-papth block
   else if (trim(block).eq."path") then
     read(arg,*,iostat=iostat) THIS%nvert
-    if (iostat.ne.0) call throw("paramters%read_input()","problem with path's nvert argumet")
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with path's nvert argument")
     allocate(THIS%np_per_vert(THIS%nvert))
     allocate(THIS%vert(NDIM,THIS%nvert))
     do ivert=1,THIS%nvert
@@ -232,6 +235,17 @@ do iline=1,nlines_max
       if (iostat.ne.0) call throw("paramters%read_input()","problem with path data")
       if (mp_mpi) write(*,'(i6,": ",5F10.6)',advance='no') jline,THIS%vert(:,ivert)
       if (mp_mpi) write(*,'(I6)') THIS%np_per_vert(ivert)
+    end do
+
+  else if (trim(block).eq."shift") then
+    read(arg,*,iostat=iostat) THIS%nkshift
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with shift's nshift argument")
+    allocate(THIS%kshift(NDIM,THIS%nkshift))
+    do ivert=1,THIS%nkshift
+      jline=jline+1
+      read(50,*,iostat=iostat) THIS%kshift(:,ivert)
+      if (iostat.ne.0) call throw("paramters%read_input()","problem with shift data")
+      if (mp_mpi) write(*,'(i6,": ",5F10.6)') jline,THIS%kshift(:,ivert)
     end do
 
   ! BZ k-papth block
@@ -523,6 +537,12 @@ if (mp_mpi) write(*,*)
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
 #endif
+
+if (.not.kshift_block_found) then
+  THIS%nkshift=1
+  allocate(THIS%kshift(NDIM,THIS%nkshift))
+  THIS%kshift=0._dp
+end if
 
 ! initialise basis for TB calculation
 if (trim(adjustl(THIS%geometry_source)).ne."") then
