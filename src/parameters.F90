@@ -237,7 +237,7 @@ do iline=1,nlines_max
       if (mp_mpi) write(*,'(I6)') THIS%np_per_vert(ivert)
     end do
 
-  else if (trim(block).eq."shift") then
+  else if (trim(block).eq."kshift") then
     read(arg,*,iostat=iostat) THIS%nkshift
     if (iostat.ne.0) call throw("paramters%read_input()","problem with shift's nshift argument")
     allocate(THIS%kshift(NDIM,THIS%nkshift))
