@@ -1,5 +1,3 @@
-
-
 # uncomment if compiler supports MPI, to allow for MPI parallelisation
 DMPI=-DMPI
 
