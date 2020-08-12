@@ -2,7 +2,6 @@
 DMPI=-DMPI
 
 # Compiler
-export OMPI_FC=gfortran-8
 F90 = mpif90
 #F90 = gfortran
 
