@@ -1,9 +1,8 @@
-
-
 # uncomment if compiler supports MPI, to allow for MPI parallelisation
 DMPI=-DMPI
 
 # Compiler
+export OMPI_FC=gfortran-8
 F90 = mpif90
 #F90 = gfortran
 
