@@ -8,6 +8,7 @@ implicit none
 private
 logical :: atoms_block_found=.false.
 logical :: avec_block_found=.false.
+logical :: kshift_block_found=.false.
 integer, parameter :: nmaxtasks=10
 integer, parameter :: nlines_max=100000
 !integer, parameter :: dp = SELECTED_REAL_KIND (15,300)
@@ -32,16 +33,22 @@ type, public :: CLpars
   character(len=100) :: seedname="seedname"
   character(len=100) :: sktype="sk"
   character(len=100) :: tbfile=""
-  character(len=2) :: tbftype=""
+  character(len=100) :: character_file=""
+  character(len=100) :: tbtype="sk"
+  character(len=100) :: coulrs_file=""
+  logical :: HubU_diagonal=.false.
+  logical :: readsym=.false.
   logical :: shifted=.false.
   logical :: symtshift=.true.
   logical :: writetb=.false.
   logical :: sparse=.false.
   logical :: ignore_chiIq=.false.
   logical :: chi_exclude=.false.
+  integer :: niter_symmetrize=1
+  integer :: ndim_coul=3
   integer :: geometry_index=0
   integer :: symtype=1
-  integer :: nvert
+  integer :: nvert=0
   integer :: nspec
   integer :: iflat_band=0
   integer :: istart=1
@@ -51,12 +58,14 @@ type, public :: CLpars
   integer :: chi_stop=1000
   integer :: negrid=1
   integer :: ntasks=0
+  integer :: nkshift=1
   integer :: natmtot
   integer :: nmaxatm_pspec
   integer :: ngrid(NDIM)
   integer :: qgrid(NDIM)
   integer :: Ggrid(NDIM)
-  integer :: nshift=0
+  real(dp) :: omega
+  real(dp) :: omegabz
   real(dp) :: gauss_sigma=0.1_dp
   real(dp) :: sparse_eps=0.e-6_dp
   real(dp) :: efermi=0._dp
@@ -77,7 +86,7 @@ type, public :: CLpars
   real(dp), allocatable :: egrid(:)
   real(dp), allocatable :: atml(:,:,:)
   real(dp), allocatable :: vert(:,:)
-  real(dp), allocatable :: shift(:,:)
+  real(dp), allocatable :: kshift(:,:)
   contains
   procedure :: init=>read_input
   procedure :: atmc=>calc_atmc
@@ -96,7 +105,7 @@ integer iostat,iline,jline,ii
 integer ispec,iat,ivert,igrid
 integer ic,iw,jw
 integer, parameter :: nmaxatm_pspec=40000
-real(dp) t1,tvec(NDIM,NDIM)
+real(dp) t1,tvec(NDIM,NDIM),vd(NDIM)
 character(len=256) block,arg,line
 character(len=10) symbol
 real(dp), allocatable :: atml_temp(:,:,:)
@@ -108,6 +117,7 @@ integer, allocatable :: lmr(:,:)
   call MPI_barrier(mpi_com,mpi_err)
 #endif
 THIS%Ggrid=0
+THIS%ngrid=1
 
 open(50,file=trim(adjustl(THIS%input_file)),action="read",status="old",iostat=iostat)
 if (iostat.ne.0) call throw("paramters%read_input()","could not open input file")
@@ -121,7 +131,7 @@ do iline=1,nlines_max
   if (iostat.ne.0) call throw("paramters%read_input()","could not read line in the input file")
   if (mp_mpi) write(*,'(i6,"| ",A)') jline,trim(adjustl(line))
 
-  call split_string(line,block,arg)
+  call split_string(line,block,arg,' ')
 
   ! tasks block
   if (trim(block).eq."tasks") then
@@ -132,7 +142,7 @@ do iline=1,nlines_max
         read(50,'(A)',iostat=iostat) line
         if (iostat.ne.0) call throw("paramters%read_input()","problem with tasks block")
         if (mp_mpi) write(*,'(i6,": ",A)') jline,trim(adjustl(line))
-        call split_string(line,block,arg)
+        call split_string(line,block,arg,' ')
         THIS%tasks(ii)=trim(adjustl(block))
      end do
 
@@ -227,15 +237,15 @@ do iline=1,nlines_max
       if (mp_mpi) write(*,'(I6)') THIS%np_per_vert(ivert)
     end do
 
-  else if (trim(block).eq."shift") then
-    read(arg,*,iostat=iostat) THIS%nshift
+  else if (trim(block).eq."kshift") then
+    read(arg,*,iostat=iostat) THIS%nkshift
     if (iostat.ne.0) call throw("paramters%read_input()","problem with shift's nshift argument")
-    allocate(THIS%shift(NDIM,THIS%nshift))
-    do ivert=1,THIS%nshift
+    allocate(THIS%kshift(NDIM,THIS%nkshift))
+    do ivert=1,THIS%nkshift
       jline=jline+1
-      read(50,*,iostat=iostat) THIS%shift(:,ivert)
+      read(50,*,iostat=iostat) THIS%kshift(:,ivert)
       if (iostat.ne.0) call throw("paramters%read_input()","problem with shift data")
-      if (mp_mpi) write(*,'(i6,": ",5F10.6)') jline,THIS%shift(:,ivert)
+      if (mp_mpi) write(*,'(i6,": ",5F10.6)') jline,THIS%kshift(:,ivert)
     end do
 
   ! BZ k-papth block
@@ -296,7 +306,15 @@ do iline=1,nlines_max
     if (iostat.ne.0) call throw("paramters%read_input()","problem with efermi data")
     if (mp_mpi) write(*,'(i6,": ",F10.6)') jline,THIS%efermi
 
-  ! proposed Fermi energy
+  ! dimensions of the Coulomb potential
+  else if (trim(block).eq."ndim_coul") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%ndim_coul
+    NDIM_COUL=THIS%ndim_coul
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with ndim_coul data")
+    if (mp_mpi) write(*,'(i6,": ",i6)') jline,THIS%ndim_coul
+
+  ! criterium for neglection of Hamiltonian matrix elements
   else if (trim(block).eq."sparse_eps") then
     jline=jline+1
     read(50,*,iostat=iostat) THIS%sparse_eps
@@ -309,6 +327,20 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%sparse
     if (iostat.ne.0) call throw("paramters%read_input()","problem with sparse data")
     if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%sparse
+
+  ! .true. Only conventinal "diagonal" indexing of Hubbard U is assumed
+  else if (trim(block).eq."HubU_diagonal") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%HubU_diagonal
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with HubU_diagonal data")
+    if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%HubU_diagonal
+
+  ! .true. to read symmetries from SYMCRYS.OUT file 
+  else if (trim(block).eq."readsym") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%readsym
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with readsym data")
+    if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%readsym
 
   ! .true. to write tight binding hamiltonian
   else if (trim(block).eq."writetb") then
@@ -323,6 +355,13 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%ignore_chiIq
     if (iostat.ne.0) call throw("paramters%read_input()","problem with ignore_chiIq data")
     if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%ignore_chiIq
+
+  ! if .true. lattice is not shifted prior to symmetry analysis
+  else if (trim(block).eq."symtshift") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%symtshift
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with symtshift data")
+    if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%symtshift
 
   ! energy grid for DOS or spectral functions
   else if (trim(block).eq."egrid") then
@@ -372,12 +411,35 @@ do iline=1,nlines_max
         if (mp_mpi) write(*,'(i6,": ",A)') jline,trim(adjustl(THIS%wannier_proj_mode))
 
   ! file with tight-binding hamiltonian
-  else if (trim(block).eq."tbfile") then
+  else if (trim(block).eq."tbtype") then
         jline=jline+1
-        read(arg,*,iostat=iostat) THIS%tbftype
+        read(arg,*,iostat=iostat) THIS%tbtype
         if (iostat.ne.0) call throw("paramters%read_input()","problem with tbfile argumet")
-        read(50,*,iostat=iostat) THIS%tbfile
+        if (trim(adjustl(THIS%tbtype)).eq.'tbfile'.or.trim(adjustl(THIS%tbtype)).eq.'hrfile') then
+          read(50,*,iostat=iostat) THIS%tbfile
+        end if
         if (mp_mpi) write(*,'(i6,": ",A)') jline,THIS%tbfile
+
+  ! file with coulomb interaction in the real space
+  else if (trim(block).eq."coulrs_file") then
+        jline=jline+1
+        read(50,*,iostat=iostat) THIS%coulrs_file
+        if (iostat.ne.0) call throw("paramters%read_input()","problem with coulrs_file data")
+        if (mp_mpi) write(*,'(i6,": ",A)') jline,THIS%coulrs_file
+
+  ! character table file of symmetry representations
+  else if (trim(block).eq."character_file") then
+        jline=jline+1
+        read(50,*,iostat=iostat) THIS%character_file
+        if (iostat.ne.0) call throw("paramters%read_input()","problem with haracter_file data")
+        if (mp_mpi) write(*,'(i6,": ",A)') jline,trim(adjustl(THIS%character_file))
+
+  ! Numver of iteration in HubbardU symmetrization (in principle, 1 should be enough)
+  else if (trim(block).eq."niter_symmetrize") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%niter_symmetrize
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with niter_symmetrize data")
+    if (mp_mpi) write(*,'(i6,": ",i6)') jline,THIS%niter_symmetrize
 
   ! projection mode for wannier export
   else if (trim(block).eq."projections") then
@@ -437,13 +499,13 @@ do iline=1,nlines_max
         do ic=1,THIS%base%ncenters
            jline=jline+1
            read(50,*,iostat=iostat) THIS%base%norb_ic(ic),THIS%base%centers(:,ic)
-           if (iostat.ne.0) call throw("paramters%read_input()","problem with wannier_proj_mode data")
+           if (iostat.ne.0) call throw("paramters%read_input()","problem with basis centers data")
            if (mp_mpi) write(*,'(i6,": ",i6,10F10.6)') jline,THIS%base%norb_ic(ic),THIS%base%centers(:,ic)
            do iw=1,THIS%base%norb_ic(ic)
              jline=jline+1
              THIS%base%norb=THIS%base%norb+1
              read(50,*,iostat=iostat) symbol,xaxis(:,THIS%base%norb),zaxis(:,THIS%base%norb)
-             if (iostat.ne.0) call throw("paramters%read_input()","problem with wannier_proj_mode data")
+             if (iostat.ne.0) call throw("paramters%read_input()","problem with basis axis data")
              if (mp_mpi) write(*,'(i6,": ",A,10F10.6)') jline, symbol,xaxis(:,THIS%base%norb),zaxis(:,THIS%base%norb)
              lmr(:,THIS%base%norb)=string_to_lmr(symbol)
            end do
@@ -475,6 +537,12 @@ if (mp_mpi) write(*,*)
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
 #endif
+
+if (.not.kshift_block_found) then
+  THIS%nkshift=1
+  allocate(THIS%kshift(NDIM,THIS%nkshift))
+  THIS%kshift=0._dp
+end if
 
 ! initialise basis for TB calculation
 if (trim(adjustl(THIS%geometry_source)).ne."") then
@@ -535,11 +603,29 @@ if (trim(adjustl(THIS%geometry_source)).ne."") then
    end do
    THIS%base%allocatd=.true.
 else
+   if (.not.avec_block_found) then
+     call throw("parameters%read_input",&
+         "if geometry library is not used, introduce the geometry with avec and atoms block")
+   end if
+   if (.not.atoms_block_found) then
+     call throw("parameters%read_input",&
+         "if geometry library is not used, introduce the geometry with avec and atoms block")
+   end if
    if (.not.THIS%base%allocatd) then
      call throw("parameters%read_input",&
          "if geometry library is not used, introduce the basis via the 'basis' input block")
    end if
 end if
+! compute volumes
+if (NDIM.eq.3) then
+  call r3cross(THIS%avec(:,1),THIS%avec(:,2),vd)
+  THIS%omega=abs(dot_product(vd,THIS%avec(:,3)))
+  call r3cross(THIS%bvec(:,1),THIS%bvec(:,2),vd)
+  THIS%omegabz=abs(dot_product(vd,THIS%bvec(:,3)))
+else
+  call warning("parameters%read_input","volume calculation is not possible with this NDIM, check that next code dont use it")
+end if
+
 ! compute total number of atoms, and construct mapping to/from total index
 THIS%natmtot=0
 do ispec=1,THIS%nspec
@@ -583,6 +669,13 @@ if (THIS%sparse) then
    call message("to allocate the full matrix, therefore larger memory consumption expected.")
    call message("However, it is still very fast")
 #endif
+end if
+
+if (THIS%ndim_coul.lt.NDIM) then
+  if (mp_mpi) call info("paramters%read_input()","NDIM not equal to NDIM_COUL, &
+    &be sure that your principal dimensions are along the first NDIM_COUL vectors")
+else if (THIS%ndim_coul.gt.NDIM) then
+  call throw("paramters%read_input()","NDIM_COUL can not be larger than NDIM")
 end if
 
 #ifdef MPI

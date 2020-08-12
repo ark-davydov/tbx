@@ -25,10 +25,14 @@ type, public, extends(CLgrid) :: GRID
   logical centered
   logical fractional
   integer ngrid(NDIM)
+  integer :: ip0=-1
   integer nir
   integer npt_sphere
+  real(dp) :: vq0
   integer, allocatable :: sphere_to_homo(:)
+  integer, allocatable :: homo_to_sphere(:)
   integer, allocatable :: iks2k(:,:)
+  integer, allocatable :: sik2ir(:)
   integer, allocatable :: ik2ir(:)
   integer, allocatable :: ir2ik(:)
   contains 
@@ -71,11 +75,14 @@ do ip=1,THIS%npt
 end do
 ! allocate map from sphere point to homogeneous point
 allocate(THIS%sphere_to_homo(THIS%npt_sphere))
+allocate(THIS%homo_to_sphere(THIS%npt))
 THIS%npt_sphere=0
+THIS%homo_to_sphere=0
 do ip=1,THIS%npt
   if (THIS%dc(ip).lt.pars%rcut_grid) then
     THIS%npt_sphere=THIS%npt_sphere+1
     THIS%sphere_to_homo(THIS%npt_sphere)=ip
+    THIS%homo_to_sphere(ip)=THIS%npt_sphere
   end if
 end do
 if (mp_mpi) then
@@ -150,7 +157,30 @@ do ip=1,THIS%npt
   else
     THIS%vl_(:,ip)=dble(THIS%vi_(:,ip))
   end if
+  if (sum(abs(THIS%vl_(:,ip))).lt.epslat) THIS%ip0=ip
 end do
+if (fractional) then
+  ! fractinal grid is most probably a k/q -grid in reciprocal space,
+  ! so define Coulomb interaction at q=0
+  if (THIS%ip0.le.0) call throw("GRID%init()","not possible situtaion: ip0 not found")
+  call gengclq(THIS%ngrid,THIS%vecs,THIS%vq0)
+  if (mp_mpi) write(*,'("Info[GRID]: Average Coulomb interaction at q=0 for this ngrid(:): ",G18.10)') THIS%vq0
+  if (.false.) then
+    ! test the quality of approximation for vq0
+    do ip=1,THIS%npt
+      if (ip.eq.THIS%ip0) then
+         write(155,*) THIS%dc(ip),THIS%vq0
+      else
+         if (NDIM_COUL.eq.2) then
+           write(155,*) THIS%dc(ip),twopi*CoulombForceConstant/THIS%dc(ip)
+         else
+           write(155,*) THIS%dc(ip),fourpi*CoulombForceConstant/THIS%dc(ip)**2
+         end if
+      end if
+    end do
+    stop
+  end if
+end if
 end subroutine
 
 subroutine init_path(THIS,nvert,np_per_vert,vert,vecs)
@@ -160,6 +190,7 @@ real(dp), intent(in) :: vert(NDIM,nvert)
 real(dp), intent(in) :: vecs(NDIM,NDIM)
 integer ip,ivert,counter
 real(dp) v1(NDIM),v2(NDIM),v3(NDIM)
+if (nvert.le.1) call throw("PATH%init_path()","nvert should be at least 2, now it is <=1")
 THIS%mode="path"
 allocate(THIS%vert(NDIM,nvert))
 allocate(THIS%np_per_vert(nvert))
@@ -250,6 +281,7 @@ end do
 end if
 allocate(THIS%ik2ir(THIS%npt))
 allocate(THIS%ir2ik(THIS%npt))
+allocate(THIS%sik2ir(THIS%npt))
 THIS%ik2ir=-999 !Gives irreducible-k points from regular-k points.
 THIS%ir2ik=-999 !Gives regular-k points from irreducible-k points.
 lfound=.false.
@@ -260,11 +292,13 @@ do ik=1,THIS%npt
    THIS%nir=THIS%nir+1
    THIS%ir2ik(THIS%nir)=ik
    THIS%ik2ir(ik)=THIS%nir
+   THIS%sik2ir(ik)=1
    do isym=1,sym%nsym
       ikp=THIS%iks2k(ik,isym)
       if(lfound(ikp)) cycle
       lfound(ikp)=.true.
       THIS%ik2ir(ikp)=THIS%nir
+      THIS%sik2ir(ikp)=sym%inv(isym)
    end do
 end do
 end subroutine
@@ -403,9 +437,9 @@ if (THIS%centered) then
   ! return back to orgiginal values
   ikg(1:NDIM)=ikg(1:NDIM)-THIS%ngrid/2
 end if
-if (ikg(NDIM+1).gt.THIS%npt) then
-  ikg(NDIM+1)=-ikg(NDIM+1)
-  ikg(1:NDIM)=0
+if (ikg(NDIM+1).gt.THIS%npt.or.ikg(NDIM+1).le.0) then
+  ikg(NDIM+1)=-abs(ikg(NDIM+1))
+  ikg(1:NDIM)=-99999
 else
   ! finally, redefine ikg(1:NDIM) such that they return translation vectors
   ikg(1:NDIM)=nint(vpl-THIS%vpl(ikg(NDIM+1)))

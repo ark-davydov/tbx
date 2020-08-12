@@ -27,6 +27,18 @@ type, public :: CLsym
   
 endtype CLsym
 
+type, public, extends(CLsym) :: char_table
+  character(len=10) :: symgroup
+  character(len=4) :: classes(48)
+  character(len=4) :: symreps(48)
+  integer :: nclasses
+  integer :: nsym_of_cl(48)
+  integer :: isym_of_cl(48,48)
+  real(dp) :: table(48,48)
+  contains
+  procedure :: read_character_table
+endtype char_table
+
 contains
 
 subroutine find_symmetries(THIS,pars)
@@ -46,11 +58,14 @@ THIS%typ=pars%symtype
 if (NDIM.ne.3) call throw("symmetryclass%find_symmetries()","this subroutine assumes NDIM=3")
 allocate(lattice_shift(NDIM,pars%nmaxatm_pspec,pars%nspec))
 
-
-call symmetry(THIS%typ, pars%nspec, pars%nat_per_spec,&
-              pars%nmaxatm_pspec, pars%natmtot, pars%avec, pars%atml,&
-              THIS%nsym, THIS%lspl, THIS%lspn, THIS%inv, THIS%slat,&
-              THIS%vtl, lattice_shift, shifted, pars%symtshift, mp_mpi)
+if (pars%readsym) then
+  call readsym(THIS%nsym,THIS%lat,THIS%vtl,THIS%inv)
+else
+  call symmetry(THIS%typ, pars%nspec, pars%nat_per_spec,&
+                pars%nmaxatm_pspec, pars%natmtot, pars%avec, pars%atml,&
+                THIS%nsym, THIS%lspl, THIS%lspn, THIS%inv, THIS%slat,&
+                THIS%vtl, lattice_shift, shifted, pars%symtshift, mp_mpi)
+end if
 
 
 
@@ -77,7 +92,7 @@ tvec=id_lat_car
 ! inverse of id_lat_cart, is id_cart_lat
 call dmatrix_inverse(tvec,id_car_lat,NDIM)
 do isym=1,THIS%nsym
-  this%lat(:,:,isym)=dble(this%slat(:,:,this%lspl(isym)))
+  if (.not.pars%readsym) this%lat(:,:,isym)=dble(this%slat(:,:,this%lspl(isym)))
   this%car(:,:,isym)=matmul( id_lat_car,matmul(this%lat(:,:,isym),id_car_lat) )
   this%ltr(:,:,isym)=transpose(this%lat(:,:,isym))
   this%ctr(:,:,isym)=transpose(this%car(:,:,isym))
@@ -122,7 +137,7 @@ if(mp_mpi)then
 end if
 do isym=1,nsym
    if(THIS%inv(isym).le.0.or.THIS%inv(isym).ge.THIS%nsym+1) then
-      call throw("CLTHIS%find_symmetries", "out of range in invs from QE")
+      call throw("CLsym%find_symmetries", "out of range in invs from QE")
    end if
    dmat=0d0
    dmat(1,1)=1d0
@@ -130,7 +145,7 @@ do isym=1,nsym
    dmat(3,3)=1d0
    v1=matmul(matmul(THIS%vtc(:,isym),THIS%car(:,:,THIS%inv(isym)))+THIS%vtc(:,THIS%inv(isym)),bg)
    if(sum(abs(matmul(THIS%car(:,:,isym),THIS%car(:,:,THIS%inv(isym)))-dmat))+sum(abs(v1-dble(nint(v1)))).gt.1._dp) then
-      call throw("CLTHIS%find_symmetries", "inconsistent invs from QE library")
+      call throw("CLsym%find_symmetries", "inconsistent invs from QE library")
    end if
 end do
 deallocate(tau,m_loc,ityp)
@@ -171,6 +186,102 @@ if(mp_mpi)then
    close(105)
 end if
 
+end subroutine
+
+subroutine read_character_table(THIS,fname,nsym_check)
+class(char_table), intent(out) :: THIS
+character(len=*), intent(in) :: fname
+integer, intent(in) :: nsym_check
+integer nsym,icl,irep,j
+character(len=256) line,line1,line2
+logical exs
+!#file format example for D3:
+!D3
+!6 
+!3
+!1 ! E
+!2 5 ! C3
+!3 4 6 ! C2
+!C1 C2 C3
+! 1  1  1 A
+! 1  1 -1 B
+! 2 -1  0 E
+inquire(file=trim(adjustl(fname)),exist=exs)
+if (.not.exs) then
+  call throw("char_table%read_character_table","symmetry representation file '"//trim(adjustl(fname))//"' not present")
+end if
+open(unit=50,file=trim(adjustl(fname)),action='read',status='old')
+read(50,*) THIS%symgroup
+read(50,*) nsym
+if (nsym.ne.nsym_check) call throw('char_table%read_character_table',&
+ &'number of symmetry operations in charater table file not equal to actual nsym')
+read(50,*) THIS%nclasses
+THIS%nsym_of_cl(:)=0
+do icl=1,THIS%nclasses
+  read(50,'(A)') line
+  call split_string(line,line1,line2,'!')
+  line=line1
+  do j=1,100
+    call split_string(line,line1,line2,' ')
+    line=line1
+    if (line1.eq.'')   call throw('char_table%read_character_table','no symmetry operations in class of character table file')
+    THIS%nsym_of_cl(icl)=THIS%nsym_of_cl(icl)+1
+    read(line,*) THIS%isym_of_cl(icl,THIS%nsym_of_cl(icl))
+    line=line2
+    if (trim(adjustl(line2)).eq.'') exit
+  end do
+end do
+read(50,*) THIS%classes(1:THIS%nclasses)
+do irep=1,THIS%nclasses
+  read(50,*) THIS%table(irep,1:THIS%nclasses),THIS%symreps(irep)
+end do
+close(50)
+end subroutine
+
+subroutine readsym(nsym,lat,vtl,inv)
+integer, intent(out) :: nsym
+real(dp), intent(out) :: lat(NDIM,NDIM,nsmax),vtl(NDIM,nsmax)
+integer, intent(out) :: inv(nsmax)
+logical exs
+integer isym,jsym,jj
+real(dp) uni(NDIM,NDIM),tmat(NDIM,NDIM)
+inquire(file='SYMCRYS.OUT',exist=exs)
+if (.not.exs) then
+  call throw("CLsym%read_symmetries","SYMCRYS.OUT file not found")
+end if
+open(unit=50,file='SYMCRYS.OUT',action='read',status='old')
+read(50,*)
+read(50,*)
+read(50,*)
+read(50,*) nsym
+do isym=1,nsym
+  read(50,*)
+  read(50,*)
+  read(50,*)
+  read(50,*) vtl(:,isym)
+  ! spacial rotation
+  read(50,*)
+  read(50,*) lat(1,:,isym)
+  read(50,*) lat(2,:,isym)
+  read(50,*) lat(3,:,isym)
+  ! spin rotation (not implemented)
+  read(50,*)
+  read(50,*)
+  read(50,*)
+  read(50,*)
+end do
+inv=-1
+uni=0._dp
+do jj=1,NDIM
+  uni(jj,jj)=1._dp
+end do
+do isym=1,nsym
+   do jsym=1,nsym
+     tmat=matmul(lat(:,:,isym),lat(:,:,jsym))
+     if (sum(abs(tmat-uni)).lt.epslat) inv(isym)=jsym
+   end do
+end do
+close(50)
 end subroutine
 
 end module

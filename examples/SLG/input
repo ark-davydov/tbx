@@ -1,68 +1,57 @@
-tasks 2
+# The following combination of tasks produces the bandstructure 
+# and the electron polarisability within the Random Phase Approximation (RPA) for 
+# Single Layer Graphene (SLG)
+tasks 3
+ bands
  eigen
- projection_wannier
+ rpachi
 
-! important, this defines not only the k-grid, but also the R-grid fot TB hamiltonian
+# This is the grid of k-points for eigenvalues/eigenvectors, 
+# and R-points for the real-space Tight-Binding (TB) hopping parameters tij(R)
 ngrid
- 12 12 1
+ 50 50 1
 
-! k-path conntecting vertices. format "x y z npoints"
+# k-path for bandstructure
 path 4
-0.666666 0.333333 0. 0
-0.5 0. 0. 50
-0.0 0. 0. 50
-0.333333 0.666666 0. 50
+ 0.666666 0.333333 0. 0
+ 0.5 0. 0. 40
+ 0.0 0. 0. 40
+ 0.333333 0.666666 0. 40
 
-! generate the atoms and vectors from the geometry library for TBG
-! angle defined by an integer of the next line 
-! one can set the geometry vectors and atoms positions as well
+# Use geometry library to generate lattice vectors and atomic postions for the SLG.
+# The integer parameter of the next line is ignored in the SLG case
 geometry_source slg
  104
 
-! impose Fermi level on the resulting bandstucture
+# Impose Fermi energy on the bandstructure
 efermi
- 0.7911
+ 0.0
 
-
-! desired lower, uppare states to compute, note that (1) sparse eigensolver
-! can not give give exactly that states, but it gives states closed to efermi 
-! (the input parameter). (2) if upper state index is larger then number of available
-! states, it will be modified, lower state will be allose modified, such that its
-! index is less or equal index of upper state. (3) finally if the dense
-! eigensolver fail to converge some eigen states, one should choos to compute
-! the full spectrum
+# First and last state to compute (SLG has only two bands in this model)
 states
  1 2
 
-! set .true. to use sparse eigen solver. Eigesolver, which always works with sparse
-! matrices is available only via MKL linking of the code. Otherwise
-! the algorithm will need to allocate the full Hamiltonian matrix at some point
-sparse
+# Type of Hamiltonian parametrisation. Currently it is the Slater-Koster one
+sktype
+ tbgsk
+
+# One could truncate the hopping terms with distances beyond this rcut_nn
+rcut_nn
+ 1.5
+
+# Grid of q-points for polarisability calculation, it has to be commensurate with ngrid
+qgrid
+ 50 1 1
+
+# Grid of reciprocal vertices, such that q+G covers entire reciprocal space
+Ggrid
+ 4 1 1
+
+# This allows one to take only its sphereical part (Useful at large Ggrid)
+rcut_grid
+ 6.0
+
+# Ignore the on-site <loc_orb_i|e^iqr|loc_orb_j> overlap in the computation of the <k|e^iqr|k+q> overlap for the bloch waves k,k+q
+ignore_chiIq
  .false.
 
-! neglect all Hamiltonian terms smaller than sparse_eps
-sparse_eps
- 1.d-5
-
-! seedname for wannier90 interface
-seedname
-  wannier
-
-sktype
- tbgsk1
-
-! grid for the DOS, maybe for the frequency in the future (RPA)
-egrid 1000
--13 9
-
-gauss_sigma
- 0.2
-
-wannier_proj_mode
- input_file
-
-projections 2
-1 0.000000000 0.000000000 0.0
-pz 1.0 0.0 0.0 0.0 0.0 1.0
-1 0.666666666 0.666666666 0.0
-pz 1.0 0.0 0.0 0.0 0.0 1.0

@@ -13,7 +13,7 @@ F90FLAGS = -O3 -funroll-loops
 # uncomment to use OpenMP parallisation
 OMP = -fopenmp
 
-# Normal blas/lapack. If MKL is aliased by these, the PARDISO (if included) will crush
+# Normal blas/lapack. If MKL is aliased by these, the PARDISO (if included) will crash
 #BLAS = -lblas
 #LAPACK = -llapack
 
