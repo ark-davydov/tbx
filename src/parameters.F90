@@ -238,6 +238,7 @@ do iline=1,nlines_max
     end do
 
   else if (trim(block).eq."kshift") then
+    kshift_block_found = .true.
     read(arg,*,iostat=iostat) THIS%nkshift
     if (iostat.ne.0) call throw("paramters%read_input()","problem with shift's nshift argument")
     allocate(THIS%kshift(NDIM,THIS%nkshift))
