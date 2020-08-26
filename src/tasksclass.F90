@@ -393,7 +393,7 @@ call io_eval(1001,"read","eval_1.dat",.false.,pars%nstates,kgrid%npt,pars%efermi
 call wannier%init(kgrid,kpath,pars,eval)
 ! do the computation. later we will attach MPI parallelisation here
 ! (you can see bands, eigen tasks how to do it), therefore arrays have to be zeroed
-call wannier%projection(tbmodel,pars,sym,kgrid,evec)
+call wannier%projection(tbmodel,pars,sym,kgrid,eval-pars%efermi,evec)
 !call wannier%overlap(pars,tbmodel,kgrid,eval,evec)
 if (mp_mpi) then
 end if

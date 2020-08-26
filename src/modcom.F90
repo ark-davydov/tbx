@@ -504,7 +504,7 @@ case('sp3d2-3')    ;  lmr=(/-5,3/)
 case('sp3d2-4')    ;  lmr=(/-5,4/)
 case('sp3d2-5')    ;  lmr=(/-5,5/)
 case('sp3d2-6')    ;  lmr=(/-5,6/)
-case default       ;  call throw("wannier_supplementary%string_to_lmr","unknown orbital string")
+case default       ;  call throw("modcom%string_to_lmr","unknown orbital string")
 end select
 end function
 
@@ -515,17 +515,23 @@ integer ll,mr
 ll=lmr(1)
 mr=lmr(2)
 select case(ll)
+case(11)
+  select case(mr)
+  case(23)          ; str_orbital='pp'
+  case(-23)          ; str_orbital='pm'
+  case default     ; call throw("modcom%lmr_to_string","unknown mr")
+  end select
 case(0)
   select case(mr)
   case(1)          ; str_orbital='s'
-  case default     ; call throw("wannier_supplementary%lmr_to_string","unknown mr")
+  case default     ; call throw("modcom%lmr_to_string","unknown mr")
   end select
 case(1)
   select case(mr)
   case(1)          ; str_orbital='pz'
   case(2)          ; str_orbital='px'
   case(3)          ; str_orbital='py'
-  case default     ; call throw("wannier_supplementary%lmr_to_string","unknown mr")
+  case default     ; call throw("modcom%lmr_to_string","unknown mr")
   end select
 case(2)
   select case(mr)
@@ -534,7 +540,7 @@ case(2)
   case(3)          ; str_orbital='dyz'
   case(4)          ; str_orbital='dx2-y2'
   case(5)          ; str_orbital='dxy'
-  case default     ; call throw("wannier_supplementary%lmr_to_string","unknown mr")
+  case default     ; call throw("modcom%lmr_to_string","unknown mr")
   end select
 case(3)
   select case(mr)
@@ -545,20 +551,20 @@ case(3)
   case(5)          ; str_orbital='fxyz'
   case(6)          ; str_orbital='fx(x2-3y2)'
   case(7)          ; str_orbital='fy(3x2-y2)'
-  case default     ; call throw("wannier_supplementary%lmr_to_string","unknown mr")
+  case default     ; call throw("modcom%lmr_to_string","unknown mr")
   end select
 case(-1)
   select case(mr)
   case(1)          ; str_orbital='sp-1'
   case(2)          ; str_orbital='sp-2'
-  case default     ; call throw("wannier_supplementary%lmr_to_string","unknown mr")
+  case default     ; call throw("modcom%lmr_to_string","unknown mr")
   end select
 case(-2)
   select case(mr)
   case(1)          ; str_orbital='sp2-1'
   case(2)          ; str_orbital='sp2-2'
   case(3)          ; str_orbital='sp2-3'
-  case default     ; call throw("wannier_supplementary%lmr_to_string","unknown mr")
+  case default     ; call throw("modcom%lmr_to_string","unknown mr")
   end select
 case(-3)
   select case(mr)
@@ -566,7 +572,7 @@ case(-3)
   case(2)          ; str_orbital='sp3-2'
   case(3)          ; str_orbital='sp3-3'
   case(4)          ; str_orbital='sp3-4'
-  case default     ; call throw("wannier_supplementary%lmr_to_string","unknown mr")
+  case default     ; call throw("modcom%lmr_to_string","unknown mr")
   end select
 case(-4)
   select case(mr)
@@ -575,7 +581,7 @@ case(-4)
   case(3)          ; str_orbital='sp3d-3'
   case(4)          ; str_orbital='sp3d-4'
   case(5)          ; str_orbital='sp3d-5'
-  case default     ; call throw("wannier_supplementary%lmr_to_string","unknown mr")
+  case default     ; call throw("modcom%lmr_to_string","unknown mr")
   end select
 case(-5)
   select case(mr)
@@ -585,10 +591,10 @@ case(-5)
   case(4)          ; str_orbital='sp3d2-4'
   case(5)          ; str_orbital='sp3d2-5'
   case(6)          ; str_orbital='sp3d2-6'
-  case default     ; call throw("wannier_supplementary%lmr_to_string","unknown mr")
+  case default     ; call throw("modcom%lmr_to_string","unknown mr")
   end select
 case default 
-  call throw("wannier_supplementary%lmr_to_string","unknown l ")
+  call throw("modcom%lmr_to_string","unknown l ")
 end select
 end function
 

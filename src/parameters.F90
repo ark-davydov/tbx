@@ -44,6 +44,7 @@ type, public :: CLpars
   logical :: sparse=.false.
   logical :: ignore_chiIq=.false.
   logical :: chi_exclude=.false.
+  logical :: use_weights_amn=.false.
   integer :: niter_symmetrize=1
   integer :: ndim_coul=3
   integer :: geometry_index=0
@@ -77,6 +78,7 @@ type, public :: CLpars
   real(dp) :: avec(NDIM,NDIM)
   real(dp) :: bvec(NDIM,NDIM)
   real(dp) :: e_chi_exclude(2)
+  real(dp) :: dis_frozen(2)
   type(CLproj) :: proj
   type(CLproj) :: base
   integer, allocatable :: nat_per_spec(:)
@@ -118,6 +120,8 @@ integer, allocatable :: lmr(:,:)
 #endif
 THIS%Ggrid=0
 THIS%ngrid=1
+THIS%dis_frozen(1)=-1._dp
+THIS%dis_frozen(2)= 1._dp
 
 open(50,file=trim(adjustl(THIS%input_file)),action="read",status="old",iostat=iostat)
 if (iostat.ne.0) call throw("paramters%read_input()","could not open input file")
@@ -223,6 +227,13 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%e_chi_exclude(:)
     if (iostat.ne.0) call throw("paramters%read_input()","problem with chi_exclude data")
     if (mp_mpi) write(*,'(i6,": ",5F19.6)') jline,THIS%e_chi_exclude(:)
+
+  else if (trim(block).eq."dis_frozen") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%dis_frozen(:)
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with dis_frozen data")
+    if (mp_mpi) write(*,'(i6,": ",5F19.6)') jline,THIS%dis_frozen(:)
+
   ! BZ k-papth block
   else if (trim(block).eq."path") then
     read(arg,*,iostat=iostat) THIS%nvert
@@ -334,6 +345,13 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%HubU_diagonal
     if (iostat.ne.0) call throw("paramters%read_input()","problem with HubU_diagonal data")
     if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%HubU_diagonal
+
+  ! .true. use weights in the amn matrix construction
+  else if (trim(block).eq."use_weights_amn") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%use_weights_amn
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with use_weights_amn data")
+    if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%use_weights_amn
 
   ! .true. to read symmetries from SYMCRYS.OUT file 
   else if (trim(block).eq."readsym") then
