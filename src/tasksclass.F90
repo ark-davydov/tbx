@@ -435,11 +435,11 @@ do ik=1,kpath%nvert
    write(*,*)"IK: ",ik
    call tbmodel%evalk(.true.,pars,kpath%vert(:,ik),eval,evec)
    vpc=matmul(kpath%vert(:,ik),kpath%vecs)
-   call find_degroups(pars%nstates,eval,ngroups,idx)
+   call find_degroups(pars%nstates,eval,ngroups,idx,1.d-2)
    ! find symreps for groups of bands
    do igr=1,ngroups
      write(*,*) 'group: ',igr,idx(igr,1),idx(igr,2)
-     write(*,*) 'energies: ',eval(idx(igr,1):idx(igr,2))-pars%efermi
+     write(*,'("energies: ",20F12.6)') eval(idx(igr,1):idx(igr,2))-pars%efermi
      irrep_decompose(:)=0._dp
      do icl=1,ch_table%nclasses
        do nsym=1,ch_table%nsym_of_cl(icl)

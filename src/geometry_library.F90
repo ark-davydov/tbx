@@ -81,7 +81,7 @@ subroutine generate_structure_tbg3D(THIS,jstruct)
 class(geomlib), intent(inout) :: THIS
 integer, intent(in) :: jstruct
 integer, parameter :: ntrans=140
-integer i,j,iat,istruct
+integer i,j,iat,istruct,imode
 integer counter1,counter2,counter
 integer number_of_atoms,spec0(4)
 real(dp) t1,t2,t3,z,zmid,vac
@@ -96,12 +96,8 @@ real(dp), allocatable :: atmlt(:,:)
   call MPI_barrier(mpi_com,mpi_err)
 #endif
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-if (jstruct.lt.-1) call throw("geomlib%generate_structure_tbg()","integer structure value of TBG should be positive or zero")
-if (jstruct.ge.100) then
-  istruct=jstruct-100
-else
-  istruct=jstruct
-end if
+istruct=abs(mod(jstruct,100))
+imode=jstruct/100
 if (istruct.gt.99) call throw("geomlib%generate_structure_tbg()","integer structure value of TBG is too large")
 if (NDIM.ne.3) call throw("geomlib%generate_structure_tbg()","this code works only for three dimensions")
 ave(1,:)=graphene_lvec_length*(/ 0.5_dp,0.5_dp*sqrt(3._dp), 0._dp/)
@@ -166,20 +162,31 @@ if (mp_mpi) then
   write(*,'("Number of atoms: ",I6)') number_of_atoms
   write(*,*)
 end if
-! AB stacking
-atxy(1,:)=(/ 0._dp  , 0._dp ,0._dp/)
-atxy(2,:)=(/ twothrd , twothrd,0._dp/)
-atxy(3,:)=(/-twothrd ,-twothrd,zlat/)
-atxy(4,:)=(/ 0._dp  , 0._dp ,zlat/)
-! AA stacking
-atxy(1,:)=(/ 0._dp  , 0._dp ,0._dp/)  
-atxy(2,:)=(/ twothrd , twothrd,0._dp/)
-atxy(3,:)=(/ 0._dp  , 0._dp ,zlat/)
-atxy(4,:)=(/ twothrd , twothrd,zlat/)
+  ! AB stacking
+!  atxy(1,:)=(/ 0._dp  , 0._dp ,0._dp/)
+!  atxy(2,:)=(/ twothrd , twothrd,0._dp/)
+!  atxy(3,:)=(/-twothrd ,-twothrd,zlat/)
+!  atxy(4,:)=(/ 0._dp  , 0._dp ,zlat/)
+if (jstruct.lt.0) then
+  ! rotation around hexagon center
+  call info("generate_structure_tbg","rotation around hexagon center")
+  atxy(1,:)=(/ onethrd, onethrd,0._dp/)  
+  atxy(2,:)=(/ twothrd, twothrd,0._dp/)
+  atxy(3,:)=(/ onethrd, onethrd,zlat/)
+  atxy(4,:)=(/ twothrd, twothrd,zlat/)
+else
+  ! rotation around AA bond
+  call info("generate_structure_tbg","rotation around AA bond")
+  atxy(1,:)=(/ 0._dp   , 0._dp   ,0._dp/)  
+  atxy(2,:)=(/ twothrd , twothrd ,0._dp/)
+  atxy(3,:)=(/ 0._dp   , 0._dp   ,zlat/)
+  atxy(4,:)=(/ twothrd , twothrd ,zlat/)
+end if
 spec0(1)=1
-spec0(2)=2
+spec0(2)=1
 spec0(3)=1
-spec0(4)=2
+spec0(4)=1
+
 counter=number_of_atoms*(2*ntrans+1)*(2*ntrans+1)
 allocate(atmlt(3,counter))
 allocate(spec(counter))
@@ -203,6 +210,7 @@ do i=-ntrans-1,ntrans
         ! lattice corrdinates with respect to Moire lattice vecors
         counter=counter+1
         atmlt(:,counter)=atl_super(:)
+        atmlt(1:2,counter)=atl_super(1:2)
         spec(counter)=spec0(iat)
       end if
     end do
@@ -212,8 +220,8 @@ if (number_of_atoms.ne.counter) then
   call throw("geomlib%generate_structure_tbg()","number of atoms counted is not correct")
 end if
 ! allocate geometry library arrays
-THIS%nspec=2
-THIS%nmaxatm_pspec=number_of_atoms/2
+THIS%nspec=1
+THIS%nmaxatm_pspec=number_of_atoms!/2
 allocate(THIS%nat_per_spec(THIS%nspec))
 allocate(THIS%atml(3,THIS%nmaxatm_pspec,THIS%nspec))
 THIS%nat_per_spec(:)=THIS%nmaxatm_pspec
@@ -231,7 +239,7 @@ do iat=1,number_of_atoms
     call throw("geomlib%generate_structure_tbg()","unexpected species index")
   end if
   atc(:)=matmul(atmlt(:,iat),THIS%avec)
-  if (jstruct.gt.100) then
+  if (imode.ne.0) then
     ! add distortion in Z
     t1=dot_product(THIS%bvec(1,:),atc)
     t2=dot_product(THIS%bvec(2,:),atc)

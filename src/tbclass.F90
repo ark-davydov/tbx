@@ -363,8 +363,8 @@ do ic=1,THIS%wbase%ncenters
       dv=THIS%wbase%centers_cart(:,jc)+THIS%rgrid%vpc(jR)-THIS%wbase%centers_cart(:,ic)
       t1=sqrt(dot_product(dv,dv))
       if (t1.lt.THIS%rcut_nn) then
-        if (trim(adjustl(THIS%sktype)).eq.'tbgsk'.or.&
-            trim(adjustl(THIS%sktype)).eq.'tbgsk1') then
+        if (THIS%mode.eq.'sk'.and.(trim(adjustl(THIS%sktype)).eq.'tbgsk'.or.&
+            trim(adjustl(THIS%sktype)).eq.'tbgsk1')) then
             t1=sqrt(dv(1)**2+dv(2)**2)
            !if (abs(dv(ZAXIS)).lt.0.5_dp*tbg_ab_distance) then
               ! cut in-plane hopping for TBG (later for something else)

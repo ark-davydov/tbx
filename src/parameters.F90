@@ -275,7 +275,7 @@ do iline=1,nlines_max
     jline=jline+1
     read(50,*,iostat=iostat) THIS%rcut_nn
     if (iostat.ne.0) call throw("paramters%read_input()","problem with rcut_nn data")
-    if (mp_mpi) write(*,'(i6,": ",F10.6)') jline,THIS%rcut_nn
+    if (mp_mpi) write(*,'(i6,": ",F18.6)') jline,THIS%rcut_nn
   ! cut off for in-plane nearest neighbors for tbg
   else if (trim(block).eq."rcut_tbg_nni") then
     jline=jline+1

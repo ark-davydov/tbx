@@ -604,9 +604,9 @@ real(dp), parameter :: charge_pz=3.18_dp
 pwave_ovlp=( 1._dp/( 1._dp+(dc*abohr/charge_pz)**2 ) )**3
 end function
 
-subroutine find_degroups(nx,xx,ngr,idx)
+subroutine find_degroups(nx,xx,ngr,idx,eps)
 integer :: nx,ngr
-real(dp) :: xx(nx)
+real(dp) :: xx(nx),eps
 integer, intent(out) :: idx(nx,2)
 integer nlast,ix
 ngr=1
@@ -614,7 +614,7 @@ nlast=0
 idx(ngr,1)=1
 idx(ngr,2)=1
 do ix=2,nx
-  if (abs(xx(ix)-xx(ix-1)).lt.epslat) then
+  if (abs(xx(ix)-xx(ix-1)).lt.eps) then
      nlast=nlast+1
      idx(ngr,2)=idx(ngr,1)+nlast
   else

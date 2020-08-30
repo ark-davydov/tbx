@@ -153,6 +153,7 @@ if (.not.pars%proj%allocatd) call throw("wannier_interface%projection",&
 if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band'.or.&
     trim(adjustl(pars%wannier_proj_mode)).eq.'tbg12band'.or.&
     trim(adjustl(pars%wannier_proj_mode)).eq.'trial_from_gamma'.or.&
+    trim(adjustl(pars%wannier_proj_mode)).eq.'trial_from_ft'.or.&
     trim(adjustl(pars%wannier_proj_mode)).eq.'wannier_file'.or.&
     trim(adjustl(pars%wannier_proj_mode)).eq.'wftrial_file'.or.&
     trim(adjustl(pars%wannier_proj_mode)).eq.'real_space'.or.&
@@ -182,7 +183,8 @@ real(dp), intent(in) :: eval(pars%nstates,kgrid%npt)
 complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
 ! local
 character(len=200) :: message
-integer iR,iw,jw,i1,ival,icnd
+logical exs
+integer iR,iw,jw,i1,ival,icnd,ik
 integer iorb,jorb,ispec
 integer ipro,ic,jc,ios,l1,m1,l2,m2
 integer isym1,isym2,ik_gamma,ikg(NDIM+1)
@@ -195,6 +197,8 @@ complex(dp) zz
 !complex(dp), allocatable :: wf_t(:)
 complex(dp), allocatable :: wftrial(:,:,:)
 complex(dp), allocatable :: wws(:,:,:)
+complex(dp), allocatable :: phs(:,:)
+real(dp), allocatable :: dis_factors(:,:)
 if (NDIM.ne.3) call throw("wannier_interface%generate_trial_wavefunctions()","this subroutine assumes NDIM=3")
 if (pars%proj%norb.le.0) then
    call throw("wannier_interface%generate_trial_wavefunctions()",&
@@ -325,178 +329,203 @@ if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band'.or.&
       end do
     end do
   end do
-  if (mp_mpi) write(*,*) "wannier_interface%projection","overlap between trial orbitals"
-  do iw=1,proj%norb
-    do jw=iw,proj%norb
-      zz=0._dp
-      do iR=1,tbmodel%rgrid%npt
-        zz=zz+dot_product(wftrial(:,iw,iR),wftrial(:,jw,iR))
-      end do
-      if (mp_mpi) write(*,'(2I5,2F10.6)') iw,jw,zz
-    end do
-  end do
   call generate_amn_overlap(tbmodel,pars,kgrid,eval,evec,tbmodel%rgrid%npt,wftrial)
-  nr=0
-  do iR=1,tbmodel%rgrid%npt
-    if (sum(abs(tbmodel%rgrid%vpl(iR))).le.6) then
-      nr=nr+1
+  deallocate(wftrial)
+
+else if (trim(adjustl(pars%wannier_proj_mode)).eq.'trial_from_gamma') then
+
+  inquire(file=trim(adjustl(pars%seedname))//'.amn',exist=exs)
+  if (.not.exs) then
+    allocate(wftrial(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt))
+    do iorb=1,tbmodel%norb_TB
+      ispec=tbmodel%orb_ispec(iorb)
+      vpl=tbmodel%vplorb(iorb)
+      do iw=1,proj%norb
+        i1=pars%iflat_band
+        ! bottom of bands to be include in trial
+        i1=i1-4
+        ival=i1+iw-1
+        icnd=i1+proj%norb-iw
+        !write(*,*) iw,i1,ival,icnd
+        if (vpl(3).gt.0._dp) then
+          ! top layer
+          if (ispec.eq.1) then
+            ! A-site
+            wftrial(iorb,iw,1)=evec(iorb,ival,ik_gamma)
+          else
+            ! B-site
+            wftrial(iorb,iw,1)=evec(iorb,icnd,ik_gamma)
+          end if 
+        else
+          ! bottom layer
+          if (ispec.eq.1) then
+            ! A-site
+            wftrial(iorb,iw,1)=evec(iorb,icnd,ik_gamma)
+          else
+            ! B-site
+            wftrial(iorb,iw,1)=evec(iorb,ival,ik_gamma)
+          end if 
+        end if
+      end do
+    end do
+    do iR=2,tbmodel%rgrid%npt
+      wftrial(:,:,iR)=wftrial(:,:,iR-1)
+    end do
+    sigma=0.6_dp*sqrt(dot_product(pars%avec(1,:),pars%avec(1,:)))
+    do iR=1,tbmodel%rgrid%npt
       do iw=1,proj%norb
         do iorb=1,tbmodel%norb_TB
-          wftrial(iorb,iw,nr)=wftrial(iorb,iw,iR)
+          dv=tbmodel%vplorb(iorb)+tbmodel%rgrid%vpl(iR)-pars%proj%centers(:,pars%proj%iw2ic(iw))
+          dc=matmul(dv,pars%avec)
+          dd=sqrt(dot_product(dc,dc))
+          t1=gauss(dd,sigma)
+          wftrial(iorb,iw,iR)=wftrial(iorb,iw,iR)*t1
         end do
       end do
-    end if
-  end do
-  !if (mp_mpi) call write_wf_universe(tbmodel,pars,nr,wftrial(:,:,1:nr),'wftrial','')
-  deallocate(wftrial)
-else if (trim(adjustl(pars%wannier_proj_mode)).eq.'trial_from_gamma') then
-  allocate(wftrial(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt))
-  do iorb=1,tbmodel%norb_TB
-    ispec=tbmodel%orb_ispec(iorb)
-    vpl=tbmodel%vplorb(iorb)
-    do iw=1,proj%norb
-      i1=pars%iflat_band
-      ! bottom of bands to be include in trial
-      i1=i1-4
-      ival=i1+iw-1
-      icnd=i1+proj%norb-iw
-      !write(*,*) iw,i1,ival,icnd
-      if (vpl(3).gt.0._dp) then
-        ! top layer
-        if (ispec.eq.1) then
-          ! A-site
-          wftrial(iorb,iw,1)=evec(iorb,ival,ik_gamma)
-        else
-          ! B-site
-          wftrial(iorb,iw,1)=evec(iorb,icnd,ik_gamma)
-        end if 
-      else
-        ! bottom layer
-        if (ispec.eq.1) then
-          ! A-site
-          wftrial(iorb,iw,1)=evec(iorb,icnd,ik_gamma)
-        else
-          ! B-site
-          wftrial(iorb,iw,1)=evec(iorb,ival,ik_gamma)
-        end if 
-      end if
     end do
-  end do
-  do iR=2,tbmodel%rgrid%npt
-    wftrial(:,:,iR)=wftrial(:,:,iR-1)
-  end do
-  sigma=0.4_dp*sqrt(dot_product(pars%avec(1,:),pars%avec(1,:)))
-  do iR=1,tbmodel%rgrid%npt
-    do iw=1,proj%norb
-      do iorb=1,tbmodel%norb_TB
-        dv=tbmodel%vplorb(iorb)+tbmodel%rgrid%vpl(iR)-pars%proj%centers(:,pars%proj%iw2ic(iw))
-        dc=matmul(dv,pars%avec)
-        dd=sqrt(dot_product(dc,dc))
-        t1=gauss(dd,sigma)
-        wftrial(iorb,iw,iR)=wftrial(iorb,iw,iR)*t1
-      end do
-    end do
-  end do
-  if (mp_mpi) write(*,*) "wannier_interface%projection","overlap between trial orbitals"
-  do iw=1,proj%norb
-    do jw=iw,proj%norb
-      zz=0._dp
+    call generate_amn_overlap(tbmodel,pars,kgrid,eval,evec,tbmodel%rgrid%npt,wftrial)
+    deallocate(wftrial)
+  end if
+  call generate_dmn_orb(tbmodel,proj,sym,pars,kgrid,evec,.false.,wws)
+
+else if (trim(adjustl(pars%wannier_proj_mode)).eq.'trial_from_ft') then
+
+  inquire(file=trim(adjustl(pars%seedname))//'.amn',exist=exs)
+  if (.not.exs) then
+    allocate(wftrial(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt))
+    allocate(phs(kgrid%npt,tbmodel%rgrid%npt))
+    allocate(dis_factors(pars%nstates,kgrid%npt))
+    do ik=1,kgrid%npt
       do iR=1,tbmodel%rgrid%npt
-        zz=zz+dot_product(wftrial(:,iw,iR),wftrial(:,jw,iR))
+        t1=twopi*dot_product(kgrid%vpl(ik),tbmodel%rgrid%vpl(iR))
+        phs(ik,iR)=cmplx(cos(t1),-sin(t1),kind=dp)
       end do
-      if (mp_mpi) write(*,'(2I5,2F10.6)') iw,jw,zz
+      do iw=1,pars%nstates
+        if (eval(iw,ik).lt.pars%dis_frozen(1).or.eval(iw,ik).gt.pars%dis_frozen(2)) then
+           dis_factors(iw,ik)=0._dp
+        else
+           dis_factors(iw,ik)=1._dp
+        end if
+      end do
     end do
-  end do
-  call generate_amn_overlap(tbmodel,pars,kgrid,eval,evec,tbmodel%rgrid%npt,wftrial)
+    do iR=1,tbmodel%rgrid%npt
+      do iorb=1,tbmodel%norb_TB
+        ispec=tbmodel%orb_ispec(iorb)
+        vpl=tbmodel%vplorb(iorb)
+        do iw=1,proj%norb
+          i1=pars%iflat_band
+          ! bottom of bands to be include in trial
+          i1=i1-4
+          ival=i1+iw-1
+          icnd=i1+proj%norb-iw
+          !write(*,*) iw,i1,ival,icnd
+          if (vpl(3).gt.0._dp) then
+            ! top layer
+            if (ispec.eq.1) then
+              ! A-site
+              wftrial(iorb,iw,iR)=sum(evec(iorb,ival,:)*dis_factors(ival,:)*phs(:,iR))
+            else
+              ! B-site
+              wftrial(iorb,iw,iR)=sum(evec(iorb,icnd,:)*dis_factors(icnd,:)*phs(:,iR))
+            end if 
+          else
+            ! bottom layer
+            if (ispec.eq.1) then
+              ! A-site
+              wftrial(iorb,iw,iR)=sum(evec(iorb,icnd,:)*dis_factors(icnd,:)*phs(:,iR))
+            else                                                           
+              ! B-site                                                     
+              wftrial(iorb,iw,iR)=sum(evec(iorb,ival,:)*dis_factors(ival,:)*phs(:,iR))
+            end if 
+          end if
+        end do
+      end do
+    end do
+    deallocate(phs,dis_factors)
+    wftrial=wftrial/dble(kgrid%npt)
+    sigma=0.6_dp*sqrt(dot_product(pars%avec(1,:),pars%avec(1,:)))
+    do iR=1,tbmodel%rgrid%npt
+      do iw=1,proj%norb
+        do iorb=1,tbmodel%norb_TB
+          dv=tbmodel%vplorb(iorb)+tbmodel%rgrid%vpl(iR)-pars%proj%centers(:,pars%proj%iw2ic(iw))
+          dc=matmul(dv,pars%avec)
+          dd=sqrt(dot_product(dc,dc))
+          t1=gauss(dd,sigma)
+          wftrial(iorb,iw,iR)=wftrial(iorb,iw,iR)*t1
+        end do
+      end do
+    end do
+    call generate_amn_overlap(tbmodel,pars,kgrid,eval,evec,tbmodel%rgrid%npt,wftrial)
+    deallocate(wftrial)
+  end if
   call generate_dmn_orb(tbmodel,proj,sym,pars,kgrid,evec,.false.,wws)
 else if (trim(adjustl(pars%wannier_proj_mode)).eq.'input_file') then
-   ! find the home unit cel
-   allocate(wftrial(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt))
-   wftrial(:,:,:)=0._dp
-   do ic=1,proj%ncenters
-     do ios=1,proj%norb_ic(ic)
-       ipro=proj%icio_orb(ic,ios)
-       ! basis of TB hamiltonian => wavefunctions
-       do jorb=1,tbmodel%norb_TB
-         jc=tbmodel%wbase%orb_icio(jorb,1)
-         if ( sum(abs( tbmodel%wbase%centers(:,jc)-proj%centers(:,ic) )).gt.epslat) cycle
-         l1=tbmodel%wbase%lmr(1,jorb)
-         m1=tbmodel%wbase%lmr(2,jorb)
-         x1=tbmodel%wbase%waxis(:,1,jorb)
-         z1=tbmodel%wbase%waxis(:,2,jorb)
-         l2=proj%lmr(1,ipro)
-         m2=proj%lmr(2,ipro)
-         x2=proj%waxis(:,1,ipro)
-         z2=proj%waxis(:,2,ipro)
-         wftrial(jorb,ipro,tbmodel%rgrid%ip0)=tbmodel%wbase%wws_full(sym%car(:,:,1),l1,m1,l2,m2,x1,z1,x2,z2)
+
+   inquire(file=trim(adjustl(pars%seedname))//'.amn',exist=exs)
+   if (.not.exs) then
+     allocate(wftrial(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt))
+     wftrial(:,:,:)=0._dp
+     do ic=1,proj%ncenters
+       do ios=1,proj%norb_ic(ic)
+         ipro=proj%icio_orb(ic,ios)
+         ! basis of TB hamiltonian => wavefunctions
+         do jorb=1,tbmodel%norb_TB
+           jc=tbmodel%wbase%orb_icio(jorb,1)
+           if ( sum(abs( tbmodel%wbase%centers(:,jc)-proj%centers(:,ic) )).gt.epslat) cycle
+           l1=tbmodel%wbase%lmr(1,jorb)
+           m1=tbmodel%wbase%lmr(2,jorb)
+           x1=tbmodel%wbase%waxis(:,1,jorb)
+           z1=tbmodel%wbase%waxis(:,2,jorb)
+           l2=proj%lmr(1,ipro)
+           m2=proj%lmr(2,ipro)
+           x2=proj%waxis(:,1,ipro)
+           z2=proj%waxis(:,2,ipro)
+           wftrial(jorb,ipro,tbmodel%rgrid%ip0)=tbmodel%wbase%wws_full(sym%car(:,:,1),l1,m1,l2,m2,x1,z1,x2,z2)
+         end do
        end do
      end do
-   end do
-   call generate_amn_overlap(tbmodel,pars,kgrid,eval,evec,tbmodel%rgrid%npt,wftrial)
+     call generate_amn_overlap(tbmodel,pars,kgrid,eval,evec,tbmodel%rgrid%npt,wftrial)
+     deallocate(wftrial)
+   end if
    call generate_dmn_orb(tbmodel,proj,sym,pars,kgrid,evec,.false.,wws)
-   deallocate(wftrial)
 
 else if (trim(adjustl(pars%wannier_proj_mode)).eq.'wannier_file') then
-   ! find the home unit cel
-   allocate(wftrial(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt))
-   wftrial(:,:,:)=0._dp
-   call read_wfmloc(pars,tbmodel,kgrid,evec,wftrial)
-   call generate_amn_overlap(tbmodel,pars,kgrid,eval,evec,tbmodel%rgrid%npt,wftrial)
+
+   inquire(file=trim(adjustl(pars%seedname))//'.amn',exist=exs)
+   if (.not.exs) then
+     allocate(wftrial(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt))
+     wftrial(:,:,:)=0._dp
+     call read_wfmloc(pars,tbmodel,kgrid,evec,wftrial)
+     call generate_amn_overlap(tbmodel,pars,kgrid,eval,evec,tbmodel%rgrid%npt,wftrial)
+     deallocate(wftrial)
+   end if
    call generate_dmn_orb(tbmodel,proj,sym,pars,kgrid,evec,.false.,wws)
-   nr=0
-   do iR=1,tbmodel%rgrid%npt
-     if (sum(abs(tbmodel%rgrid%vpl(iR))).le.6) then
-       nr=nr+1
-       do iw=1,proj%norb
-         do iorb=1,tbmodel%norb_TB
-           wftrial(iorb,iw,nr)=wftrial(iorb,iw,iR)
-         end do
-       end do
-     end if
-   end do
-   !if (mp_mpi) call write_wf_universe(tbmodel,pars,nr,wftrial(:,:,1:nr),'wftrial','')
-   deallocate(wftrial)
+
 else if (trim(adjustl(pars%wannier_proj_mode)).eq.'wftrial_file') then
-   ! find the home unit cel
-   allocate(wftrial(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt))
-   wftrial(:,:,:)=0._dp
-   call read_wf_universe(tbmodel,pars,tbmodel%rgrid%npt,wftrial,'wftrial','')
-   call generate_amn_overlap(tbmodel,pars,kgrid,eval,evec,tbmodel%rgrid%npt,wftrial)
+
+   inquire(file=trim(adjustl(pars%seedname))//'.amn',exist=exs)
+   if (.not.exs) then
+     allocate(wftrial(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt))
+     wftrial(:,:,:)=0._dp
+     call read_wf_universe(tbmodel,pars,tbmodel%rgrid%npt,wftrial,'wftrial','')
+     call generate_amn_overlap(tbmodel,pars,kgrid,eval,evec,tbmodel%rgrid%npt,wftrial)
+     deallocate(wftrial)
+   end if
    call generate_dmn_orb(tbmodel,proj,sym,pars,kgrid,evec,.false.,wws)
-   nr=0
-   do iR=1,tbmodel%rgrid%npt
-     if (sum(abs(tbmodel%rgrid%vpl(iR))).le.6) then
-       nr=nr+1
-       do iw=1,proj%norb
-         do iorb=1,tbmodel%norb_TB
-           wftrial(iorb,iw,nr)=wftrial(iorb,iw,iR)
-         end do
-       end do
-     end if
-   end do
-   !if (mp_mpi) call write_wf_universe(tbmodel,pars,nr,wftrial(:,:,1:nr),'wftrial','')
-   deallocate(wftrial)
+
 else if (trim(adjustl(pars%wannier_proj_mode)).eq.'real_space') then
+
+   inquire(file=trim(adjustl(pars%seedname))//'.amn',exist=exs)
+   if (.not.exs) then
+     allocate(wftrial(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt))
+     wftrial(:,:,:)=0._dp
+     sigma=2.0_dp*sqrt(dot_product(pars%avec(1,:),pars%avec(1,:)))
+     call real_space_wftrial(tbmodel,proj,wftrial,sigma)
+     call generate_amn_overlap(tbmodel,pars,kgrid,eval,evec,tbmodel%rgrid%npt,wftrial)
+     deallocate(wftrial)
+   end if
    call generate_dmn_orb(tbmodel,proj,sym,pars,kgrid,evec,.false.,wws)
-   ! find the home unit cel
-   allocate(wftrial(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt))
-   wftrial(:,:,:)=0._dp
-   sigma=2.0_dp*sqrt(dot_product(pars%avec(1,:),pars%avec(1,:)))
-   call real_space_wftrial(tbmodel,proj,wftrial,sigma)
-   call generate_amn_overlap(tbmodel,pars,kgrid,eval,evec,tbmodel%rgrid%npt,wftrial)
-   nr=0
-   do iR=1,tbmodel%rgrid%npt
-     if (sum(abs(tbmodel%rgrid%vpl(iR))).le.6) then
-       nr=nr+1
-       do iw=1,proj%norb
-         do iorb=1,tbmodel%norb_TB
-           wftrial(iorb,iw,nr)=wftrial(iorb,iw,iR)
-         end do
-       end do
-     end if
-   end do
-   if (mp_mpi) call write_wf_universe(tbmodel,pars,nr,wftrial(:,:,1:nr),'wftrial','')
-   deallocate(wftrial)
+
 else
   call throw("wannier_interface%generate_trial_wavefunctions()","unknown projection option")
 end if
@@ -2377,7 +2406,7 @@ write(50,*) 'mp_grid           = ',kgrid%ngrid
 write(50,*)
 write(50,*) 'begin Projections'
 do iwan=1,pars%proj%norb
-  write(50,'("f=",G18.10,",",G18.10,",",G18.10,":",A4)') &
+  write(50,'("f=",G18.10,",",G18.10,",",G18.10,":",A10)') &
     pars%proj%centers(:,pars%proj%iw2ic(iwan)),lmr_to_string(pars%proj%lmr(:,iwan))
 end do
 write(50,*) 'end Projections'
