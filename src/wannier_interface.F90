@@ -184,16 +184,15 @@ complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
 ! local
 character(len=200) :: message
 logical exs
-integer iR,iw,jw,i1,ival,icnd,ik
+integer iR,iw,i1,ival,icnd,ik
 integer iorb,jorb,ispec
 integer ipro,ic,jc,ios,l1,m1,l2,m2
 integer isym1,isym2,ik_gamma,ikg(NDIM+1)
-integer nr,pm_val(2),pm_con(2)
+integer pm_val(2),pm_con(2)
 type(wbase) proj
 real(dp) sigma
 real(dp) vpl(NDIM),x1(NDIM),x2(NDIM),z1(NDIM),z2(NDIM)
 real(dp) t1,dd,dv(NDIM),dc(NDIM)
-complex(dp) zz
 !complex(dp), allocatable :: wf_t(:)
 complex(dp), allocatable :: wftrial(:,:,:)
 complex(dp), allocatable :: wws(:,:,:)
@@ -383,6 +382,7 @@ else if (trim(adjustl(pars%wannier_proj_mode)).eq.'trial_from_gamma') then
         end do
       end do
     end do
+    wftrial=dble(wftrial)
     call generate_amn_overlap(tbmodel,pars,kgrid,eval,evec,tbmodel%rgrid%npt,wftrial)
     deallocate(wftrial)
   end if
@@ -530,6 +530,24 @@ else
   call throw("wannier_interface%generate_trial_wavefunctions()","unknown projection option")
 end if
 call generate_mmn_overlap(THIS,tbmodel,pars,kgrid,evec)
+call generate_tmn_overlap(tbmodel,pars,kgrid,eval,evec)
+if (proj%norb.eq.pars%nstates) then
+  allocate(wftrial(tbmodel%norb_TB,proj%norb,tbmodel%rgrid%npt))
+  wftrial=0._dp
+  do iR=1,tbmodel%rgrid%npt
+    do ik=1,kgrid%npt
+      t1=twopi*dot_product(kgrid%vpl(ik),tbmodel%rgrid%vpl(iR))
+      wftrial(:,:,iR)=wftrial(:,:,iR)+evec(:,:,ik)*cmplx(cos(t1),sin(t1),kind=dp)
+    end do
+    write(282,*) tbmodel%rgrid%vpl(iR)
+    do iw=1,proj%norb
+       do iorb=1,proj%norb
+          write(282,*) iw,iorb,dble(wftrial(iorb,iw,iR)),aimag(wftrial(iorb,iw,iR))
+       end do
+    end do
+  end do
+  deallocate(wftrial)
+end if
 deallocate(wws)
 end subroutine
 
@@ -834,7 +852,7 @@ do ik=1,kgrid%npt
       t1=dot_product(vq,tbmodel%vplorb(iorb))*twopi
       z1=cmplx(cos(t1),-sin(t1),kind=dp)
       do nn=1,pars%nstates
-        mmn(:,nn,innk)=mmn(:,nn,innk)+conjg(evec(iorb,:,ik))*evec(iorb,nn,jk)*z1*pwave_ovlp(dc)
+        mmn(:,nn,innk)=mmn(:,nn,innk)+conjg(evec(iorb,:,ik))*evec(iorb,nn,jk)*z1!*pwave_ovlp(dc)
       end do
     end do
   end do
@@ -851,6 +869,65 @@ do ik=1,kgrid%npt
 end do
 if (mp_mpi) close(50)
 deallocate(mmn)
+end subroutine
+
+subroutine generate_tmn_overlap(tbmodel,pars,kgrid,eval,evec)
+class(CLtb), intent(in) :: tbmodel
+class(CLpars), intent(in) :: pars
+class(GRID), intent(in) :: kgrid
+real(dp), intent(in) :: eval(pars%nstates,kgrid%npt)
+complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
+! local
+logical exs
+integer ik,jk,mm,nn,iorb,ir
+real(dp) dc
+real(dp) vq(NDIM),vc(NDIM)
+complex(dp), allocatable :: tmn(:,:)
+! M_mn(k)=<psi_mk|psi*_n{-k}>
+inquire(file=trim(adjustl(pars%seedname))//'.tmn',exist=exs)
+if (exs) then
+  !call info("CLwan%generate_mmn_overlap","skipping "//trim(adjustl(pars%seedname))//".mmn creation")
+  !return
+else
+  call info("CLwan%generate_mmn_overlap","generating "//trim(adjustl(pars%seedname))//".mmn file")
+end if
+if (mp_mpi) then
+  open(50,file=trim(adjustl(pars%seedname))//'.tmn',action='write')
+  write (50,*) '# '//trim(adjustl(pars%seedname))//'.tmn file'
+  write (50,"(4i9)") pars%nstates, kgrid%nirT, kgrid%npt
+  write (50,*)
+  write (50,"(10i9)") kgrid%ikT2ir(1:kgrid%npt)
+  write (50,*)
+  write (50,"(10i9)") kgrid%irT2ik(1:kgrid%nirT)
+  write (50,*)
+  write (50,"(10i9)") kgrid%ikT2k(1:kgrid%npt)
+end if
+allocate(tmn(pars%nstates,pars%nstates))
+do ir=1,kgrid%nirT
+  ik=kgrid%irT2ik(ir)
+  jk=kgrid%ikT2k(ik)
+  vq=-kgrid%vpl(ik)-kgrid%vpl(ik)
+  vc=matmul(vq,kgrid%vecs)
+  dc=sqrt(dot_product(vc,vc))
+  tmn=0._dp
+  do iorb=1,tbmodel%norb_TB
+    do nn=1,pars%nstates
+      tmn(:,nn)=tmn(:,nn)+conjg(evec(iorb,:,ik))*conjg(evec(iorb,nn,jk))!*pwave_ovlp(dc)
+    end do
+  end do
+  do mm=1,pars%nstates
+      if (dble(tmn(mm,mm))<0.9) then
+        write(*,'(i4,"(",i4,")",3I4,20F10.4)') ir,kgrid%nirT,ik,jk,mm,eval(mm,ik),eval(mm,jk)
+        write(*,'(6F10.4,"|",2F10.4)') kgrid%vpl(ik),kgrid%vpl(jk),tmn(mm,mm)
+      end if
+  end do
+  if (mp_mpi) then
+     WRITE (50,*)
+     WRITE (50,"(1p,(' (',e18.10,',',e18.10,')'))") tmn
+  end if
+end do
+if (mp_mpi) close(50)
+deallocate(tmn)
 end subroutine
 
 subroutine real_space_wftrial(tbmodel,proj,wftrial,sigma)
@@ -990,9 +1067,11 @@ class(CLpars), intent(in) :: pars
 class(CLsym), intent(in) :: sym
 complex(dp), allocatable :: wws(:,:,:)
 complex(dp), allocatable :: hams(:,:,:)
+complex(dp), allocatable :: hamt(:,:,:)
 type(wbase)  proj
 type(GRID) rgrid
 type(CLwan) wan
+type(GRID) kgrid
 integer iter
 integer isym,jsym,iR,jR
 integer n1,n2,m1,m2
@@ -1016,14 +1095,21 @@ call proj%init(pars,pars%proj%ncenters,pars%proj%norb,pars%proj%norb_ic,&
 call proj%init_smap(sym,pars)
 call rgrid%init(pars%ngrid,pars%avec,.true.,.false.)
 call wan%read_tb_file(pars,proj%norb)
+! init k-grid
+iR=maxval(wan%rgrid%ngrid)
+iv(1:2)=iR
+iv(3)=1
+call kgrid%init(iv(1:3),pars%bvec,centered_kgrid,.true.)
+call kgrid%sym_init(sym)
 allocate(wws(proj%norb,proj%norb,sym%nsym))
 allocate(hams(proj%norb,proj%norb,wan%rgrid%npt))
+allocate(hamt(proj%norb,proj%norb,wan%rgrid%npt))
 call init_wws(sym,proj,wws)
 do iter=1,pars%niter_symmetrize
   hams=0._dp
   do isym=1,sym%nsym
     jsym=sym%inv(isym)
-    SJ=dble(sym%lat(:,:,isym))
+    SJ=dble(sym%lat(:,:,jsym))
     do jR=1,wan%rgrid%npt
       RJ=wan%rgrid%vpl(jR)
       do n1=1,proj%norb
@@ -1049,10 +1135,112 @@ do iter=1,pars%niter_symmetrize
       end do
     end do
   end do
-  wan%hame=hams/dble(sym%nsym)
+  hams=hams/dble(sym%nsym)
+  if (pars%trev) then
+    call symmetrize_trev(proj%norb,wan,kgrid,hams,hamt)
+    hams=hamt
+  endif
+  wan%hame=hams
 end do
-call wan%write_tb_file(pars,proj%norb)
+call wan%write_tb_file('hamwan',pars,proj%norb)
+deallocate(hams,hamt,wws)
 end subroutine
+
+subroutine symmetrize_trev(nwan,wan,kgrid,ham,hams)
+integer, intent(in) :: nwan
+type(CLwan), intent(in) :: wan
+type(GRID), intent(in) :: kgrid
+complex(dp), intent(in) :: ham(nwan,nwan,wan%rgrid%npt)
+complex(dp), intent(out) :: hams(nwan,nwan,wan%rgrid%npt)
+complex(dp), allocatable :: hamk(:,:,:),hamsk(:,:,:)
+integer, parameter :: sgn=1
+real(dp), parameter :: mix=0.2_dp
+integer ir,ik,jk,iw,jw
+real(dp) t1
+complex(dp) z1
+complex(dp), dimension(:,:), allocatable :: A,B,U,SA,SB
+real(dp), allocatable :: s1(:),s2(:)
+allocate(A(nwan,nwan))
+allocate(B(nwan,nwan))
+allocate(U(nwan,nwan))
+allocate(SA(nwan,nwan))
+allocate(SB(nwan,nwan))
+allocate(s1(nwan))
+allocate(s2(nwan))
+allocate(hamk(nwan,nwan,kgrid%npt))
+allocate(hamsk(nwan,nwan,kgrid%npt))
+! FT TB Hamiltonian
+hamk=0._dp
+do ik=1,kgrid%npt
+  do iR=1,wan%rgrid%npt
+    t1=twopi*dot_product(kgrid%vpl(ik),wan%rgrid%vpl(iR))
+    z1=cmplx(cos(t1),sgn*sin(t1),kind=dp)
+    hamk(:,:,ik)=hamk(:,:,ik)+ham(:,:,iR)*z1
+  end do
+end do
+! find unique TR Unitary operator U, such that H_k=U H*_{-k} U^\dagger valid approximately for all k-points
+! re-write in terms of matrixes A and B  : A=UBU^\dagger
+! extracting square roots : sqrt(A) sqrt(A)^\dagger = U sqrt(B) sqrt(B)^\dagger U^\dagger
+! then U = sqrt(A) sqrt(B)^-1
+U=0._dp
+! extract matrix U only from the first point(GAMMA)
+do ir=1,kgrid%nirT
+    ik=kgrid%irT2ik(ir)
+    jk=kgrid%ikT2k(ik)
+    ! find square root of hamk(:,:,ik) and conjg(hamk(:,:,jk))
+    A=hamk(:,:,ik)
+    B=conjg(hamk(:,:,jk))
+    do iw=1,nwan
+      A(iw,iw)=A(iw,iw)+100._dp ! makes eigenvalues to be positive
+      B(iw,iw)=B(iw,iw)+100._dp
+    end do
+    call eigenv_problem(nwan,A,s1)
+    call eigenv_problem(nwan,B,s2)
+    ! square roots
+    do iw=1,nwan
+      SA(iw,:)=sqrt(s1(iw))*conjg(A(:,iw))
+      SB(iw,:)=sqrt(s2(iw))*conjg(B(:,iw)) 
+    end do
+    A=matmul(A,SA)
+    B=matmul(B,SB)
+    call utility_zgetri(B)
+    ! add to the unitary transformation
+    SA=matmul(A,B)
+    U=U+matmul(A,B)
+end do
+U=U/dble(kgrid%nirT)
+! now we need to make SVD to make it unitary
+A=U
+call utility_zgesvd(A,SA,s1,SB)
+do iw=1,nwan
+  SA(iw,:)=1._dp/abs(s1(iw))*SB(iw,:)
+end do
+A=matmul(conjg(transpose(SB)),SA)
+U=matmul(U,A)
+write(*,*) U
+stop
+! Apply TR in reciprocal space
+do ir=1,kgrid%nirT
+  ik=kgrid%irT2ik(ir)
+  jk=kgrid%ikT2k(ik)
+  call utility_zgemmm(U,'N',conjg(hamk(:,:,jk)), 'N', U, 'C', hamsk(:,:,ik))
+  call utility_zgemmm(U,'N',conjg(hamsk(:,:,ik)), 'N', U, 'C', hamsk(:,:,jk))
+end do
+! FT back to real space 
+hams=0._dp
+do iR=1,wan%rgrid%npt
+  do ik=1,kgrid%npt
+    t1=twopi*dot_product(kgrid%vpl(ik),wan%rgrid%vpl(iR))
+    z1=cmplx(cos(t1),-sgn*sin(t1),kind=dp)
+    hams(:,:,iR)=hams(:,:,iR)+hamsk(:,:,ik)*z1
+  end do
+end do
+hams=hams/dble(kgrid%npt)
+deallocate(A,B,U,SA,SB,s1,s2)
+deallocate(hamk,hamsk)
+end subroutine symmetrize_trev
+
+
 
 subroutine write_hubbardu(pars,sym)
 class(CLpars), intent(in) :: pars
@@ -2496,7 +2684,7 @@ wf=0._dp
 do iw=1,pars%proj%norb
   write(num,'(I2)') iw
   fname=trim(adjustl(pre))//trim(adjustl(num))//trim(adjustl(post))//'.dat'
-  if (mp_mpi) write(*,*) 'reading file:', fname
+  if (mp_mpi) write(*,*) 'reading file:', trim(fname)
   open(50,file=trim(adjustl(fname)))
   read(50,*) avec(1,:)
   read(50,*) avec(2,:)
@@ -2639,6 +2827,7 @@ close(50)
 ngrid(1)=max(2*maxval(abs(ivr(1,:))),1)+1
 ngrid(2)=max(2*maxval(abs(ivr(2,:))),1)+1
 ngrid(3)=max(2*maxval(abs(ivr(3,:))),1)+1
+ngrid(3)=1
 call THIS%rgrid%init(ngrid,avec,.true.,.false.)
 allocate(This%dege(THIS%rgrid%npt))
 allocate(This%hame(nwan,nwan,THIS%rgrid%npt))
@@ -2651,11 +2840,14 @@ do ir=1,nrpt
   THIS%dege(ivp(4))=dble(deg(ir))
   THIS%hame(:,:,ivp(4))=ham(:,:,ir)
 end do
+call info("read_tb_file","read_tb_file done")
+if (pars%writetb) call THIS%write_tb_file('hamwan0',pars,pars%proj%norb)
 deallocate(ivr,deg,ham)
 return
 end subroutine
-subroutine write_tb_file(THIS,pars,norb)
+subroutine write_tb_file(THIS,prefix,pars,norb)
 class(CLwan), intent(inout) :: THIS
+character(len=*), intent(in) :: prefix
 class(CLpars), intent(in) :: pars
 integer, intent(in) :: norb
 integer ii,jj,ir,ivp(NDIM+1),counter
@@ -2673,7 +2865,7 @@ do ir=1,rgrid%npt
   deg(counter)=nint(THIS%dege(ivp(NDIM+1)))
 end do
 call system("mkdir -p _ham")
-open(50,file="_ham/hamwan_tb.dat",action='write')
+open(50,file='_ham/'//trim(adjustl(prefix))//'_tb.dat',action='write')
 write(50,*)
 write(50,*) pars%avec(1,:)
 write(50,*) pars%avec(2,:)

@@ -182,10 +182,17 @@ else
   atxy(3,:)=(/ 0._dp   , 0._dp   ,zlat/)
   atxy(4,:)=(/ twothrd , twothrd ,zlat/)
 end if
-spec0(1)=1
-spec0(2)=1
-spec0(3)=1
-spec0(4)=1
+if (imode.ge.0) then
+  spec0(1)=1
+  spec0(2)=2
+  spec0(3)=1
+  spec0(4)=2
+else
+  spec0(1)=1
+  spec0(2)=1
+  spec0(3)=1
+  spec0(4)=1
+end if
 
 counter=number_of_atoms*(2*ntrans+1)*(2*ntrans+1)
 allocate(atmlt(3,counter))
@@ -220,8 +227,13 @@ if (number_of_atoms.ne.counter) then
   call throw("geomlib%generate_structure_tbg()","number of atoms counted is not correct")
 end if
 ! allocate geometry library arrays
-THIS%nspec=1
-THIS%nmaxatm_pspec=number_of_atoms!/2
+if (imode.ge.0) then
+  THIS%nspec=2
+  THIS%nmaxatm_pspec=number_of_atoms/2
+else
+  THIS%nspec=1
+  THIS%nmaxatm_pspec=number_of_atoms
+end if
 allocate(THIS%nat_per_spec(THIS%nspec))
 allocate(THIS%atml(3,THIS%nmaxatm_pspec,THIS%nspec))
 THIS%nat_per_spec(:)=THIS%nmaxatm_pspec

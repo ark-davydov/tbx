@@ -20,6 +20,7 @@ type, public :: CLgrid
 endtype CLgrid
 
 type, public, extends(CLgrid) :: GRID
+  logical :: trevinit_done=.false.
   logical :: syminit_done=.false.
   logical :: sphere_allocated=.false.
   logical centered
@@ -27,6 +28,7 @@ type, public, extends(CLgrid) :: GRID
   integer ngrid(NDIM)
   integer :: ip0=-1
   integer nir
+  integer nirT
   integer npt_sphere
   real(dp) :: vq0
   integer, allocatable :: sphere_to_homo(:)
@@ -35,6 +37,10 @@ type, public, extends(CLgrid) :: GRID
   integer, allocatable :: sik2ir(:)
   integer, allocatable :: ik2ir(:)
   integer, allocatable :: ir2ik(:)
+  ! time reversal
+  integer, allocatable :: ikT2k(:)
+  integer, allocatable :: ikT2ir(:)
+  integer, allocatable :: irT2ik(:)
   contains 
   procedure :: init=>init_grid
   procedure :: init_sphere
@@ -301,6 +307,34 @@ do ik=1,THIS%npt
       THIS%sik2ir(ikp)=sym%inv(isym)
    end do
 end do
+call info("GRID%sym_init()","symmetry is initialized on the grid")
+call info("GRID%sym_init()","attemp to initilize k->-k for TR symmetry...")
+allocate(THIS%ikT2k(THIS%npt))
+THIS%ikT2k=-999 
+do ik=1,THIS%npt
+  igk=THIS%find(-THIS%vpl(ik))
+  THIS%ikT2k(ik)=igk(NDIM+1)
+end do
+allocate(THIS%ikT2ir(THIS%npt))
+allocate(THIS%irT2ik(THIS%npt))
+THIS%ikT2ir=-999 
+THIS%irT2ik=-999 
+lfound=.false.
+THIS%nirT=0
+do ik=1,THIS%npt
+   if(lfound(ik)) cycle
+   lfound(ik)=.true.
+   THIS%nirT=THIS%nirT+1
+   THIS%irT2ik(THIS%nirT)=ik
+   THIS%ikT2ir(ik)=THIS%nirT
+   do isym=1,sym%nsym
+      ikp=THIS%ikT2k(ik)
+      if(lfound(ikp)) cycle
+      lfound(ikp)=.true.
+      THIS%ikT2ir(ikp)=THIS%nirT
+   end do
+end do
+call info("GRID%sym_init()",".. TR symmetry is initialized on the grid")
 end subroutine
 
 subroutine io_grid(THIS,unt,fname,action,pars,norb)

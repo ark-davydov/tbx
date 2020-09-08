@@ -29,6 +29,8 @@ real(dp), parameter :: epslat=1.e-6_dp
 real(dp), parameter :: epsengy=1.e-7_dp
 real(dp), parameter :: Hartree_to_ev=27.211386245988_dp
 real(dp), parameter :: CoulombForceConstant=abohr*Hartree_to_ev
+complex(dp), parameter :: cmplx_0=cmplx(0._dp,0._dp,kind=dp)
+complex(dp), parameter :: cmplx_1=cmplx(1._dp,0._dp,kind=dp)
 real(dp) :: graphene_lvec_length=2.46_dp
 real(dp) :: graphene_cc_distance=1.42_dp
 real(dp) :: tbg_aa_distance=3.60_dp
@@ -933,5 +935,161 @@ end if
 return
 end function
 !EOC
+
+  !=============================================================!
+  subroutine utility_zgemm(a, b, c, transa_opt, transb_opt)
+    !=============================================================!
+    !                                                             !
+    ! Return matrix product of complex matrices a and b:          !
+    !                                                             !
+    !                       C = Op(A) Op(B)                       !
+    !                                                             !
+    ! transa = 'N'  ==> Op(A) = A                                 !
+    ! transa = 'T'  ==> Op(A) = transpose(A)                      !
+    ! transa = 'C'  ==> Op(A) = congj(transpose(A))               !
+    !                                                             !
+    ! similarly for B                                             !
+    !                                                             !
+    ! Due to the use of assumed shape arrays, this routine is a   !
+    ! safer and more general replacement for the above routine    !
+    ! utility_zgemm. Consider removing utility_zgemm and using    !
+    ! utility_zgemm_new throughout.                               !
+    !                                                             !
+    !=============================================================!
+
+
+    implicit none
+
+    complex(kind=dp), intent(in)            :: a(:, :)
+    complex(kind=dp), intent(in)            :: b(:, :)
+    complex(kind=dp), intent(out)           :: c(:, :)
+    character(len=1), intent(in), optional  :: transa_opt
+    character(len=1), intent(in), optional  :: transb_opt
+
+    integer          :: m, n, k
+    character(len=1) :: transa, transb
+
+    transa = 'N'
+    transb = 'N'
+    if (present(transa_opt)) transa = transa_opt
+    if (present(transb_opt)) transb = transb_opt
+
+    ! m ... number of rows in Op(A) and C
+    ! n ... number of columns in Op(B) and C
+    ! k ... number of columns in Op(A) resp. rows in Op(B)
+    m = size(c, 1)
+    n = size(c, 2)
+
+    if (transa /= 'N') then
+      k = size(a, 1)
+    else
+      k = size(a, 2)
+    end if
+
+    call zgemm(transa, transb, m, n, k, cmplx_1, a, size(a, 1), b, size(b, 1), cmplx_0, c, m)
+
+  end subroutine utility_zgemm
+
+  !=============================================================!
+  subroutine utility_zgemmm(a, transa, b, transb, c, transc, &
+                            prod1, eigval, prod2)
+    !===============================================================!
+    ! Returns the complex matrix-matrix-matrix product              !
+    ! --> prod1 = op(a).op(b).op(c),                                !
+    ! where op(a/b/c) are defined according to transa/transb/transc !
+    ! (see also documentation of utility_zgemm above)               !
+    !                                                               !
+    ! If eigval and prod2 are present, also                         !
+    ! --> prod2 = op(a).diag(eigval).op(b).op(c)                    !
+    ! is returned.                                                  !
+    !===============================================================!
+
+    complex(kind=dp), dimension(:, :), intent(in)  :: a, b, c
+    character(len=1), intent(in)                  :: transa, transb, transc
+    real(kind=dp), dimension(:), optional, &
+      intent(in)       :: eigval
+    complex(kind=dp), dimension(:, :), optional, &
+      intent(out) :: prod1, prod2
+
+    complex(kind=dp), dimension(:, :), allocatable :: tmp
+    integer                                       :: nb, mc, i, j
+
+    ! query matrix sizes
+    ! naming convention:
+    ! matrix op(a) [resp. op(b) and op(c)] is of size na x ma [resp. nb x mb and nc x mc]
+    ! only nb (=ma) and mc are explicitly needed
+    if (transb /= 'N') then
+      nb = size(b, 2)
+    else
+      nb = size(b, 1)
+    end if
+    if (transc /= 'N') then
+      mc = size(c, 1)
+    else
+      mc = size(c, 2)
+    end if
+
+    ! tmp = op(b).op(c)
+    allocate (tmp(nb, mc))
+    call utility_zgemm(b, c, tmp, transb, transc)
+
+    ! prod1 = op(a).tmp
+    if (present(prod1)) then
+      call utility_zgemm(a, tmp, prod1, transa, 'N')
+    end if
+
+    if (present(prod2) .and. present(eigval)) then
+      ! tmp = diag(eigval).tmp
+      forall (i=1:nb, j=1:mc)
+      tmp(i, j) = eigval(i)*tmp(i, j)
+      end forall
+      ! prod2 = op(a).tmp
+      call utility_zgemm(a, tmp, prod2, transa, 'N')
+    end if
+  end subroutine
+
+subroutine utility_zgesvd(arr,u,s,v)
+      complex(kind=dp), intent(in)  :: arr(:,:)
+      complex(kind=dp), intent(out) :: u(:,:)
+      real(kind=dp), intent(out) :: s(:)
+      complex(kind=dp), intent(out) :: v(:,:)
+
+      real(kind=dp), allocatable :: rwork(:)
+      complex(kind=dp), allocatable :: cwork(:)
+     
+      integer nsize,info
+      nsize=size(arr,1)
+
+      allocate (rwork(5*nsize))
+      allocate (cwork(4*nsize))
+
+      call ZGESVD('A', 'A', nsize, nsize, arr, &
+                  nsize, s, u, nsize, v, nsize, cwork, &
+                  4*nsize, rwork, info)
+
+      deallocate(rwork,cwork)
+
+end subroutine
+
+subroutine utility_zgetri(arr)
+      complex(kind=dp), intent(inout)  :: arr(:,:)
+
+      complex(kind=dp), allocatable :: cwork(:)
+      integer, allocatable :: ipiv(:)
+      integer nsize,info
+      nsize=size(arr,1)
+      
+      allocate (ipiv(nsize))
+      allocate (cwork(5*nsize))
+
+      call zgetrf(nsize,nsize,arr,nsize,ipiv,info)
+      if (info.eq.0) call zgetri(nsize,arr,nsize,ipiv,cwork,nsize,info)
+      if (info.ne.0) call throw("modcom%utility_zgetri","unable to invert a matrix")
+
+      deallocate(cwork,ipiv)
+
+end subroutine
+ 
+ 
 
 end module

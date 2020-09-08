@@ -37,6 +37,7 @@ type, public :: CLpars
   character(len=100) :: tbtype="sk"
   character(len=100) :: coulrs_file=""
   logical :: HubU_diagonal=.false.
+  logical :: trev=.false.
   logical :: readsym=.false.
   logical :: shifted=.false.
   logical :: symtshift=.true.
@@ -359,6 +360,14 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%readsym
     if (iostat.ne.0) call throw("paramters%read_input()","problem with readsym data")
     if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%readsym
+
+  ! .true. to use time reversal in the symmetrization
+  else if (trim(block).eq."trev") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%trev
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with trev data")
+    if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%trev
+
 
   ! .true. to write tight binding hamiltonian
   else if (trim(block).eq."writetb") then

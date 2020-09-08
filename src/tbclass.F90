@@ -464,7 +464,7 @@ do iw=1,THIS%wbase%norb
      ic=THIS%wbase%orb_icio(jw,1)
      jc=THIS%wbase%ics2c(ic,isym)
      if(THIS%wbase%orb_icio(iw,1).ne.jc) cycle
-     wfout(iw)=wfout(iw)+THIS%wbase%wws(sym%car(:,:,isym),jw,iw)*wfin(jw)*zz
+     wfout(iw)=wfout(iw)+THIS%wbase%wws(sym%car(:,:,isym),iw,jw)*wfin(jw)*zz
    end do
 end do
 return
@@ -496,7 +496,7 @@ do iw=1,THIS%wbase%norb
      ic=THIS%wbase%orb_icio(jw,1)
      jc=THIS%wbase%ics2c(ic,isym)
      if(THIS%wbase%orb_icio(iw,1).ne.jc) cycle
-     wfout(iw)=wfout(iw)+THIS%wbase%wws(sym%car(:,:,isym),jw,iw)*wfin(jw)*zz
+     wfout(iw)=wfout(iw)+THIS%wbase%wws(sym%car(:,:,isym),iw,jw)*wfin(jw)*zz
    end do
 end do
 return
@@ -568,9 +568,10 @@ end subroutine
 subroutine write_tb_file(THIS,pars)
 class(CLtb), intent(inout) :: THIS
 class(CLpars), intent(in) :: pars
-integer ii,jj,ir,counter,ivp(NDIM+1)
-complex(dp), allocatable :: ham(:,:,:)
+integer ii,jj,ir,jR,ic,jc,counter,ivp(NDIM+1)
+real(dp) t1,dv(NDIM)
 integer, allocatable :: deg(:)
+complex(dp), allocatable :: ham(:,:,:)
 type(GRID) rgrid
 if (NDIM.ne.3) call throw("CLtb%write_tb_file","this subroutine works only in 3D case")
 call rgrid%init(pars%ngrid,pars%avec,.true.,.false.)
@@ -581,7 +582,11 @@ do ir=1,rgrid%npt
   ivp=THIS%rgrid%find(rgrid%vpl(ir))
   if (ivp(ndim+1).lt.0.or.sum(abs(ivp(1:NDIM))).ne.0) cycle
   counter=counter+1
-  deg(counter)=nint(THIS%dege(ivp(NDIM+1)))
+  if (trim(adjustl(THIS%mode)).eq.'tbfile'.or.trim(adjustl(THIS%mode)).eq.'hrfile') then
+     deg(counter)=nint(THIS%dege(ivp(NDIM+1)))
+  else
+     deg(counter)=1
+  end if
 end do
 call system("mkdir -p _ham")
 open(50,file="_ham/ham_tb.dat",action='write')
@@ -596,21 +601,39 @@ if (THIS%mode.eq."") then
 else
   write(50,'(15I5)') (deg(ir),ir=1,counter)
 end if
-allocate(ham(THIS%norb_TB,THIS%norb_TB,THIS%rgrid%npt))
-call THIS%unfold_hame(ham)
+if (trim(adjustl(THIS%mode)).eq.'tbfile'.or.trim(adjustl(THIS%mode)).eq.'hrfile') then
+   allocate(ham(THIS%norb_TB,THIS%norb_TB,THIS%rgrid%npt))
+   call THIS%unfold_hame(ham)
+end if
 do ir=1,rgrid%npt
   ivp=THIS%rgrid%find(rgrid%vpl(ir))
   if (ivp(ndim+1).lt.0.or.sum(abs(ivp(1:NDIM))).ne.0) cycle
+  jR=ivp(NDIM+1)
   write(50,*)
-  write(50,'(3I5)') THIS%rgrid%vpi(ivp(NDIM+1))
+  write(50,'(3I5)') THIS%rgrid%vpi(jR)
   do jj=1,THIS%norb_TB
     do ii=1,THIS%norb_TB
-      write(50,'(2I5,3x,2(E15.8,1x))') ii,jj,ham(ii,jj,ivp(NDIM+1))
+      if (trim(adjustl(THIS%mode)).eq.'tbfile'.or.trim(adjustl(THIS%mode)).eq.'hrfile') then
+        write(50,'(2I5,3x,2(E15.8,1x))') ii,jj,ham(ii,jj,jR)
+      else
+        ic=THIS%wbase%orb_icio(ii,1)
+        jc=THIS%wbase%orb_icio(jj,1)
+        dv=THIS%wbase%centers_cart(:,jc)+THIS%rgrid%vpc(jR)-THIS%wbase%centers_cart(:,ic)
+        t1=sqrt(dot_product(dv,dv))
+        if (t1.lt.THIS%rcut_nn) then
+          write(50,'(2I5,3x,2(E15.8,1x))') ii,jj,THIS%tij(ii,jj,jR)
+        else
+          write(50,'(2I5,3x,2(E15.8,1x))') ii,jj,0._dp,0._dp
+        end if
+      end if
     end do
   end do
 end do
 close(50)
-deallocate(ham,deg)
+if (trim(adjustl(THIS%mode)).eq.'tbfile'.or.trim(adjustl(THIS%mode)).eq.'hrfile') then
+  deallocate(ham)
+end if
+deallocate(deg)
 return
 end subroutine
 
