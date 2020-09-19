@@ -1089,7 +1089,42 @@ subroutine utility_zgetri(arr)
       deallocate(cwork,ipiv)
 
 end subroutine
+  subroutine unitarize(leftright,m,n,cmat)
  
- 
+     integer, intent(in) :: leftright,m,n
+     complex(dp), intent(inout) :: cmat(m,n)
+     complex(dp) :: U(m,m),V(n,n)
+     complex(dp) :: tmp(max(m,n),max(m,n))
+     real(dp) :: S(min(n,m))
+     integer i,j,k
+     ! fix unitarity by SVD. Note that first argument of zgesvd is destroyed
+     tmp(1:m,1:n)=cmat
+     call utility_zgesvd(tmp(1:m,1:n),U,S,V)
+     k=min(m,n)
+     do i=1,k
+       if (abs(S(i))<epslat) then
+         S(i)=0._dp
+       else
+         S(i)=1._dp/abs(S(i))
+       end if
+     end do
+     ! 1/|A|^1/2
+     do i=1,n
+       do j=1,n
+         if (leftright>0) then
+           tmp(i,j)=sum(S(1:k)*conjg(V(1:k,i)*V(1:k,j)))
+         else
+           tmp(i,j)=sum(S(1:k)*U(i,1:k)*conjg(U(j,1:k)))
+         end if
+       end do
+     end do
+     if (leftright>0) then
+        cmat(:,:)=matmul(cmat,tmp(1:n,1:n))
+     else
+        cmat(:,:)=matmul(tmp(1:m,1:m),cmat)
+     end if
+  end subroutine
+
+
 
 end module

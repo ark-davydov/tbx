@@ -216,7 +216,6 @@ vpl=0._dp
 ikg=kgrid%find(vpl)
 ik_gamma=ikg(NDIM+1)
 allocate(wws(proj%norb,proj%norb,sym%nsym))
-call kgrid%sym_init(sym)
 if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band'.or.&
     trim(adjustl(pars%wannier_proj_mode)).eq.'tbg12band') then
   if (trim(adjustl(pars%wannier_proj_mode)).eq.'tbg4band') then
@@ -480,7 +479,7 @@ else if (trim(adjustl(pars%wannier_proj_mode)).eq.'input_file') then
            m2=proj%lmr(2,ipro)
            x2=proj%waxis(:,1,ipro)
            z2=proj%waxis(:,2,ipro)
-           wftrial(jorb,ipro,tbmodel%rgrid%ip0)=tbmodel%wbase%wws_full(sym%car(:,:,1),l1,m1,l2,m2,x1,z1,x2,z2)
+           wftrial(jorb,ipro,tbmodel%rgrid%ip0)=tbmodel%wbase%wws_full(.false.,sym%car(:,:,1),l1,m1,l2,m2,x1,z1,x2,z2)
          end do
        end do
      end do
@@ -531,23 +530,6 @@ else
 end if
 call generate_mmn_overlap(THIS,tbmodel,pars,kgrid,evec)
 call generate_tmn_overlap(tbmodel,pars,kgrid,eval,evec)
-if (proj%norb.eq.pars%nstates) then
-  allocate(wftrial(tbmodel%norb_TB,proj%norb,tbmodel%rgrid%npt))
-  wftrial=0._dp
-  do iR=1,tbmodel%rgrid%npt
-    do ik=1,kgrid%npt
-      t1=twopi*dot_product(kgrid%vpl(ik),tbmodel%rgrid%vpl(iR))
-      wftrial(:,:,iR)=wftrial(:,:,iR)+evec(:,:,ik)*cmplx(cos(t1),sin(t1),kind=dp)
-    end do
-    write(282,*) tbmodel%rgrid%vpl(iR)
-    do iw=1,proj%norb
-       do iorb=1,proj%norb
-          write(282,*) iw,iorb,dble(wftrial(iorb,iw,iR)),aimag(wftrial(iorb,iw,iR))
-       end do
-    end do
-  end do
-  deallocate(wftrial)
-end if
 deallocate(wws)
 end subroutine
 
@@ -562,11 +544,12 @@ logical, intent(in) :: lwws
 complex(dp), intent(inout) :: wws(base%norb,base%norb,sym%nsym)
 ! local
 integer isym,iw,jw,ic,jc,ir,ik
-integer ikp,ist,jst,nn
+integer ikp,ist,jst,nn,nsym
 logical exs
 real(dp) err,t1,t2
 real(dp) v1(NDIM),v2(NDIM)
 complex(dp), allocatable :: phs(:,:)
+complex(dp), allocatable :: wwst(:,:)
 complex(dp), allocatable :: wf_t(:,:)
 complex(dp), allocatable :: ovlp(:,:,:,:)
 inquire(file=trim(adjustl(pars%seedname))//'.dmn',exist=exs)
@@ -582,7 +565,7 @@ if (.not.lwws) then
        jc=base%ics2c(ic,isym)
        do jw=1,base%norb
           if(base%orb_icio(jw,1).ne.jc) cycle
-          wws(jw,iw,isym)=base%wws(sym%car(:,:,isym),iw,jw)
+          wws(jw,iw,isym)=base%wws(.false.,sym%car(:,:,isym),iw,jw)
        end do
     end do
     do iw=1,base%norb
@@ -599,7 +582,11 @@ end if
 if (mp_mpi) then
   open (unit=1001, file=trim(adjustl(pars%seedname))//".dmn",form='formatted')
   write (1001,*) '# '//trim(adjustl(pars%seedname))//'.dmn file'
-  write (1001,"(4i9)") pars%nstates, sym%nsym, kgrid%nir, kgrid%npt
+  if (pars%trev) then
+    write (1001,"(4i9)") pars%nstates, sym%nsym+1, kgrid%nir, kgrid%npt
+  else
+    write (1001,"(4i9)") pars%nstates, sym%nsym, kgrid%nir, kgrid%npt
+  end if
   write (1001,*)
   write (1001,"(10i9)") kgrid%ik2ir(1:kgrid%npt)
   write (1001,*)
@@ -609,8 +596,7 @@ if (mp_mpi) then
      write (1001,"(10i9)") kgrid%iks2k(kgrid%ir2ik(ir),:)
   enddo
 end if
-allocate(phs(base%norb,base%norb))
-phs=0._dp
+allocate(phs(base%norb,base%norb),wwst(base%norb,base%norb))
 if (mp_mpi) then
   WRITE(*,'(/)')
   WRITE(*,'(a,i8)') '  DMN(d_matrix_wann): nir = ',kgrid%nir
@@ -621,6 +607,7 @@ do ir=1,kgrid%nir
     WRITE (*,'(i8)',advance='no') ir
     IF( MOD(ir,10) == 0 ) WRITE (*,*)
   end if
+  phs=0._dp
   do isym=1,sym%nsym
      do iw=1,base%norb
         ic=base%orb_icio(iw,1)
@@ -631,11 +618,27 @@ do ir=1,kgrid%nir
         t2=dot_product(sym%vtc(:,isym),v2)
         phs(iw,iw)=cmplx(cos(t1),sin(t1),kind=dp)*cmplx(cos(t2),sin(t2),kind=dp)
      end do
+     wwst=matmul(phs,wws(:,:,isym))
+     ! unitarize from the left
+     call unitarize(-1,base%norb,base%norb,wws(:,:,isym))
      if (mp_mpi) then
         WRITE (1001,*)
-        WRITE (1001,"(1p,(' (',e18.10,',',e18.10,')'))") matmul(phs,wws(:,:,isym))
+        WRITE (1001,"(1p,(' (',e18.10,',',e18.10,')'))") wwst
      end if
   end do
+  phs=0._dp
+  if (pars%trev) then
+     do iw=1,base%norb
+        do jw=1,base%norb
+           if(base%orb_icio(jw,1).ne.base%orb_icio(iw,1)) cycle
+           phs(jw,iw)=base%wws(.true.,sym%car(:,:,1),iw,jw)
+        end do
+     end do
+     if (mp_mpi) then
+        WRITE (1001,*)
+        WRITE (1001,"(1p,(' (',e18.10,',',e18.10,')'))") phs
+     end if
+  end if
 end do
 if (mp_mpi) then
   write(1001,*)
@@ -643,7 +646,12 @@ if (mp_mpi) then
   write(*,'(/)')
   write(*,'(a,i8)') '  DMN(d_matrix_band) [could be not ordered]: nir = ',kgrid%nir
 end if
-allocate(ovlp(pars%nstates,pars%nstates,sym%nsym,kgrid%nir))
+if (pars%trev) then
+  nsym=sym%nsym+1
+else
+  nsym=sym%nsym
+end if
+allocate(ovlp(pars%nstates,pars%nstates,nsym,kgrid%nir))
 allocate(wf_t(tbmodel%norb_TB,pars%nstates))
 ovlp=0._dp
 #ifdef MPI
@@ -667,15 +675,26 @@ do ir=1,kgrid%nir
     !$OMP END DO
     !$OMP END PARALLEL
   end do
+  if (pars%trev) then
+    ikp=kgrid%iks2k(ik,sym%nsym+1)
+    do jst=1,pars%nstates
+      do ist=1,pars%nstates
+         ovlp(ist,jst,sym%nsym+1,ir)=dot_product(evec(:,ist,ikp),conjg(evec(:,jst,ik)))
+         !ovlp(ist,jst,sym%nsym+1,ir)=dot_product(evec(:,ist,ik),conjg(evec(:,jst,ikp)))
+         write(*,*) ir,ikp, ist,jst, dble(ovlp(ist,jst,sym%nsym+1,ir)),aimag(ovlp(ist,jst,sym%nsym+1,ir))
+      end do
+    end do
+  end if
 end do
 #ifdef MPI
-  nn=pars%nstates*pars%nstates*sym%nsym*kgrid%nir
+  ! it is nsym, not sym%nsym here
+  nn=pars%nstates*pars%nstates*nsym*kgrid%nir
   call mpi_allreduce(mpi_in_place,ovlp,nn,mpi_double_complex,mpi_sum, &
    mpi_com,mpi_err)
 #endif
 if (mp_mpi) then
   do ir=1,kgrid%nir
-    do isym=1,sym%nsym
+    do isym=1,nsym
       do jst=1,pars%nstates
         do ist=1,pars%nstates
           write(1001,"(1p,(' (',e18.10,',',e18.10,')'))") ovlp(ist,jst,isym,ir)
@@ -687,7 +706,7 @@ if (mp_mpi) then
   close(1001)
   write(*,*)
 end if
-deallocate(phs,ovlp)
+deallocate(phs,wwst,ovlp)
 deallocate(wf_t)
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
@@ -1066,6 +1085,7 @@ subroutine symmetrize_tbfile(pars,sym)
 class(CLpars), intent(in) :: pars
 class(CLsym), intent(in) :: sym
 complex(dp), allocatable :: wws(:,:,:)
+complex(dp), allocatable :: wws_trev(:,:)
 complex(dp), allocatable :: hams(:,:,:)
 complex(dp), allocatable :: hamt(:,:,:)
 type(wbase)  proj
@@ -1100,7 +1120,7 @@ iR=maxval(wan%rgrid%ngrid)
 iv(1:2)=iR
 iv(3)=1
 call kgrid%init(iv(1:3),pars%bvec,centered_kgrid,.true.)
-call kgrid%sym_init(sym)
+call kgrid%sym_init(pars%trev,sym)
 allocate(wws(proj%norb,proj%norb,sym%nsym))
 allocate(hams(proj%norb,proj%norb,wan%rgrid%npt))
 allocate(hamt(proj%norb,proj%norb,wan%rgrid%npt))
@@ -1135,10 +1155,34 @@ do iter=1,pars%niter_symmetrize
       end do
     end do
   end do
-  hams=hams/dble(sym%nsym)
   if (pars%trev) then
-    call symmetrize_trev(proj%norb,wan,kgrid,hams,hamt)
-    hams=hamt
+     allocate(wws_trev(proj%norb,proj%norb))
+     wws_trev=0._dp
+     do n1=1,proj%norb
+        do n2=1,proj%norb
+           if(proj%orb_icio(n2,1).ne.proj%orb_icio(n1,1)) cycle
+           wws_trev(n2,n1)=proj%wws(.true.,sym%car(:,:,1),n1,n2)
+        end do
+     end do
+     do n1=1,proj%norb
+       do n2=1,proj%norb
+         nc1=proj%orb_icio(n1,1)
+         nc2=proj%orb_icio(n2,1)
+         do m1=1,proj%norb
+           do m2=1,proj%norb
+             mc1=proj%orb_icio(m1,1)
+             mc2=proj%orb_icio(m2,1)
+             if (mc1.ne.nc1) cycle
+             if (mc2.ne.nc2) cycle
+             hams(n1,n2,:)=hams(n1,n2,:)+wws_trev(n1,m1)*wan%hame(m1,m2,:)*wws_trev(m2,n2)
+           end do
+         end do
+       end do
+     end do
+     deallocate(wws_trev) 
+     hams=hams/dble(sym%nsym+1)
+  else
+    hams=hams/dble(sym%nsym)
   endif
   wan%hame=hams
 end do
@@ -1617,7 +1661,7 @@ do isym=1,sym%nsym
      jc=proj%ics2c(ic,isym)
      do jw=1,proj%norb
         if(proj%orb_icio(jw,1).ne.jc) cycle
-        wws(jw,iw,isym)=proj%wws(sym%car(:,:,isym),iw,jw)
+        wws(jw,iw,isym)=proj%wws(.false.,sym%car(:,:,isym),iw,jw)
      end do
   end do
 end do
@@ -2694,7 +2738,7 @@ do iw=1,pars%proj%norb
   if (norb_TB.ne.tbmodel%norb_TB) call throw('read_wf_universe','norb_TB is not what is expected')
 
   do iR=1,nr
-    if (sum(abs(tbmodel%rgrid%vpl(iR))).le.6) then
+    if (sum(abs(tbmodel%rgrid%vpl(iR))).le.12) then
       read(50,*,end=200) vl(:)
       irg=tbmodel%rgrid%find(vl)
       if (irg(NDIM+1).lt.0.or.sum(abs(irg(1:NDIM))).ne.0) call throw('read_wf_universe','R point not found')

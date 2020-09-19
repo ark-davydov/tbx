@@ -235,11 +235,12 @@ do ivert=2,THIS%nvert
 end do
 end subroutine
 
-subroutine sym_init(THIS,sym)
+subroutine sym_init(THIS,trev,sym)
 class(GRID), intent(inout) :: THIS
+logical, intent(in) :: trev
 class(CLsym), intent(in) :: sym
 ! local
-integer ik,ikp,isym
+integer ik,ikp,isym,nsym
 integer igk(NDIM+1)
 logical lfound(THIS%npt)
 real(dp) sv(NDIM)
@@ -247,7 +248,11 @@ real(dp) avec(NDIM,NDIM),tvec(NDIM,NDIM)
 real(dp) v1(NDIM),v2(NDIM),v3(NDIM),v4(NDIM)
 if (THIS%syminit_done) call throw("gridclass%sym_init","second call of sym_init")
 THIS%syminit_done=.true.
-allocate(THIS%iks2k(THIS%npt,sym%nsym))
+if (trev) then
+   allocate(THIS%iks2k(THIS%npt,sym%nsym+1))
+else
+   allocate(THIS%iks2k(THIS%npt,sym%nsym))
+end if
 tvec=THIS%vecs
 call dmatrix_inverse(tvec,avec,NDIM)
 THIS%iks2k=-999 !Sym.op.(isym) moves k(iks2k(ik,isym)) to k(ik) + G(iks2g(ik,isym)).
@@ -259,6 +264,14 @@ do isym=1,sym%nsym
      THIS%iks2k(ik,isym)=igk(NDIM+1)
    end do
 end do
+if (trev) then
+   do ik=1,THIS%npt
+     sv=-THIS%vpc(ik)
+     sv=matmul(sv,avec)
+     igk=THIS%find(sv)
+     THIS%iks2k(ik,sym%nsym+1)=igk(NDIM+1)
+   end do
+end if
 if (.false.) then
 ! origican code from QE
 do isym=1,sym%nsym
@@ -292,6 +305,11 @@ THIS%ik2ir=-999 !Gives irreducible-k points from regular-k points.
 THIS%ir2ik=-999 !Gives regular-k points from irreducible-k points.
 lfound=.false.
 THIS%nir=0
+if (trev) then
+   nsym=sym%nsym+1
+else
+   nsym=sym%nsym
+end if
 do ik=1,THIS%npt
    if(lfound(ik)) cycle
    lfound(ik)=.true.
@@ -299,7 +317,7 @@ do ik=1,THIS%npt
    THIS%ir2ik(THIS%nir)=ik
    THIS%ik2ir(ik)=THIS%nir
    THIS%sik2ir(ik)=1
-   do isym=1,sym%nsym
+   do isym=1,nsym
       ikp=THIS%iks2k(ik,isym)
       if(lfound(ikp)) cycle
       lfound(ikp)=.true.

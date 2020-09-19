@@ -464,7 +464,7 @@ do iw=1,THIS%wbase%norb
      ic=THIS%wbase%orb_icio(jw,1)
      jc=THIS%wbase%ics2c(ic,isym)
      if(THIS%wbase%orb_icio(iw,1).ne.jc) cycle
-     wfout(iw)=wfout(iw)+THIS%wbase%wws(sym%car(:,:,isym),iw,jw)*wfin(jw)*zz
+     wfout(iw)=wfout(iw)+THIS%wbase%wws(.false.,sym%car(:,:,isym),jw,iw)*wfin(jw)*zz
    end do
 end do
 return
@@ -496,7 +496,7 @@ do iw=1,THIS%wbase%norb
      ic=THIS%wbase%orb_icio(jw,1)
      jc=THIS%wbase%ics2c(ic,isym)
      if(THIS%wbase%orb_icio(iw,1).ne.jc) cycle
-     wfout(iw)=wfout(iw)+THIS%wbase%wws(sym%car(:,:,isym),iw,jw)*wfin(jw)*zz
+     wfout(iw)=wfout(iw)+THIS%wbase%wws(.false.,sym%car(:,:,isym),jw,iw)*wfin(jw)*zz
    end do
 end do
 return
