@@ -620,7 +620,7 @@ do ir=1,kgrid%nir
      end do
      wwst=matmul(phs,wws(:,:,isym))
      ! unitarize from the left
-     call unitarize(-1,base%norb,base%norb,wws(:,:,isym))
+     !call unitarize(-1,base%norb,base%norb,wws(:,:,isym))
      if (mp_mpi) then
         WRITE (1001,*)
         WRITE (1001,"(1p,(' (',e18.10,',',e18.10,')'))") wwst
@@ -681,7 +681,7 @@ do ir=1,kgrid%nir
       do ist=1,pars%nstates
          ovlp(ist,jst,sym%nsym+1,ir)=dot_product(evec(:,ist,ikp),conjg(evec(:,jst,ik)))
          !ovlp(ist,jst,sym%nsym+1,ir)=dot_product(evec(:,ist,ik),conjg(evec(:,jst,ikp)))
-         write(*,*) ir,ikp, ist,jst, dble(ovlp(ist,jst,sym%nsym+1,ir)),aimag(ovlp(ist,jst,sym%nsym+1,ir))
+         !write(*,*) ir,ikp, ist,jst, dble(ovlp(ist,jst,sym%nsym+1,ir)),aimag(ovlp(ist,jst,sym%nsym+1,ir))
       end do
     end do
   end if
@@ -695,6 +695,8 @@ end do
 if (mp_mpi) then
   do ir=1,kgrid%nir
     do isym=1,nsym
+      ! unitarize from the right
+      !call unitarize(1,pars%nstates,pars%nstates,ovlp(:,:,isym,ir))
       do jst=1,pars%nstates
         do ist=1,pars%nstates
           write(1001,"(1p,(' (',e18.10,',',e18.10,')'))") ovlp(ist,jst,isym,ir)
@@ -908,7 +910,7 @@ if (exs) then
   !call info("CLwan%generate_mmn_overlap","skipping "//trim(adjustl(pars%seedname))//".mmn creation")
   !return
 else
-  call info("CLwan%generate_mmn_overlap","generating "//trim(adjustl(pars%seedname))//".mmn file")
+  call info("CLwan%generate_tmn_overlap","generating "//trim(adjustl(pars%seedname))//".tmn file")
 end if
 if (mp_mpi) then
   open(50,file=trim(adjustl(pars%seedname))//'.tmn',action='write')
