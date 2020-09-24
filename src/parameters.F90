@@ -80,6 +80,7 @@ type, public :: CLpars
   real(dp) :: bvec(NDIM,NDIM)
   real(dp) :: e_chi_exclude(2)
   real(dp) :: dis_frozen(2)
+  real(dp) :: dis_win(2)
   type(CLproj) :: proj
   type(CLproj) :: base
   integer, allocatable :: nat_per_spec(:)
@@ -121,8 +122,10 @@ integer, allocatable :: lmr(:,:)
 #endif
 THIS%Ggrid=0
 THIS%ngrid=1
-THIS%dis_frozen(1)=-1._dp
-THIS%dis_frozen(2)= 1._dp
+THIS%dis_win(1)=-10._dp
+THIS%dis_win(2)= 10._dp
+THIS%dis_frozen(1)=-10._dp
+THIS%dis_frozen(2)= 10._dp
 
 open(50,file=trim(adjustl(THIS%input_file)),action="read",status="old",iostat=iostat)
 if (iostat.ne.0) call throw("paramters%read_input()","could not open input file")
@@ -234,6 +237,12 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%dis_frozen(:)
     if (iostat.ne.0) call throw("paramters%read_input()","problem with dis_frozen data")
     if (mp_mpi) write(*,'(i6,": ",5F19.6)') jline,THIS%dis_frozen(:)
+
+  else if (trim(block).eq."dis_win") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%dis_win(:)
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with dis_win data")
+    if (mp_mpi) write(*,'(i6,": ",5F19.6)') jline,THIS%dis_win(:)
 
   ! BZ k-papth block
   else if (trim(block).eq."path") then
@@ -775,11 +784,11 @@ if (mp_mpi) then
   open(100,file=trim(adjustl(fname)),action="write")
   write(100,*)"avec"
   do ii=1,NDIM
-    write(100,'(5G18.10)') THIS%avec(ii,:)
+    write(100,'(5G28.20)') THIS%avec(ii,:)
   end do
   write(100,*)"bvec"
   do ii=1,NDIM
-    write(100,'(5G18.10)') THIS%bvec(ii,:)
+    write(100,'(5G28.20)') THIS%bvec(ii,:)
   end do
   write(100,'("atoms ",I6)') THIS%nspec
   do ispec=1,THIS%nspec

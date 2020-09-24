@@ -494,7 +494,7 @@ else if (trim(adjustl(pars%wannier_proj_mode)).eq.'wannier_file') then
    if (.not.exs) then
      allocate(wftrial(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt))
      wftrial(:,:,:)=0._dp
-     call read_wfmloc(pars,tbmodel,kgrid,evec,wftrial)
+     call read_wfmloc(pars,tbmodel,kgrid,eval,evec,wftrial)
      call generate_amn_overlap(tbmodel,pars,kgrid,eval,evec,tbmodel%rgrid%npt,wftrial)
      deallocate(wftrial)
    end if
@@ -1039,10 +1039,11 @@ end do
 deallocate(r0)
 end subroutine
 
-subroutine read_wfmloc(pars,tbmodel,kgrid,evec,wfmloc)
+subroutine read_wfmloc(pars,tbmodel,kgrid,eval,evec,wfmloc)
 class(CLpars), intent(in) :: pars
 class(CLtb), intent(in) :: tbmodel
 class(GRID), intent(inout) :: kgrid
+real(dp), intent(in) :: eval(pars%nstates,kgrid%npt)
 complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
 complex(dp), intent(out) :: wfmloc(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt)
 integer ik,ir
@@ -1078,7 +1079,7 @@ if (pars%nstates.gt.proj%norb) then
 end if
 call read_umat(pars%seedname,kgrid%npt,proj%norb,vkl,umat)
 call get_wfmloc(.false.,proj%norb,pars%nstates,kgrid%npt,tbmodel%rgrid%npt,&
-   tbmodel%norb_TB,udis,umat,vkl,vrl,evec,wfmloc)
+   tbmodel%norb_TB,pars%dis_win,udis,umat,vkl,vrl,eval,evec,wfmloc)
 deallocate(vkl,vrl,umat,udis)
 return
 end subroutine
@@ -1670,11 +1671,12 @@ end do
 return
 end subroutine
 
-subroutine compute_hubbardu_rs(pars,sym,tbmodel,kgrid,evec)
+subroutine compute_hubbardu_rs(pars,sym,tbmodel,kgrid,eval,evec)
 class(CLpars), intent(in) :: pars
 class(CLsym), intent(in) :: sym
 class(CLtb), intent(in) :: tbmodel
 class(GRID), intent(inout) :: kgrid
+real(dp), intent(in) :: eval(pars%nstates,kgrid%npt)
 complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
 integer ir,ik
 real(dp), allocatable    :: vkl(:,:),vrl(:,:)
@@ -1724,7 +1726,7 @@ end if
 call read_umat(pars%seedname,kgrid%npt,proj%norb,vkl,umat)
 ! obtain wannier functions
 call get_wfmloc(.false.,proj%norb,pars%nstates,kgrid%npt,rgrid%npt,&
-   tbmodel%norb_TB,udis,umat,vkl,vrl,evec,wfmloc)
+   tbmodel%norb_TB,pars%dis_win,udis,umat,vkl,vrl,eval,evec,wfmloc)
 if (mp_mpi) write(*,*) "available OMP_NUM_THREADS, if used: ",proj%norb
 if (mp_mpi) write(*,*) "available number of mpi processes, if used: ",tbmodel%norb_TB
 if (.not.pars%HubU_diagonal) then
@@ -1994,10 +1996,11 @@ deallocate(wf,UH)
 deallocate(vpc,vpcorb)
 return
 end subroutine
-subroutine compute_hubbardj_rs(pars,tbmodel,kgrid,evec)
+subroutine compute_hubbardj_rs(pars,tbmodel,kgrid,eval,evec)
 class(CLpars), intent(in) :: pars
 class(CLtb), intent(in) :: tbmodel
 class(GRID), intent(inout) :: kgrid
+real(dp), intent(in) :: eval(pars%nstates,kgrid%npt)
 complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
 real(dp), parameter :: Upz=10._dp
 real(dp), parameter :: epscoul=10._dp
@@ -2053,7 +2056,7 @@ end if
 call read_umat(pars%seedname,kgrid%npt,proj%norb,vkl,umat)
 ! obtain wannier functions
 call get_wfmloc(.false.,proj%norb,pars%nstates,kgrid%npt,rgrid%npt,&
-   tbmodel%norb_TB,udis,umat,vkl,vrl,evec,wfmloc)
+   tbmodel%norb_TB,pars%dis_win,udis,umat,vkl,vrl,eval,evec,wfmloc)
 HubJ=0._dp
 do iRp=1,rgrid%npt_sphere
   wf1(:,:,iRp)=wfmloc(:,:,rgrid%sphere_to_homo(iRp))
@@ -2491,14 +2494,17 @@ do ik=1,nk_
 end do
 close(51)
 end subroutine
-subroutine get_wfmloc(get_smooth,nwan,num_bands,nkpt,nrpt,nbasis,udis,umat,vkl,vrl,evec,wfmloc)
+subroutine get_wfmloc(get_smooth,nwan,num_bands,nkpt,nrpt,nbasis,&
+        dis_win,udis,umat,vkl,vrl,eval,evec,wfmloc)
 logical, intent(in) :: get_smooth
 integer, intent(in) :: nwan,num_bands,nkpt,nrpt,nbasis
 real(dp), intent(in) :: vkl(NDIM,nkpt),vrl(NDIM,nkpt)
+real(dp), intent(in) :: dis_win(2)
 complex(dp), intent(in) :: udis(num_bands,nwan,nkpt),umat(nwan,nwan,nkpt)
+real(dp), intent(in) :: eval(num_bands,nkpt)
 complex(dp), intent(in) :: evec(nbasis,num_bands,nkpt)
 complex(dp), intent(out) :: wfmloc(nbasis,nwan,nrpt)
-integer ik,ir,n,m
+integer ik,ir,n,m,num_win,idx(num_bands)
 real(dp) t1
 complex(dp) z1
 complex(dp), allocatable :: psik(:,:)
@@ -2511,10 +2517,17 @@ wfmloc(:,:,:)=0.d0
 do ik=1,nkpt
   if (mod(ik-1,np_mpi).ne.lp_mpi) cycle
   if (num_bands.gt.nwan) then
+    num_win=0
+    do m=1,num_bands
+      if (eval(m,ik).gt.dis_win(1).and.eval(m,ik).lt.dis_win(2)) then
+        num_win=num_win+1
+        idx(num_win)=m
+      end if
+    end do
     psik(:,:)=0._dp
     do n=1,nwan
-      do m=1,num_bands
-        psik(:,n)=psik(:,n)+udis(m,n,ik)*evec(:,m,ik)
+      do m=1,num_win
+        psik(:,n)=psik(:,n)+udis(m,n,ik)*evec(:,idx(m),ik)
       end do
     end do
   else if (num_bands.eq.nwan) then
@@ -2702,7 +2715,7 @@ do iw=1,pars%proj%norb
       write(50,*) tbmodel%rgrid%vpi(iR)
       do iorb=1,tbmodel%norb_TB
         ic=tbmodel%wbase%orb_icio(iorb,1)
-        write(50,'(5G18.10)') tbmodel%wbase%centers_cart(:,ic),wf(iorb,iw,jr)
+        write(50,'(5G18.10)') tbmodel%wbase%centers(:,ic),wf(iorb,iw,jr)
       end do
     end if
   end do

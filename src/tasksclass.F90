@@ -525,7 +525,7 @@ call io_eval(1001,"read","eval_1.dat",.false.,pars%nstates,kgrid%npt,pars%efermi
 !call wannier%init(kgrid,kpath,pars,eval)
 
 allocate(wfmloc(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt))
-call read_wfmloc(pars,tbmodel,kgrid,evec,wfmloc)
+call read_wfmloc(pars,tbmodel,kgrid,eval-pars%efermi,evec,wfmloc)
 nr=0
 do iR=1,tbmodel%rgrid%npt
   if (sum(abs(tbmodel%rgrid%vpl(iR))).le.6) then
@@ -576,8 +576,8 @@ eval=0._dp
 ! read eigenvalues, subroutine in modcom.f90
 call io_eval(1001,"read","eval_1.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
 ! init minimal wannier variables
-call compute_hubbardu_rs(pars,sym,tbmodel,kgrid,evec)
-!call compute_hubbardj_rs(pars,sym,tbmodel,kgrid,sym,evec)
+call compute_hubbardu_rs(pars,sym,tbmodel,kgrid,eval-pars%efermi,evec)
+!call compute_hubbardj_rs(pars,sym,tbmodel,kgrid,sym,eval-pars%efermi,evec)
 deallocate(eval,evec,vkl)
 end subroutine
 
