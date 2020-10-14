@@ -1743,10 +1743,11 @@ integer IRR_POINT,jc1_irr,jc2_irr,jR_irr
 integer iRp,jRp,iorb,jorb
 integer n1,n2,n3,n4
 integer nc1,nc2,nc3,nc4
-real(dp) dij,vcl
+real(dp) dij,vcl,t1
 real(dp) rij(NDIM)
 complex(dp) z1
 real(dp), allocatable    :: vpcorb(:,:),vpc(:,:)
+real(dp), allocatable    :: rwf(:,:,:),rwfmloc(:,:,:),UHr(:,:,:,:)
 complex(dp), allocatable :: wf(:,:,:)
 complex(dp), allocatable :: UH(:,:,:,:)
 type(coulrs) vcoul
@@ -1761,6 +1762,12 @@ do iorb=1,tbmodel%norb_TB
 end do
 allocate(wf(tbmodel%norb_TB,proj%norb,rgrid%npt))
 allocate(UH(proj%norb,proj%norb,proj%norb,proj%norb))
+if (pars%real_wfmloc) then
+  allocate(UHr(proj%norb,proj%norb,proj%norb,proj%norb))
+  allocate(rwf(tbmodel%norb_TB,proj%norb,rgrid%npt))
+  allocate(rwfmloc(tbmodel%norb_TB,proj%norb,rgrid%npt))
+  rwfmloc=dble(wfmloc)
+end if
 if(mp_mpi) call system("mkdir -p _UH")
 do IRR_POINT=1,nir
   write(snum,'(I4.4)') IRR_POINT
@@ -1778,13 +1785,18 @@ do IRR_POINT=1,nir
   do n1=1,proj%norb
     call wannerfunc_at_R(rgrid,tbmodel%norb_TB,rgrid%vpl_sphere(jR_irr),wfmloc(:,n1,:),wf(:,n1,:))
   end do
+  if (pars%real_wfmloc) then
+    rwf=dble(wf)
+    UHr=0._dp
+  end if
+
   UH=0._dp
 #ifdef MPI
   call mpi_barrier(mpi_com,mpi_err)
 #endif
   !$OMP PARALLEL DEFAULT (SHARED)&
   !$OMP PRIVATE(iRp,jRp,iorb,jorb,rij,dij)&
-  !$OMP PRIVATE(n1,n2,n3,n4,vcl,z1)&
+  !$OMP PRIVATE(n1,n2,n3,n4,vcl,z1,t1)&
   !$OMP PRIVATE(nc1,nc2,nc3,nc4)
   !$OMP DO
   do n4=1,proj%norb
@@ -1819,12 +1831,23 @@ do IRR_POINT=1,nir
                   if (abs(conjg(wf(jorb,n2,jRp))).lt.epsengy) cycle
                   if (abs(wf(jorb,n3,jRp)).lt.epsengy) cycle
                   if (abs(wfmloc(iorb,n4,iRp)).lt.epsengy) cycle
-                  z1=conjg(wfmloc(iorb,n1,iRp))*conjg(wf(jorb,n2,jRp))*wf(jorb,n3,jRp)*wfmloc(iorb,n4,iRp)
-                  if (dij.lt.epslat) then
-                     UH(n1,n2,n3,n4)=UH(n1,n2,n3,n4)+z1*Upz
+
+                  if (pars%real_wfmloc) then
+                    t1=rwfmloc(iorb,n1,iRp)*rwf(jorb,n2,jRp)*rwf(jorb,n3,jRp)*rwfmloc(iorb,n4,iRp)
+                    if (dij.lt.epslat) then
+                       UHr(n1,n2,n3,n4)=UHr(n1,n2,n3,n4)+t1*Upz
+                    else
+                       UHr(n1,n2,n3,n4)=UHr(n1,n2,n3,n4)+t1*vcl
+                    end if
                   else
-                     UH(n1,n2,n3,n4)=UH(n1,n2,n3,n4)+z1*vcl
+                    z1=conjg(wfmloc(iorb,n1,iRp))*conjg(wf(jorb,n2,jRp))*wf(jorb,n3,jRp)*wfmloc(iorb,n4,iRp)
+                    if (dij.lt.epslat) then
+                       UH(n1,n2,n3,n4)=UH(n1,n2,n3,n4)+z1*Upz
+                    else
+                       UH(n1,n2,n3,n4)=UH(n1,n2,n3,n4)+z1*vcl
+                    end if
                   end if
+
                 end do
               end do
             end do 
@@ -1835,7 +1858,7 @@ do IRR_POINT=1,nir
   end do
   !$OMP END DO
   !$OMP END PARALLEL
-
+  if (pars%real_wfmloc) UH=UHr
 
 #ifdef MPI
   n1=proj%norb**4
@@ -1853,6 +1876,9 @@ do IRR_POINT=1,nir
 end do
 deallocate(wf,UH)
 deallocate(vpc,vpcorb)
+if (pars%real_wfmloc) then
+  deallocate(rwf,UHr,rwfmloc)
+end if
 return
 end subroutine
 

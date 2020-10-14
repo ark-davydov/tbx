@@ -36,6 +36,7 @@ type, public :: CLpars
   character(len=100) :: character_file=""
   character(len=100) :: tbtype="sk"
   character(len=100) :: coulrs_file=""
+  logical :: real_wfmloc=.false.
   logical :: HubU_diagonal=.false.
   logical :: trev=.false.
   logical :: readsym=.false.
@@ -355,6 +356,14 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%HubU_diagonal
     if (iostat.ne.0) call throw("paramters%read_input()","problem with HubU_diagonal data")
     if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%HubU_diagonal
+
+  ! .true. real part of wfmloc will be used for U calculation in symmetric case 
+  else if (trim(block).eq."real_wfmloc") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%real_wfmloc
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with real_wfmloc data")
+    if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%real_wfmloc
+
 
   ! .true. use weights in the amn matrix construction
   else if (trim(block).eq."use_weights_amn") then
