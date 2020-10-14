@@ -195,7 +195,7 @@ integer, intent(in) ::  l_w1,mr_w1,l_w2,mr_w2
 real(dp), intent(in) :: xaxis1(3),zaxis1(3),xaxis2(3),zaxis2(3)
 ! local
 real(dp), parameter :: pwg(2)=(/2.976190476190479d-2,3.214285714285711d-2/)
-integer ip,ir,iw
+integer ip,ir
 integer l1,l2,m1i,m1j,m2i,m2j,sgn1,sgn2
 real(dp) dvec(3,32),dwgt(32),dvec2(3,32),dylm(32,5),vaxis1(3,3),vaxis2(3,3)
 real(dp) dylm_re(32,5),dylm_im(32,5)

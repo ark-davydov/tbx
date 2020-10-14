@@ -543,7 +543,7 @@ end subroutine
 
 subroutine hubbard_tbg(pars)
 class(CLpars), intent(inout) :: pars
-integer ik
+integer ik,ir,jk
 real(dp), allocatable :: eval(:,:)
 real(dp), allocatable :: vkl(:,:)
 complex(dp), allocatable :: evec(:,:,:)
@@ -559,6 +559,8 @@ call sym%init(pars)
 call tbmodel%init(pars,sym,"noham")
 ! read the k-point grid on which eigenvales/eigenvectors are computed
 call kgrid%io(1000,"_grid","read",pars,tbmodel%norb_TB)
+! init symmetries of k-point grid
+call kgrid%sym_init(pars%trev,sym)
 ! allocate array for eigen values
 allocate(eval(pars%nstates,kgrid%npt))
 ! allocate array for eigen vectors
@@ -570,6 +572,14 @@ do ik=1,kgrid%npt
   vkl(:,ik)=kgrid%vpl(ik)
   ! read eigenvectors, subroutine in modcom.f90
   call io_evec(ik,"read","_evec_1_",tbmodel%norb_TB,pars%nstates,evec(:,:,ik))
+end do
+! symetrise with respect to time-reversal symmetry
+! at some point, this code is to be removed, and eigenvalues 
+! are to be computed on irreducible wedge
+do ir=1,kgrid%nirT
+  ik=kgrid%irT2ik(ir)
+  jk=kgrid%ikT2k(ik)
+  evec(:,:,ik)=conjg(evec(:,:,jk))
 end do
 ! zero the arrays for security reasons
 eval=0._dp

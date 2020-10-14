@@ -529,7 +529,7 @@ else
   call throw("wannier_interface%generate_trial_wavefunctions()","unknown projection option")
 end if
 call generate_mmn_overlap(THIS,tbmodel,pars,kgrid,evec)
-call generate_tmn_overlap(tbmodel,pars,kgrid,eval,evec)
+!call generate_tmn_overlap(tbmodel,pars,kgrid,eval,evec)
 deallocate(wws)
 end subroutine
 
@@ -892,64 +892,64 @@ if (mp_mpi) close(50)
 deallocate(mmn)
 end subroutine
 
-subroutine generate_tmn_overlap(tbmodel,pars,kgrid,eval,evec)
-class(CLtb), intent(in) :: tbmodel
-class(CLpars), intent(in) :: pars
-class(GRID), intent(in) :: kgrid
-real(dp), intent(in) :: eval(pars%nstates,kgrid%npt)
-complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
-! local
-logical exs
-integer ik,jk,mm,nn,iorb,ir
-real(dp) dc
-real(dp) vq(NDIM),vc(NDIM)
-complex(dp), allocatable :: tmn(:,:)
-! M_mn(k)=<psi_mk|psi*_n{-k}>
-inquire(file=trim(adjustl(pars%seedname))//'.tmn',exist=exs)
-if (exs) then
-  !call info("CLwan%generate_mmn_overlap","skipping "//trim(adjustl(pars%seedname))//".mmn creation")
-  !return
-else
-  call info("CLwan%generate_tmn_overlap","generating "//trim(adjustl(pars%seedname))//".tmn file")
-end if
-if (mp_mpi) then
-  open(50,file=trim(adjustl(pars%seedname))//'.tmn',action='write')
-  write (50,*) '# '//trim(adjustl(pars%seedname))//'.tmn file'
-  write (50,"(4i9)") pars%nstates, kgrid%nirT, kgrid%npt
-  write (50,*)
-  write (50,"(10i9)") kgrid%ikT2ir(1:kgrid%npt)
-  write (50,*)
-  write (50,"(10i9)") kgrid%irT2ik(1:kgrid%nirT)
-  write (50,*)
-  write (50,"(10i9)") kgrid%ikT2k(1:kgrid%npt)
-end if
-allocate(tmn(pars%nstates,pars%nstates))
-do ir=1,kgrid%nirT
-  ik=kgrid%irT2ik(ir)
-  jk=kgrid%ikT2k(ik)
-  vq=-kgrid%vpl(ik)-kgrid%vpl(ik)
-  vc=matmul(vq,kgrid%vecs)
-  dc=sqrt(dot_product(vc,vc))
-  tmn=0._dp
-  do iorb=1,tbmodel%norb_TB
-    do nn=1,pars%nstates
-      tmn(:,nn)=tmn(:,nn)+conjg(evec(iorb,:,ik))*conjg(evec(iorb,nn,jk))!*pwave_ovlp(dc)
-    end do
-  end do
-  do mm=1,pars%nstates
-      if (dble(tmn(mm,mm))<0.9) then
-        write(*,'(i4,"(",i4,")",3I4,20F10.4)') ir,kgrid%nirT,ik,jk,mm,eval(mm,ik),eval(mm,jk)
-        write(*,'(6F10.4,"|",2F10.4)') kgrid%vpl(ik),kgrid%vpl(jk),tmn(mm,mm)
-      end if
-  end do
-  if (mp_mpi) then
-     WRITE (50,*)
-     WRITE (50,"(1p,(' (',e18.10,',',e18.10,')'))") tmn
-  end if
-end do
-if (mp_mpi) close(50)
-deallocate(tmn)
-end subroutine
+!subroutine generate_tmn_overlap(tbmodel,pars,kgrid,eval,evec)
+!class(CLtb), intent(in) :: tbmodel
+!class(CLpars), intent(in) :: pars
+!class(GRID), intent(in) :: kgrid
+!real(dp), intent(in) :: eval(pars%nstates,kgrid%npt)
+!complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
+!! local
+!logical exs
+!integer ik,jk,mm,nn,iorb,ir
+!real(dp) dc
+!real(dp) vq(NDIM),vc(NDIM)
+!complex(dp), allocatable :: tmn(:,:)
+!! M_mn(k)=<psi_mk|psi*_n{-k}>
+!inquire(file=trim(adjustl(pars%seedname))//'.tmn',exist=exs)
+!if (exs) then
+!  !call info("CLwan%generate_mmn_overlap","skipping "//trim(adjustl(pars%seedname))//".mmn creation")
+!  !return
+!else
+!  call info("CLwan%generate_tmn_overlap","generating "//trim(adjustl(pars%seedname))//".tmn file")
+!end if
+!if (mp_mpi) then
+!  open(50,file=trim(adjustl(pars%seedname))//'.tmn',action='write')
+!  write (50,*) '# '//trim(adjustl(pars%seedname))//'.tmn file'
+!  write (50,"(4i9)") pars%nstates, kgrid%nirT, kgrid%npt
+!  write (50,*)
+!  write (50,"(10i9)") kgrid%ikT2ir(1:kgrid%npt)
+!  write (50,*)
+!  write (50,"(10i9)") kgrid%irT2ik(1:kgrid%nirT)
+!  write (50,*)
+!  write (50,"(10i9)") kgrid%ikT2k(1:kgrid%npt)
+!end if
+!allocate(tmn(pars%nstates,pars%nstates))
+!do ir=1,kgrid%nirT
+!  ik=kgrid%irT2ik(ir)
+!  jk=kgrid%ikT2k(ik)
+!  vq=-kgrid%vpl(ik)-kgrid%vpl(ik)
+!  vc=matmul(vq,kgrid%vecs)
+!  dc=sqrt(dot_product(vc,vc))
+!  tmn=0._dp
+!  do iorb=1,tbmodel%norb_TB
+!    do nn=1,pars%nstates
+!      tmn(:,nn)=tmn(:,nn)+conjg(evec(iorb,:,ik))*conjg(evec(iorb,nn,jk))!*pwave_ovlp(dc)
+!    end do
+!  end do
+!  do mm=1,pars%nstates
+!      if (dble(tmn(mm,mm))<0.9) then
+!        write(*,'(i4,"(",i4,")",3I4,20F10.4)') ir,kgrid%nirT,ik,jk,mm,eval(mm,ik),eval(mm,jk)
+!        write(*,'(6F10.4,"|",2F10.4)') kgrid%vpl(ik),kgrid%vpl(jk),tmn(mm,mm)
+!      end if
+!  end do
+!  if (mp_mpi) then
+!     WRITE (50,*)
+!     WRITE (50,"(1p,(' (',e18.10,',',e18.10,')'))") tmn
+!  end if
+!end do
+!if (mp_mpi) close(50)
+!deallocate(tmn)
+!end subroutine
 
 subroutine real_space_wftrial(tbmodel,proj,wftrial,sigma)
 class(CLtb), intent(in) :: tbmodel
@@ -1193,100 +1193,100 @@ call wan%write_tb_file('hamwan',pars,proj%norb)
 deallocate(hams,hamt,wws)
 end subroutine
 
-subroutine symmetrize_trev(nwan,wan,kgrid,ham,hams)
-integer, intent(in) :: nwan
-type(CLwan), intent(in) :: wan
-type(GRID), intent(in) :: kgrid
-complex(dp), intent(in) :: ham(nwan,nwan,wan%rgrid%npt)
-complex(dp), intent(out) :: hams(nwan,nwan,wan%rgrid%npt)
-complex(dp), allocatable :: hamk(:,:,:),hamsk(:,:,:)
-integer, parameter :: sgn=1
-real(dp), parameter :: mix=0.2_dp
-integer ir,ik,jk,iw,jw
-real(dp) t1
-complex(dp) z1
-complex(dp), dimension(:,:), allocatable :: A,B,U,SA,SB
-real(dp), allocatable :: s1(:),s2(:)
-allocate(A(nwan,nwan))
-allocate(B(nwan,nwan))
-allocate(U(nwan,nwan))
-allocate(SA(nwan,nwan))
-allocate(SB(nwan,nwan))
-allocate(s1(nwan))
-allocate(s2(nwan))
-allocate(hamk(nwan,nwan,kgrid%npt))
-allocate(hamsk(nwan,nwan,kgrid%npt))
-! FT TB Hamiltonian
-hamk=0._dp
-do ik=1,kgrid%npt
-  do iR=1,wan%rgrid%npt
-    t1=twopi*dot_product(kgrid%vpl(ik),wan%rgrid%vpl(iR))
-    z1=cmplx(cos(t1),sgn*sin(t1),kind=dp)
-    hamk(:,:,ik)=hamk(:,:,ik)+ham(:,:,iR)*z1
-  end do
-end do
-! find unique TR Unitary operator U, such that H_k=U H*_{-k} U^\dagger valid approximately for all k-points
-! re-write in terms of matrixes A and B  : A=UBU^\dagger
-! extracting square roots : sqrt(A) sqrt(A)^\dagger = U sqrt(B) sqrt(B)^\dagger U^\dagger
-! then U = sqrt(A) sqrt(B)^-1
-U=0._dp
-! extract matrix U only from the first point(GAMMA)
-do ir=1,kgrid%nirT
-    ik=kgrid%irT2ik(ir)
-    jk=kgrid%ikT2k(ik)
-    ! find square root of hamk(:,:,ik) and conjg(hamk(:,:,jk))
-    A=hamk(:,:,ik)
-    B=conjg(hamk(:,:,jk))
-    do iw=1,nwan
-      A(iw,iw)=A(iw,iw)+100._dp ! makes eigenvalues to be positive
-      B(iw,iw)=B(iw,iw)+100._dp
-    end do
-    call eigenv_problem(nwan,A,s1)
-    call eigenv_problem(nwan,B,s2)
-    ! square roots
-    do iw=1,nwan
-      SA(iw,:)=sqrt(s1(iw))*conjg(A(:,iw))
-      SB(iw,:)=sqrt(s2(iw))*conjg(B(:,iw)) 
-    end do
-    A=matmul(A,SA)
-    B=matmul(B,SB)
-    call utility_zgetri(B)
-    ! add to the unitary transformation
-    SA=matmul(A,B)
-    U=U+matmul(A,B)
-end do
-U=U/dble(kgrid%nirT)
-! now we need to make SVD to make it unitary
-A=U
-call utility_zgesvd(A,SA,s1,SB)
-do iw=1,nwan
-  SA(iw,:)=1._dp/abs(s1(iw))*SB(iw,:)
-end do
-A=matmul(conjg(transpose(SB)),SA)
-U=matmul(U,A)
-write(*,*) U
-stop
-! Apply TR in reciprocal space
-do ir=1,kgrid%nirT
-  ik=kgrid%irT2ik(ir)
-  jk=kgrid%ikT2k(ik)
-  call utility_zgemmm(U,'N',conjg(hamk(:,:,jk)), 'N', U, 'C', hamsk(:,:,ik))
-  call utility_zgemmm(U,'N',conjg(hamsk(:,:,ik)), 'N', U, 'C', hamsk(:,:,jk))
-end do
-! FT back to real space 
-hams=0._dp
-do iR=1,wan%rgrid%npt
-  do ik=1,kgrid%npt
-    t1=twopi*dot_product(kgrid%vpl(ik),wan%rgrid%vpl(iR))
-    z1=cmplx(cos(t1),-sgn*sin(t1),kind=dp)
-    hams(:,:,iR)=hams(:,:,iR)+hamsk(:,:,ik)*z1
-  end do
-end do
-hams=hams/dble(kgrid%npt)
-deallocate(A,B,U,SA,SB,s1,s2)
-deallocate(hamk,hamsk)
-end subroutine symmetrize_trev
-
+!subroutine symmetrize_trev(nwan,wan,kgrid,ham,hams)
+!integer, intent(in) :: nwan
+!type(CLwan), intent(in) :: wan
+!type(GRID), intent(in) :: kgrid
+!complex(dp), intent(in) :: ham(nwan,nwan,wan%rgrid%npt)
+!complex(dp), intent(out) :: hams(nwan,nwan,wan%rgrid%npt)
+!complex(dp), allocatable :: hamk(:,:,:),hamsk(:,:,:)
+!integer, parameter :: sgn=1
+!real(dp), parameter :: mix=0.2_dp
+!integer ir,ik,jk,iw
+!real(dp) t1
+!complex(dp) z1
+!complex(dp), dimension(:,:), allocatable :: A,B,U,SA,SB
+!real(dp), allocatable :: s1(:),s2(:)
+!allocate(A(nwan,nwan))
+!allocate(B(nwan,nwan))
+!allocate(U(nwan,nwan))
+!allocate(SA(nwan,nwan))
+!allocate(SB(nwan,nwan))
+!allocate(s1(nwan))
+!allocate(s2(nwan))
+!allocate(hamk(nwan,nwan,kgrid%npt))
+!allocate(hamsk(nwan,nwan,kgrid%npt))
+!! FT TB Hamiltonian
+!hamk=0._dp
+!do ik=1,kgrid%npt
+!  do iR=1,wan%rgrid%npt
+!    t1=twopi*dot_product(kgrid%vpl(ik),wan%rgrid%vpl(iR))
+!    z1=cmplx(cos(t1),sgn*sin(t1),kind=dp)
+!    hamk(:,:,ik)=hamk(:,:,ik)+ham(:,:,iR)*z1
+!  end do
+!end do
+!! find unique TR Unitary operator U, such that H_k=U H*_{-k} U^\dagger valid approximately for all k-points
+!! re-write in terms of matrixes A and B  : A=UBU^\dagger
+!! extracting square roots : sqrt(A) sqrt(A)^\dagger = U sqrt(B) sqrt(B)^\dagger U^\dagger
+!! then U = sqrt(A) sqrt(B)^-1
+!U=0._dp
+!! extract matrix U only from the first point(GAMMA)
+!do ir=1,kgrid%nirT
+!    ik=kgrid%irT2ik(ir)
+!    jk=kgrid%ikT2k(ik)
+!    ! find square root of hamk(:,:,ik) and conjg(hamk(:,:,jk))
+!    A=hamk(:,:,ik)
+!    B=conjg(hamk(:,:,jk))
+!    do iw=1,nwan
+!      A(iw,iw)=A(iw,iw)+100._dp ! makes eigenvalues to be positive
+!      B(iw,iw)=B(iw,iw)+100._dp
+!    end do
+!    call eigenv_problem(nwan,A,s1)
+!    call eigenv_problem(nwan,B,s2)
+!    ! square roots
+!    do iw=1,nwan
+!      SA(iw,:)=sqrt(s1(iw))*conjg(A(:,iw))
+!      SB(iw,:)=sqrt(s2(iw))*conjg(B(:,iw)) 
+!    end do
+!    A=matmul(A,SA)
+!    B=matmul(B,SB)
+!    call utility_zgetri(B)
+!    ! add to the unitary transformation
+!    SA=matmul(A,B)
+!    U=U+matmul(A,B)
+!end do
+!U=U/dble(kgrid%nirT)
+!! now we need to make SVD to make it unitary
+!A=U
+!call utility_zgesvd(A,SA,s1,SB)
+!do iw=1,nwan
+!  SA(iw,:)=1._dp/abs(s1(iw))*SB(iw,:)
+!end do
+!A=matmul(conjg(transpose(SB)),SA)
+!U=matmul(U,A)
+!write(*,*) U
+!stop
+!! Apply TR in reciprocal space
+!do ir=1,kgrid%nirT
+!  ik=kgrid%irT2ik(ir)
+!  jk=kgrid%ikT2k(ik)
+!  call utility_zgemmm(U,'N',conjg(hamk(:,:,jk)), 'N', U, 'C', hamsk(:,:,ik))
+!  call utility_zgemmm(U,'N',conjg(hamsk(:,:,ik)), 'N', U, 'C', hamsk(:,:,jk))
+!end do
+!! FT back to real space 
+!hams=0._dp
+!do iR=1,wan%rgrid%npt
+!  do ik=1,kgrid%npt
+!    t1=twopi*dot_product(kgrid%vpl(ik),wan%rgrid%vpl(iR))
+!    z1=cmplx(cos(t1),-sgn*sin(t1),kind=dp)
+!    hams(:,:,iR)=hams(:,:,iR)+hamsk(:,:,ik)*z1
+!  end do
+!end do
+!hams=hams/dble(kgrid%npt)
+!deallocate(A,B,U,SA,SB,s1,s2)
+!deallocate(hamk,hamsk)
+!end subroutine symmetrize_trev
+!
 
 
 subroutine write_hubbardu(pars,sym)
@@ -1678,9 +1678,6 @@ class(CLtb), intent(in) :: tbmodel
 class(GRID), intent(inout) :: kgrid
 real(dp), intent(in) :: eval(pars%nstates,kgrid%npt)
 complex(dp), intent(in) :: evec(tbmodel%norb_TB,pars%nstates,kgrid%npt)
-integer ir,ik
-real(dp), allocatable    :: vkl(:,:),vrl(:,:)
-complex(dp), allocatable :: umat(:,:,:),udis(:,:,:)
 complex(dp), allocatable :: wfmloc(:,:,:)
 ! variables for symmetry maps
 integer, allocatable     :: irr2cR(:,:)
@@ -1707,26 +1704,8 @@ call info("Wannier_interface%compute_hubbardu","WARNING this code is working for
 ! copy rgrid object from TB
 rgrid=tbmodel%rgrid
 if (.not.rgrid%sphere_allocated) call rgrid%init_sphere(pars)
-allocate(udis(pars%nstates,proj%norb,kgrid%npt))
-allocate(umat(proj%norb,proj%norb,kgrid%npt))
 allocate(wfmloc(tbmodel%norb_TB,proj%norb,rgrid%npt))
-! k-point list
-allocate(vkl(NDIM,kgrid%npt))
-do ik=1,kgrid%npt
-  vkl(:,ik)=kgrid%vpl(ik)
-end do
-! r-point list
-allocate(vrl(NDIM,rgrid%npt))
-do ir=1,rgrid%npt
-  vrl(:,ir)=rgrid%vpl(ir)
-end do
-if (pars%nstates.gt.proj%norb) then
-  call read_udis(pars%seedname,kgrid%npt,proj%norb,pars%nstates,vkl,udis)
-end if
-call read_umat(pars%seedname,kgrid%npt,proj%norb,vkl,umat)
-! obtain wannier functions
-call get_wfmloc(.false.,proj%norb,pars%nstates,kgrid%npt,rgrid%npt,&
-   tbmodel%norb_TB,pars%dis_win,udis,umat,vkl,vrl,eval,evec,wfmloc)
+call read_wfmloc(pars,tbmodel,kgrid,eval,evec,wfmloc)
 if (mp_mpi) write(*,*) "available OMP_NUM_THREADS, if used: ",proj%norb
 if (mp_mpi) write(*,*) "available number of mpi processes, if used: ",tbmodel%norb_TB
 if (.not.pars%HubU_diagonal) then
@@ -1737,7 +1716,6 @@ if (.not.pars%HubU_diagonal) then
 else
   call UH_full(pars,rgrid,tbmodel,proj,wfmloc)
 end if
-deallocate(vkl,vrl,umat,udis)
 deallocate(wfmloc)
 if (.not.pars%HubU_diagonal) then
   deallocate(irr2cR)
@@ -1857,6 +1835,8 @@ do IRR_POINT=1,nir
   end do
   !$OMP END DO
   !$OMP END PARALLEL
+
+
 #ifdef MPI
   n1=proj%norb**4
   call mpi_allreduce(mpi_in_place,UH,n1,mpi_double_complex,mpi_sum, &
