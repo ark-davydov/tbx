@@ -25,6 +25,7 @@ type, public :: CLtb
   real(dp), private   :: rcut_nn
   real(dp), private   :: rcut_tbg_nni
   real(dp), private   :: vecs(NDIM,NDIM)
+  real(dp), private   :: bvec(NDIM,NDIM)
   real(dp), private   :: sparse_eps=1.e-6_dp
   type(SK), private   :: skfunc
   type(GRID), public  :: rgrid
@@ -81,6 +82,7 @@ THIS%sparse_eps=pars%sparse_eps
 THIS%rcut_nn=pars%rcut_nn
 THIS%rcut_tbg_nni=pars%rcut_tbg_nni
 THIS%vecs=pars%avec
+THIS%bvec=pars%bvec
 THIS%nspec=pars%nspec
 THIS%nmaxatm_pspec=pars%nmaxatm_pspec
 THIS%sktype=pars%sktype
@@ -779,14 +781,23 @@ end subroutine
 
 subroutine write_nonzeros_hame(THIS)
 class(CLtb), intent(inout) :: THIS
-integer nn,ii,ir
+integer nn,ii,jj,ir
+integer ic,jc
+real(dp) t1,dv(NDIM)
 allocate(THIS%hame(THIS%hamsize,THIS%rgrid%npt))
 THIS%hame=0._dp
 do ir=1,THIS%rgrid%npt
   do nn=1,THIS%hamsize
     do ii=1,THIS%norb_TB
+      jj=THIS%jsa(nn)
       if (nn.ge.THIS%isa(ii).and.nn.lt.THIS%isa(ii+1)) then
-        THIS%hame(nn,ir)=THIS%hame_file(ii,THIS%jsa(nn),ir)
+        ic=THIS%wbase%orb_icio(ii,1)
+        jc=THIS%wbase%orb_icio(jj,1)
+        dv=THIS%wbase%centers_cart(:,jc)+THIS%rgrid%vpc(ir)-THIS%wbase%centers_cart(:,ic)
+        t1=sqrt(dot_product(dv,dv))
+        if (t1<THIS%rcut_nn) then
+          THIS%hame(nn,ir)=THIS%hame_file(ii,THIS%jsa(nn),ir)
+        end if
       end if
     end do
   end do
