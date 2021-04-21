@@ -158,21 +158,6 @@ else if (trim(adjustl(THIS%mode)).eq.'sk') then
   ! init real space grid
   call THIS%rgrid%init(pars%ngrid,pars%avec,.true.,.false.)
   call THIS%skfunc%init(THIS%sktype,THIS%sk_subtype(1),THIS%sk_subtype(2))
-
-  do ii =1,1000
-     t1 = dble(ii)/10._dp
-     t2 = THIS%skfunc%tij(THIS%sktype,THIS%wbase%lmr(:,1),THIS%wbase%lmr(:,1),(/0._dp,t1,3.35_dp/),&
-                 THIS%sk_subtype(1),THIS%sk_subtype(2))
-     t1= sqrt(t1**2+3.35_dp**2)
-     write(1000,*) t1,t2
-  end do
-  do ii =1,1000
-     t1 = dble(ii)/10._dp
-     t2 = THIS%skfunc%tij(THIS%sktype,THIS%wbase%lmr(:,1),THIS%wbase%lmr(:,1),(/0._dp,t1,0._dp/),&
-                 THIS%sk_subtype(1),THIS%sk_subtype(2))
-     write(2000,*) t1,t2
-  end do
-
   call THIS%findnn()
   call THIS%inquire_hamsize()
   if (pars%writetb.and.mp_mpi) call THIS%write_tb_file(pars)
@@ -472,6 +457,8 @@ jc=THIS%wbase%orb_icio(jorb,1)
 dvec(:)=THIS%wbase%centers_cart(:,jc)+THIS%rgrid%vpc(jr)-THIS%wbase%centers_cart(:,ic)
 tij_function=THIS%skfunc%tij(THIS%sktype,THIS%wbase%lmr(:,iorb),THIS%wbase%lmr(:,jorb),dvec,&
          THIS%sk_subtype(1),THIS%sk_subtype(2))
+
+!write(*,*) dble(tij_function),aimag(tij_function)
 ! add hartree only when working with slater-koster for TBG
 if (THIS%mode.eq.'sk'.and. (trim(adjustl(THIS%sktype)).eq.'tbgsk') ) then
     if (abs(THIS%tbg_vhscale)>epsengy .and. jr.eq.THIS%rgrid%ip0 .and. iorb.eq.jorb) then

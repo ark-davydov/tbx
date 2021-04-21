@@ -44,7 +44,7 @@ case('tbgsk')
   ! init in-plane parameters for TBG
   select case(trim(adjustl(inpl))) 
   case('sz_table')
-    sktab_ipl(1:9)  = (/-2.7783_dp,-0.2292_dp,-0.1719_dp,0.0075_dp,0.0218_dp,&
+    sktab_ipl(1:9)  = (/-2.7783_dp, 0.2292_dp,-0.1719_dp,0.0075_dp,0.0218_dp,&
                         -0.0078_dp,-0.0035_dp,-0.0042_dp,0.0018_dp/)
   case('dzp_table')
     sktab_ipl(1:12) = (/-2.8464_dp, 0.2176_dp,-0.2375_dp,0.0184_dp,0.0400_dp,&
