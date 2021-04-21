@@ -20,7 +20,6 @@ type, public :: CLgrid
 endtype CLgrid
 
 type, public, extends(CLgrid) :: GRID
-  logical :: trevinit_done=.false.
   logical :: syminit_done=.false.
   logical :: sphere_allocated=.false.
   logical centered

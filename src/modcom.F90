@@ -1125,6 +1125,16 @@ end subroutine
      end if
   end subroutine
 
-
+  real(dp) function tbg_vhartree_of_z(z,z1,z2,vscale)
+     real(dp), intent(in) :: z,z1,z2,vscale
+     real(dp) zmid,dz
+     dz = max(z1,z2)-min(z1,z2)
+     zmid = 0.5_dp*(max(z1,z2)+min(z1,z2))
+     if (abs(dz)<epslat) call throw('modcom','tbg interplane distanse variation is zero, can not apply Hartree modulation')
+     if (abs(zmid)<0.5_dp*tbg_ab_distance) then
+        call throw('modcom','average tbg interplane is smaller than half of ab distance, it must be an error' )
+     end if
+     tbg_vhartree_of_z=vscale*(z-zmid)/dz
+  end function
 
 end module

@@ -1682,7 +1682,7 @@ complex(dp), allocatable :: wfmloc(:,:,:)
 ! variables for symmetry maps
 integer, allocatable     :: irr2cR(:,:)
 integer, allocatable     :: cR2irr(:,:,:,:)
-integer                  :: nir
+integer                  :: nir,jc1_irr,jc2_irr,jR_irr,nmat,IRR_POINT
 !
 type(wbase)  proj
 type(GRID) rgrid
@@ -1712,8 +1712,41 @@ if (.not.pars%HubU_diagonal) then
   allocate(irr2cR(3,proj%ncenters*proj%ncenters*rgrid%npt_sphere))
   allocate(cR2irr(2,proj%ncenters,proj%ncenters,rgrid%npt_sphere))
   call find_irrcR_sphere(proj,sym,rgrid,irr2cR,cR2irr,nir)
+
+  nmat=0
+  do IRR_POINT=1,nir
+    jc1_irr=irr2cR(1,IRR_POINT)
+    jc2_irr=irr2cR(2,IRR_POINT)
+    jR_irr=irr2cR(3,IRR_POINT)
+    nmat=nmat+proj%norb_ic(jc1_irr)**2 * proj%norb_ic(jc2_irr)**2
+  end do
+  if (mp_mpi) write(*,*) "number of symmetry-reduced matrix elements: ",nmat
+
+  nmat=0
+  do jc1_irr=1,proj%ncenters
+    do jc2_irr=1,proj%ncenters
+      nmat=nmat+proj%norb_ic(jc1_irr)**2 * proj%norb_ic(jc2_irr)**2
+    end do
+  end do
+  if (mp_mpi) write(*,*) "number of all matrix elements in 4-point Hubbard: ",nmat*rgrid%npt_sphere
+
+  nmat=0
+  do jc1_irr=1,proj%ncenters
+    do jc2_irr=1,proj%ncenters
+      nmat=nmat+proj%norb_ic(jc1_irr) * proj%norb_ic(jc2_irr)
+    end do
+  end do
+  if (mp_mpi) write(*,*) "number of diagonal Hubbard matrix elements: ",nmat*rgrid%npt_sphere
+
   call UH_irr(pars,rgrid,tbmodel,proj,wfmloc,irr2cR,nir)
 else
+  nmat=0
+  do jc1_irr=1,proj%ncenters
+    do jc2_irr=1,proj%ncenters
+      nmat=nmat+proj%norb_ic(jc1_irr) * proj%norb_ic(jc2_irr)
+    end do
+  end do
+  if (mp_mpi) write(*,*) "number of diagonal Hubbard matrix elements: ",nmat*rgrid%npt_sphere
   call UH_full(pars,rgrid,tbmodel,proj,wfmloc)
 end if
 deallocate(wfmloc)

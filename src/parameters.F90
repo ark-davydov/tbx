@@ -32,6 +32,7 @@ type, public :: CLpars
   character(len=100) :: geometry_source=""
   character(len=100) :: seedname="seedname"
   character(len=100) :: sktype="sk"
+  character(len=100) :: sk_subtype(2)=(/"original","original"/)
   character(len=100) :: tbfile=""
   character(len=100) :: character_file=""
   character(len=100) :: tbtype="sk"
@@ -69,6 +70,7 @@ type, public :: CLpars
   integer :: Ggrid(NDIM)
   real(dp) :: omega
   real(dp) :: omegabz
+  real(dp) :: tbg_vhscale=0._dp
   real(dp) :: gauss_sigma=0.1_dp
   real(dp) :: sparse_eps=0.e-6_dp
   real(dp) :: efermi=0._dp
@@ -108,7 +110,7 @@ class(CLpars), intent(inout) :: THIS
 type(geomlib) geometry
 integer iostat,iline,jline,ii
 integer ispec,iat,ivert,igrid
-integer ic,iw,jw
+integer ic,iw,jw,nn
 integer, parameter :: nmaxatm_pspec=40000
 real(dp) t1,tvec(NDIM,NDIM),vd(NDIM)
 character(len=256) block,arg,line
@@ -299,6 +301,12 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%rcut_grid
     if (iostat.ne.0) call throw("paramters%read_input()","problem with rcut_grid data")
     if (mp_mpi) write(*,'(i6,": ",F10.6)') jline,THIS%rcut_grid
+  ! scale of the hartree interlayer-distance-dependent potential
+  else if (trim(block).eq."tbg_vhscale") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%tbg_vhscale
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with tbg_vhscale data")
+    if (mp_mpi) write(*,'(i6,": ",F18.6)') jline,THIS%tbg_vhscale
 
   ! symmetry analyser mode
   else if (trim(block).eq."symtype") then
@@ -447,6 +455,19 @@ do iline=1,nlines_max
         read(50,'(A)',iostat=iostat) THIS%sktype
         if (iostat.ne.0) call throw("paramters%read_input()","problem with sktype data")
         if (mp_mpi) write(*,'(i6,": ",A)') jline,trim(adjustl(THIS%sktype))
+
+  ! type of Slater-Koster function
+  else if (trim(block).eq."sk_subtype") then
+        jline=jline+1
+        read(arg,*,iostat=iostat) nn
+        if (iostat.ne.0) call throw("paramters%read_input()","problem with sk_subtype number of subtypes")
+        if (nn.ne.2)  call throw("paramters%read_input()","sk_subtype is currently defined only by two parameters")
+        do ii=1,nn
+          jline=jline+1
+          read(50,*,iostat=iostat) THIS%sk_subtype(ii)
+          if (iostat.ne.0) call throw("paramters%read_input()","problem with sk_subtype block")
+          if (mp_mpi) write(*,'(i6,": ",A)') jline,trim(adjustl(THIS%sk_subtype(ii)))
+        end do
 
   ! projection mode for wannier export
   else if (trim(block).eq."wannier_proj_mode") then
