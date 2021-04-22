@@ -49,6 +49,9 @@ case('tbgsk')
   case('dzp_table')
     sktab_ipl(1:12) = (/-2.8464_dp, 0.2176_dp,-0.2375_dp,0.0184_dp,0.0400_dp,&
                         -0.0141_dp,-0.0179_dp,-0.0031_dp,0.0070_dp,0.0018_dp,-0.0046_dp,-0.0018_dp/)
+  case('sz_table_SK2NN')
+    sktab_ipl(1:9)  = (/-2.7783_dp,-0.2783_dp,-0.1719_dp,0.0075_dp,0.0218_dp,&
+                        -0.0078_dp,-0.0035_dp,-0.0042_dp,0.0018_dp/)
   case('original')
     ! pure SK model with parameters from the literature (like Koshino)
     skpar_ipl = (/3.14_dp,7.43_dp,-2.7_dp,.48_dp/)
@@ -110,7 +113,7 @@ if (abs(rr).gt.epslat) then
        select case(trim(adjustl(inpl))) 
        case('original','sz_fit')
          tij = t_tbg(rr,zz,skpar_ipl)
-       case('sz_table','dzp_table')
+       case('sz_table','dzp_table','sz_table_SK2NN')
          tij = tbg_inplane_table(rr,zz)
        case default
          call throw("slater_koster%tij()","unknown inpl value")
