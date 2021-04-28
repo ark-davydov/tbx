@@ -116,7 +116,7 @@ if (abs(rr).gt.epslat) then
        select case(trim(adjustl(inpl))) 
        case('original','sz_fit')
          tij = t_tbg(rr,zz,skpar_ipl)
-       case('sz_table','dzp_table','sz_table_SK2NN')
+       case('sz_table','dzp_table','sz_table_SK2NN','sz_table_SK2NNP')
          tij = tbg_inplane_table(rr,zz)
        case default
          call throw("slater_koster%tij()","unknown inpl value")
