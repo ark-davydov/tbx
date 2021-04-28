@@ -52,6 +52,9 @@ case('tbgsk')
   case('sz_table_SK2NN')
     sktab_ipl(1:9)  = (/-2.7783_dp,-0.2783_dp,-0.1719_dp,0.0075_dp,0.0218_dp,&
                         -0.0078_dp,-0.0035_dp,-0.0042_dp,0.0018_dp/)
+  case('sz_table_SK2NNP')
+    sktab_ipl(1:9)  = (/-2.7783_dp,-0.2292_dp,-0.1719_dp,0.0075_dp,0.0218_dp,&
+                        -0.0078_dp,-0.0035_dp,-0.0042_dp,0.0018_dp/)
   case('original')
     ! pure SK model with parameters from the literature (like Koshino)
     skpar_ipl = (/3.14_dp,7.43_dp,-2.7_dp,.48_dp/)
