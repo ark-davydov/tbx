@@ -1,15 +1,18 @@
 # The following combination of tasks produces the bandstructure 
 # and the electron polarisability within the Random Phase Approximation (RPA) for 
 # Single Layer Graphene (SLG)
-tasks 3
- bands
+tasks 2
+ hubbard_tbg
+ write_hubbardu
+ projection_wannier
+
  eigen
  rpachi
 
 # This is the grid of k-points for eigenvalues/eigenvectors, 
 # and R-points for the real-space Tight-Binding (TB) hopping parameters tij(R)
 ngrid
- 50 50 1
+ 10 10 1
 
 # k-path for bandstructure
 path 4
@@ -55,3 +58,20 @@ rcut_grid
 ignore_chiIq
  .false.
 
+projections 2
+1 0.0000000 0.0000000 0.0
+   pz 1 0 0 0 0 1
+1 0.6666666 0.6666666 0.0
+   pz 1 0 0 0 0 1
+
+wannier_proj_mode
+ wftrial_file
+
+seedname
+ wannier
+
+coulrs_file
+ coulrs.txt
+
+HubU_diagonal
+.false.
