@@ -24,4 +24,4 @@ BLAS = -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lm
 
 # MKL Parallel blask/lapack. MKL allows for sparse PARDISO solver.
 # Note the importanse to have a correct threading option of MKL
-#BLAS = -lmkl_intel_lp64 -lmkl_intel_thread -lmkl_core -lm
+#BLAS = -lmkl_intel_lp64 -lmkl_intel_thread -lpthread -lmkl_core -liomp5

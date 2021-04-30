@@ -32,11 +32,14 @@ type, public :: CLpars
   character(len=100) :: geometry_source=""
   character(len=100) :: seedname="seedname"
   character(len=100) :: sktype="sk"
+  character(len=100) :: sk_subtype(2)=(/"original","original"/)
   character(len=100) :: tbfile=""
   character(len=100) :: character_file=""
   character(len=100) :: tbtype="sk"
   character(len=100) :: coulrs_file=""
+  logical :: real_wfmloc=.false.
   logical :: HubU_diagonal=.false.
+  logical :: trev=.false.
   logical :: readsym=.false.
   logical :: shifted=.false.
   logical :: symtshift=.true.
@@ -67,6 +70,7 @@ type, public :: CLpars
   integer :: Ggrid(NDIM)
   real(dp) :: omega
   real(dp) :: omegabz
+  real(dp) :: tbg_vhscale=0._dp
   real(dp) :: gauss_sigma=0.1_dp
   real(dp) :: sparse_eps=0.e-6_dp
   real(dp) :: efermi=0._dp
@@ -79,6 +83,7 @@ type, public :: CLpars
   real(dp) :: bvec(NDIM,NDIM)
   real(dp) :: e_chi_exclude(2)
   real(dp) :: dis_frozen(2)
+  real(dp) :: dis_win(2)
   type(CLproj) :: proj
   type(CLproj) :: base
   integer, allocatable :: nat_per_spec(:)
@@ -105,7 +110,7 @@ class(CLpars), intent(inout) :: THIS
 type(geomlib) geometry
 integer iostat,iline,jline,ii
 integer ispec,iat,ivert,igrid
-integer ic,iw,jw
+integer ic,iw,jw,nn
 integer, parameter :: nmaxatm_pspec=40000
 real(dp) t1,tvec(NDIM,NDIM),vd(NDIM)
 character(len=256) block,arg,line
@@ -120,8 +125,10 @@ integer, allocatable :: lmr(:,:)
 #endif
 THIS%Ggrid=0
 THIS%ngrid=1
-THIS%dis_frozen(1)=-1._dp
-THIS%dis_frozen(2)= 1._dp
+THIS%dis_win(1)=-10._dp
+THIS%dis_win(2)= 10._dp
+THIS%dis_frozen(1)=-10._dp
+THIS%dis_frozen(2)= 10._dp
 
 open(50,file=trim(adjustl(THIS%input_file)),action="read",status="old",iostat=iostat)
 if (iostat.ne.0) call throw("paramters%read_input()","could not open input file")
@@ -234,6 +241,12 @@ do iline=1,nlines_max
     if (iostat.ne.0) call throw("paramters%read_input()","problem with dis_frozen data")
     if (mp_mpi) write(*,'(i6,": ",5F19.6)') jline,THIS%dis_frozen(:)
 
+  else if (trim(block).eq."dis_win") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%dis_win(:)
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with dis_win data")
+    if (mp_mpi) write(*,'(i6,": ",5F19.6)') jline,THIS%dis_win(:)
+
   ! BZ k-papth block
   else if (trim(block).eq."path") then
     read(arg,*,iostat=iostat) THIS%nvert
@@ -276,7 +289,7 @@ do iline=1,nlines_max
     jline=jline+1
     read(50,*,iostat=iostat) THIS%rcut_nn
     if (iostat.ne.0) call throw("paramters%read_input()","problem with rcut_nn data")
-    if (mp_mpi) write(*,'(i6,": ",F10.6)') jline,THIS%rcut_nn
+    if (mp_mpi) write(*,'(i6,": ",F18.6)') jline,THIS%rcut_nn
   ! cut off for in-plane nearest neighbors for tbg
   else if (trim(block).eq."rcut_tbg_nni") then
     jline=jline+1
@@ -289,6 +302,12 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%rcut_grid
     if (iostat.ne.0) call throw("paramters%read_input()","problem with rcut_grid data")
     if (mp_mpi) write(*,'(i6,": ",F10.6)') jline,THIS%rcut_grid
+  ! scale of the hartree interlayer-distance-dependent potential
+  else if (trim(block).eq."tbg_vhscale") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%tbg_vhscale
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with tbg_vhscale data")
+    if (mp_mpi) write(*,'(i6,": ",F18.6)') jline,THIS%tbg_vhscale
 
   ! symmetry analyser mode
   else if (trim(block).eq."symtype") then
@@ -347,6 +366,14 @@ do iline=1,nlines_max
     if (iostat.ne.0) call throw("paramters%read_input()","problem with HubU_diagonal data")
     if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%HubU_diagonal
 
+  ! .true. real part of wfmloc will be used for U calculation in symmetric case 
+  else if (trim(block).eq."real_wfmloc") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%real_wfmloc
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with real_wfmloc data")
+    if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%real_wfmloc
+
+
   ! .true. use weights in the amn matrix construction
   else if (trim(block).eq."use_weights_amn") then
     jline=jline+1
@@ -360,6 +387,14 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%readsym
     if (iostat.ne.0) call throw("paramters%read_input()","problem with readsym data")
     if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%readsym
+
+  ! .true. to use time reversal in the symmetrization
+  else if (trim(block).eq."trev") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%trev
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with trev data")
+    if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%trev
+
 
   ! .true. to write tight binding hamiltonian
   else if (trim(block).eq."writetb") then
@@ -421,6 +456,19 @@ do iline=1,nlines_max
         read(50,'(A)',iostat=iostat) THIS%sktype
         if (iostat.ne.0) call throw("paramters%read_input()","problem with sktype data")
         if (mp_mpi) write(*,'(i6,": ",A)') jline,trim(adjustl(THIS%sktype))
+
+  ! type of Slater-Koster function
+  else if (trim(block).eq."sk_subtype") then
+        jline=jline+1
+        read(arg,*,iostat=iostat) nn
+        if (iostat.ne.0) call throw("paramters%read_input()","problem with sk_subtype number of subtypes")
+        if (nn.ne.2)  call throw("paramters%read_input()","sk_subtype is currently defined only by two parameters")
+        do ii=1,nn
+          jline=jline+1
+          read(50,*,iostat=iostat) THIS%sk_subtype(ii)
+          if (iostat.ne.0) call throw("paramters%read_input()","problem with sk_subtype block")
+          if (mp_mpi) write(*,'(i6,": ",A)') jline,trim(adjustl(THIS%sk_subtype(ii)))
+        end do
 
   ! projection mode for wannier export
   else if (trim(block).eq."wannier_proj_mode") then
@@ -767,11 +815,11 @@ if (mp_mpi) then
   open(100,file=trim(adjustl(fname)),action="write")
   write(100,*)"avec"
   do ii=1,NDIM
-    write(100,'(5G18.10)') THIS%avec(ii,:)
+    write(100,'(5G28.20)') THIS%avec(ii,:)
   end do
   write(100,*)"bvec"
   do ii=1,NDIM
-    write(100,'(5G18.10)') THIS%bvec(ii,:)
+    write(100,'(5G28.20)') THIS%bvec(ii,:)
   end do
   write(100,'("atoms ",I6)') THIS%nspec
   do ispec=1,THIS%nspec

@@ -353,7 +353,7 @@ end subroutine
 
 subroutine projection_wannier(pars)
 class(CLpars), intent(inout) :: pars
-integer ik
+integer ik,jk,ir
 real(dp), allocatable :: eval(:,:)
 real(dp), allocatable :: vkl(:,:)
 complex(dp), allocatable :: evec(:,:,:)
@@ -371,6 +371,8 @@ call sym%init(pars)
 call tbmodel%init(pars,sym,"noham")
 ! read the k-point grid on which eigenvales/eigenvectors are computed
 call kgrid%io(1000,"_grid","read",pars,tbmodel%norb_TB)
+! init symmetries of k-point grid
+call kgrid%sym_init(pars%trev,sym)
 ! init new kpath from input
 call kpath%init(pars%nvert,pars%np_per_vert,pars%vert,pars%bvec)
 ! allocate array for eigen values
@@ -384,6 +386,14 @@ do ik=1,kgrid%npt
   vkl(:,ik)=kgrid%vpl(ik)
   ! read eigenvectors, subroutine in modcom.f90
   call io_evec(ik,"read","_evec_1_",tbmodel%norb_TB,pars%nstates,evec(:,:,ik))
+end do
+! symetrise with respect to time-reversal symmetry
+! at some point, this code is to be removed, and eigenvalues 
+! are to be computed on irreducible wedge
+do ir=1,kgrid%nirT
+  ik=kgrid%irT2ik(ir)
+  jk=kgrid%ikT2k(ik)
+  evec(:,:,ik)=conjg(evec(:,:,jk))
 end do
 ! zero the arrays for security reasons
 eval=0._dp
@@ -435,11 +445,11 @@ do ik=1,kpath%nvert
    write(*,*)"IK: ",ik
    call tbmodel%evalk(.true.,pars,kpath%vert(:,ik),eval,evec)
    vpc=matmul(kpath%vert(:,ik),kpath%vecs)
-   call find_degroups(pars%nstates,eval,ngroups,idx)
+   call find_degroups(pars%nstates,eval,ngroups,idx,1.d-2)
    ! find symreps for groups of bands
    do igr=1,ngroups
      write(*,*) 'group: ',igr,idx(igr,1),idx(igr,2)
-     write(*,*) 'energies: ',eval(idx(igr,1):idx(igr,2))-pars%efermi
+     write(*,'("energies: ",20F12.6)') eval(idx(igr,1):idx(igr,2))-pars%efermi
      irrep_decompose(:)=0._dp
      do icl=1,ch_table%nclasses
        do nsym=1,ch_table%nsym_of_cl(icl)
@@ -466,7 +476,6 @@ end subroutine
 
 subroutine write_wfmloc(pars)
 class(CLpars), intent(inout) :: pars
-integer ik
 real(dp), allocatable :: eval(:,:)
 real(dp), allocatable :: vkl(:,:)
 complex(dp), allocatable :: evec(:,:,:)
@@ -474,7 +483,7 @@ complex(dp), allocatable :: wfmloc(:,:,:)
 type(GRID) kgrid
 type(CLtb) tbmodel
 type(CLsym) sym
-integer nr,iR,iw,iorb
+integer nr,iR,iw,iorb,jk,ik
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
 #endif
@@ -484,6 +493,8 @@ call sym%init(pars)
 call tbmodel%init(pars,sym,"noham")
 ! read the k-point grid on which eigenvales/eigenvectors are computed
 call kgrid%io(1000,"_grid","read",pars,tbmodel%norb_TB)
+! init symmetries of k-point grid
+call kgrid%sym_init(pars%trev,sym)
 ! allocate array for eigen values
 allocate(eval(pars%nstates,kgrid%npt))
 ! allocate array for eigen vectors
@@ -496,14 +507,25 @@ do ik=1,kgrid%npt
   ! read eigenvectors, subroutine in modcom.f90
   call io_evec(ik,"read","_evec_1_",tbmodel%norb_TB,pars%nstates,evec(:,:,ik))
 end do
+
+! symetrise with respect to time-reversal symmetry
+! at some point, this code is to be removed, and eigenvalues 
+! are to be computed on irreducible wedge
+do ir=1,kgrid%nirT
+  ik=kgrid%irT2ik(ir)
+  jk=kgrid%ikT2k(ik)
+  evec(:,:,ik)=conjg(evec(:,:,jk))
+end do
+
 ! zero the arrays for security reasons
 eval=0._dp
 ! read eigenvalues, subroutine in modcom.f90
 call io_eval(1001,"read","eval_1.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
 ! init minimal wannier variables
 !call wannier%init(kgrid,kpath,pars,eval)
+
 allocate(wfmloc(tbmodel%norb_TB,pars%proj%norb,tbmodel%rgrid%npt))
-call read_wfmloc(pars,tbmodel,kgrid,evec,wfmloc)
+call read_wfmloc(pars,tbmodel,kgrid,eval-pars%efermi,evec,wfmloc)
 nr=0
 do iR=1,tbmodel%rgrid%npt
   if (sum(abs(tbmodel%rgrid%vpl(iR))).le.6) then
@@ -521,7 +543,7 @@ end subroutine
 
 subroutine hubbard_tbg(pars)
 class(CLpars), intent(inout) :: pars
-integer ik
+integer ik,ir,jk
 real(dp), allocatable :: eval(:,:)
 real(dp), allocatable :: vkl(:,:)
 complex(dp), allocatable :: evec(:,:,:)
@@ -537,6 +559,8 @@ call sym%init(pars)
 call tbmodel%init(pars,sym,"noham")
 ! read the k-point grid on which eigenvales/eigenvectors are computed
 call kgrid%io(1000,"_grid","read",pars,tbmodel%norb_TB)
+! init symmetries of k-point grid
+call kgrid%sym_init(pars%trev,sym)
 ! allocate array for eigen values
 allocate(eval(pars%nstates,kgrid%npt))
 ! allocate array for eigen vectors
@@ -549,13 +573,21 @@ do ik=1,kgrid%npt
   ! read eigenvectors, subroutine in modcom.f90
   call io_evec(ik,"read","_evec_1_",tbmodel%norb_TB,pars%nstates,evec(:,:,ik))
 end do
+! symetrise with respect to time-reversal symmetry
+! at some point, this code is to be removed, and eigenvalues 
+! are to be computed on irreducible wedge
+do ir=1,kgrid%nirT
+  ik=kgrid%irT2ik(ir)
+  jk=kgrid%ikT2k(ik)
+  evec(:,:,ik)=conjg(evec(:,:,jk))
+end do
 ! zero the arrays for security reasons
 eval=0._dp
 ! read eigenvalues, subroutine in modcom.f90
 call io_eval(1001,"read","eval_1.dat",.false.,pars%nstates,kgrid%npt,pars%efermi,vkl,eval)
 ! init minimal wannier variables
-call compute_hubbardu_rs(pars,sym,tbmodel,kgrid,evec)
-!call compute_hubbardj_rs(pars,sym,tbmodel,kgrid,sym,evec)
+call compute_hubbardu_rs(pars,sym,tbmodel,kgrid,eval-pars%efermi,evec)
+!call compute_hubbardj_rs(pars,sym,tbmodel,kgrid,sym,eval-pars%efermi,evec)
 deallocate(eval,evec,vkl)
 end subroutine
 

@@ -17,7 +17,7 @@ integer, parameter :: maxallowd_nn=20000
 type, public :: CLtb
   ! private
   character(len=100), private :: mode
-  character(len=100), private :: sktype
+  character(len=100), private :: sktype,sk_subtype(2)
   integer :: norb_TB
   integer, private    :: nspec
   integer, private    :: hamsize
@@ -25,7 +25,11 @@ type, public :: CLtb
   real(dp), private   :: rcut_nn
   real(dp), private   :: rcut_tbg_nni
   real(dp), private   :: vecs(NDIM,NDIM)
+  real(dp), private   :: bvec(NDIM,NDIM)
   real(dp), private   :: sparse_eps=1.e-6_dp
+  real(dp), private   :: tbg_vhscale=0._dp
+  real(dp), private   :: tbg_dmin=1.e6_dp
+  real(dp), private   :: tbg_dmax=0._dp
   type(SK), private   :: skfunc
   type(GRID), public  :: rgrid
   ! sparse indexing (isa,jsa)
@@ -38,6 +42,7 @@ type, public :: CLtb
   integer, allocatable, private :: ncenters_nn(:)
   integer, allocatable, private :: jcjr_nn(:,:,:)
   real(dp), allocatable, private :: dege(:)
+  real(dp), allocatable, private :: tbg_oo_dist(:)
   complex(dp), allocatable, private :: hame(:,:)
   complex(dp), allocatable, private :: hame_file(:,:,:)
   type(wbase) :: wbase
@@ -70,7 +75,8 @@ class(CLtb), intent(out) :: THIS
 class(CLpars), intent(inout) :: pars
 class(CLsym), intent(inout) :: sym
 character(len=*), intent(in) :: mode
-integer ispec,ios,iorb,ic
+integer ispec,ios,iorb,ic,jc,ii
+real(dp) dvec(NDIM),t1,t2
 call info ("CLtb%init_variables","")
 if (trim(adjustl(mode)).eq.'noham') then
   THIS%mode='noham'
@@ -81,9 +87,13 @@ THIS%sparse_eps=pars%sparse_eps
 THIS%rcut_nn=pars%rcut_nn
 THIS%rcut_tbg_nni=pars%rcut_tbg_nni
 THIS%vecs=pars%avec
+THIS%bvec=pars%bvec
 THIS%nspec=pars%nspec
 THIS%nmaxatm_pspec=pars%nmaxatm_pspec
 THIS%sktype=pars%sktype
+THIS%sk_subtype(1)=pars%sk_subtype(1)
+THIS%sk_subtype(2)=pars%sk_subtype(2)
+THIS%tbg_vhscale=pars%tbg_vhscale
 ! allocate basis indices
 call THIS%wbase%init(pars,pars%base%ncenters,pars%base%norb,pars%base%norb_ic,&
                  pars%base%lmr,pars%base%waxis,pars%base%centers)
@@ -109,6 +119,7 @@ if (pars%istart.gt.pars%istop) then
   call message("bottom state to compute was changed")
 end if
 pars%nstates=pars%istop-pars%istart+1
+
 if (trim(adjustl(THIS%mode)).eq.'tbfile') then
   call THIS%read_tb_file(pars)
   call THIS%findnn()
@@ -122,9 +133,31 @@ else if (trim(adjustl(THIS%mode)).eq.'hrfile') then
   call THIS%write_nonzeros_hame()
   if (pars%writetb.and.mp_mpi) call THIS%write_hr_file()
 else if (trim(adjustl(THIS%mode)).eq.'sk') then
+  if (abs(THIS%tbg_vhscale)>epsengy) then
+    allocate(THIS%tbg_oo_dist(THIS%wbase%ncenters))
+    THIS%tbg_oo_dist=0._dp
+     ! first we need to loop over all atoms to check what is the minimum and maximum interlayer distance
+    do ic=1,THIS%wbase%ncenters
+      t1=1.e6_dp
+      do jc=1,THIS%wbase%ncenters
+         dvec(:)=THIS%wbase%centers_cart(:,jc)-THIS%wbase%centers_cart(:,ic)
+         if (abs(dvec(ZAXIS)).gt.0.5_dp*tbg_ab_distance) then
+            THIS%tbg_dmin=min(THIS%tbg_dmin,abs(dvec(ZAXIS)))
+            THIS%tbg_dmax=max(THIS%tbg_dmax,abs(dvec(ZAXIS)))
+            ! find out-of-plane distance at ic, as the z-coordinate with smallest in-plane hopping offset
+            t2=sqrt(dvec(1)**2+dvec(2)**2)
+            if (t2<t1) then 
+               THIS%tbg_oo_dist(ic)=abs(dvec(ZAXIS))
+   !            write(*,*) ic,t1,t2,abs(dvec(ZAXIS)),THIS%tbg_oo_dist(ic)
+               t1=t2
+            end if
+         end if
+      end do
+    end do
+  end if
   ! init real space grid
   call THIS%rgrid%init(pars%ngrid,pars%avec,.true.,.false.)
-  call THIS%skfunc%init(THIS%sktype)
+  call THIS%skfunc%init(THIS%sktype,THIS%sk_subtype(1),THIS%sk_subtype(2))
   call THIS%findnn()
   call THIS%inquire_hamsize()
   if (pars%writetb.and.mp_mpi) call THIS%write_tb_file(pars)
@@ -363,13 +396,12 @@ do ic=1,THIS%wbase%ncenters
       dv=THIS%wbase%centers_cart(:,jc)+THIS%rgrid%vpc(jR)-THIS%wbase%centers_cart(:,ic)
       t1=sqrt(dot_product(dv,dv))
       if (t1.lt.THIS%rcut_nn) then
-        if (trim(adjustl(THIS%sktype)).eq.'tbgsk'.or.&
-            trim(adjustl(THIS%sktype)).eq.'tbgsk1') then
-            t1=sqrt(dv(1)**2+dv(2)**2)
-           !if (abs(dv(ZAXIS)).lt.0.5_dp*tbg_ab_distance) then
+        if (THIS%mode.eq.'sk'.and. (trim(adjustl(THIS%sktype)).eq.'tbgsk')) then
+              t1=sqrt(dv(1)**2+dv(2)**2)
               ! cut in-plane hopping for TBG (later for something else)
+              !if (abs(dv(ZAXIS)).lt.0.5_dp*tbg_ab_distance) then
               if (t1.gt.THIS%rcut_tbg_nni) cycle
-           !end if
+              !end if
         end if
         do ios=1,THIS%wbase%norb_ic(ic)
           iorb=THIS%wbase%icio_orb(ic,ios)
@@ -423,10 +455,21 @@ real(dp) dvec(NDIM)
 ic=THIS%wbase%orb_icio(iorb,1)
 jc=THIS%wbase%orb_icio(jorb,1)
 dvec(:)=THIS%wbase%centers_cart(:,jc)+THIS%rgrid%vpc(jr)-THIS%wbase%centers_cart(:,ic)
-tij_function=THIS%skfunc%tij(THIS%sktype,THIS%wbase%lmr(:,iorb),THIS%wbase%lmr(:,jorb),dvec)
+tij_function=THIS%skfunc%tij(THIS%sktype,THIS%wbase%lmr(:,iorb),THIS%wbase%lmr(:,jorb),dvec,&
+         THIS%sk_subtype(1),THIS%sk_subtype(2))
+
+!write(*,*) dble(tij_function),aimag(tij_function)
+! add hartree only when working with slater-koster for TBG
+if (THIS%mode.eq.'sk'.and. (trim(adjustl(THIS%sktype)).eq.'tbgsk') ) then
+    if (abs(THIS%tbg_vhscale)>epsengy .and. jr.eq.THIS%rgrid%ip0 .and. iorb.eq.jorb) then
+       ! add to diagonal at home unit cell
+       tij_function=tij_function+&
+                    tbg_vhartree_of_z(abs(THIS%tbg_oo_dist(ic)),THIS%tbg_dmin,THIS%tbg_dmax,THIS%tbg_vhscale)
+       !write(*,*) iorb,jorb,jr,tbg_vhartree_of_z(abs(THIS%tbg_oo_dist(ic)),THIS%tbg_dmin,THIS%tbg_dmax,THIS%tbg_vhscale)
+       !write(*,*) THIS%tbg_dmin,THIS%tbg_dmax,abs(THIS%tbg_oo_dist(ic))
+    end if
+end if
 end function
-
-
 
 function get_location_of_orbial(THIS,iorb) result(vpl)
 class(CLtb), intent(in) :: THIS
@@ -464,7 +507,7 @@ do iw=1,THIS%wbase%norb
      ic=THIS%wbase%orb_icio(jw,1)
      jc=THIS%wbase%ics2c(ic,isym)
      if(THIS%wbase%orb_icio(iw,1).ne.jc) cycle
-     wfout(iw)=wfout(iw)+THIS%wbase%wws(sym%car(:,:,isym),jw,iw)*wfin(jw)*zz
+     wfout(iw)=wfout(iw)+THIS%wbase%wws(.false.,sym%car(:,:,isym),jw,iw)*wfin(jw)*zz
    end do
 end do
 return
@@ -496,7 +539,7 @@ do iw=1,THIS%wbase%norb
      ic=THIS%wbase%orb_icio(jw,1)
      jc=THIS%wbase%ics2c(ic,isym)
      if(THIS%wbase%orb_icio(iw,1).ne.jc) cycle
-     wfout(iw)=wfout(iw)+THIS%wbase%wws(sym%car(:,:,isym),jw,iw)*wfin(jw)*zz
+     wfout(iw)=wfout(iw)+THIS%wbase%wws(.false.,sym%car(:,:,isym),jw,iw)*wfin(jw)*zz
    end do
 end do
 return
@@ -568,9 +611,10 @@ end subroutine
 subroutine write_tb_file(THIS,pars)
 class(CLtb), intent(inout) :: THIS
 class(CLpars), intent(in) :: pars
-integer ii,jj,ir,counter,ivp(NDIM+1)
-complex(dp), allocatable :: ham(:,:,:)
+integer ii,jj,ir,jR,ic,jc,counter,ivp(NDIM+1)
+real(dp) t1,dv(NDIM)
 integer, allocatable :: deg(:)
+complex(dp), allocatable :: ham(:,:,:)
 type(GRID) rgrid
 if (NDIM.ne.3) call throw("CLtb%write_tb_file","this subroutine works only in 3D case")
 call rgrid%init(pars%ngrid,pars%avec,.true.,.false.)
@@ -581,7 +625,11 @@ do ir=1,rgrid%npt
   ivp=THIS%rgrid%find(rgrid%vpl(ir))
   if (ivp(ndim+1).lt.0.or.sum(abs(ivp(1:NDIM))).ne.0) cycle
   counter=counter+1
-  deg(counter)=nint(THIS%dege(ivp(NDIM+1)))
+  if (trim(adjustl(THIS%mode)).eq.'tbfile'.or.trim(adjustl(THIS%mode)).eq.'hrfile') then
+     deg(counter)=nint(THIS%dege(ivp(NDIM+1)))
+  else
+     deg(counter)=1
+  end if
 end do
 call system("mkdir -p _ham")
 open(50,file="_ham/ham_tb.dat",action='write')
@@ -596,21 +644,39 @@ if (THIS%mode.eq."") then
 else
   write(50,'(15I5)') (deg(ir),ir=1,counter)
 end if
-allocate(ham(THIS%norb_TB,THIS%norb_TB,THIS%rgrid%npt))
-call THIS%unfold_hame(ham)
+if (trim(adjustl(THIS%mode)).eq.'tbfile'.or.trim(adjustl(THIS%mode)).eq.'hrfile') then
+   allocate(ham(THIS%norb_TB,THIS%norb_TB,THIS%rgrid%npt))
+   call THIS%unfold_hame(ham)
+end if
 do ir=1,rgrid%npt
   ivp=THIS%rgrid%find(rgrid%vpl(ir))
   if (ivp(ndim+1).lt.0.or.sum(abs(ivp(1:NDIM))).ne.0) cycle
+  jR=ivp(NDIM+1)
   write(50,*)
-  write(50,'(3I5)') THIS%rgrid%vpi(ivp(NDIM+1))
+  write(50,'(3I5)') THIS%rgrid%vpi(jR)
   do jj=1,THIS%norb_TB
     do ii=1,THIS%norb_TB
-      write(50,'(2I5,3x,2(E15.8,1x))') ii,jj,ham(ii,jj,ivp(NDIM+1))
+      if (trim(adjustl(THIS%mode)).eq.'tbfile'.or.trim(adjustl(THIS%mode)).eq.'hrfile') then
+        write(50,'(2I5,3x,2(E15.8,1x))') ii,jj,ham(ii,jj,jR)
+      else
+        ic=THIS%wbase%orb_icio(ii,1)
+        jc=THIS%wbase%orb_icio(jj,1)
+        dv=THIS%wbase%centers_cart(:,jc)+THIS%rgrid%vpc(jR)-THIS%wbase%centers_cart(:,ic)
+        t1=sqrt(dot_product(dv,dv))
+        if (t1.lt.THIS%rcut_nn) then
+          write(50,'(2I5,3x,2(E15.8,1x))') ii,jj,THIS%tij(ii,jj,jR)
+        else
+          write(50,'(2I5,3x,2(E15.8,1x))') ii,jj,0._dp,0._dp
+        end if
+      end if
     end do
   end do
 end do
 close(50)
-deallocate(ham,deg)
+if (trim(adjustl(THIS%mode)).eq.'tbfile'.or.trim(adjustl(THIS%mode)).eq.'hrfile') then
+  deallocate(ham)
+end if
+deallocate(deg)
 return
 end subroutine
 
@@ -756,14 +822,23 @@ end subroutine
 
 subroutine write_nonzeros_hame(THIS)
 class(CLtb), intent(inout) :: THIS
-integer nn,ii,ir
+integer nn,ii,jj,ir
+integer ic,jc
+real(dp) t1,dv(NDIM)
 allocate(THIS%hame(THIS%hamsize,THIS%rgrid%npt))
 THIS%hame=0._dp
 do ir=1,THIS%rgrid%npt
   do nn=1,THIS%hamsize
     do ii=1,THIS%norb_TB
+      jj=THIS%jsa(nn)
       if (nn.ge.THIS%isa(ii).and.nn.lt.THIS%isa(ii+1)) then
-        THIS%hame(nn,ir)=THIS%hame_file(ii,THIS%jsa(nn),ir)
+        ic=THIS%wbase%orb_icio(ii,1)
+        jc=THIS%wbase%orb_icio(jj,1)
+        dv=THIS%wbase%centers_cart(:,jc)+THIS%rgrid%vpc(ir)-THIS%wbase%centers_cart(:,ic)
+        t1=sqrt(dot_product(dv,dv))
+        if (t1<THIS%rcut_nn) then
+          THIS%hame(nn,ir)=THIS%hame_file(ii,THIS%jsa(nn),ir)
+        end if
       end if
     end do
   end do

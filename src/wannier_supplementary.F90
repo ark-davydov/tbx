@@ -1,5 +1,5 @@
 module wannier_supplementary
-use modcom, only : throw,NDIM,twopi,clmr,sqrt12
+use modcom, only : throw,NDIM,twopi,clmr,sqrt12,epslat
 use parameters, only : CLpars
 use symmetryclass
 implicit none
@@ -104,7 +104,11 @@ class(CLpars), intent(in) :: pars
 integer isym,ic,jc
 logical lfound(THIS%ncenters)
 real(dp) v1(NDIM),v2(NDIM),v3(NDIM),v4(NDIM)
-allocate(THIS%ics2c(THIS%ncenters,sym%nsym))
+if (pars%trev) then
+  allocate(THIS%ics2c(THIS%ncenters,sym%nsym+1))
+else
+  allocate(THIS%ics2c(THIS%ncenters,sym%nsym))
+end if
 THIS%ics2c=-999
 !write(*,"(a,i5)") "  Number of symmetry operators = ", sym%nsym
 do isym=1,sym%nsym
@@ -139,7 +143,14 @@ do isym=1,sym%nsym
     end if
   end do
 end do
-allocate(THIS%vcs2t(NDIM,THIS%ncenters,sym%nsym))
+if (pars%trev) then
+  do ic=1,THIS%ncenters
+    THIS%ics2c(ic,sym%nsym+1)=ic
+  end do
+  allocate(THIS%vcs2t(NDIM,THIS%ncenters,sym%nsym+1))
+else
+  allocate(THIS%vcs2t(NDIM,THIS%ncenters,sym%nsym))
+end if
 THIS%vcs2t=0._dp
 do isym=1,sym%nsym
   do ic=1,THIS%ncenters
@@ -150,10 +161,16 @@ do isym=1,sym%nsym
     THIS%vcs2t(:,ic,isym)=v3-v1
   end do
 end do
+if (pars%trev) then
+  do ic=1,THIS%ncenters
+    THIS%vcs2t(:,ic,sym%nsym+1)=0._dp
+  end do
+end if 
 end subroutine
 
-complex(dp) function wws(THIS,sr,iorb,jorb)
+complex(dp) function wws(THIS,trev,sr,iorb,jorb)
 class(wbase), intent(in) :: THIS
+logical, intent(in) :: trev
 real(dp), intent(in) :: sr(3,3)
 integer, intent(in) :: iorb,jorb
 integer l_w1,mr_w1,l_w2,mr_w2
@@ -167,11 +184,12 @@ xaxis1=THIS%waxis(:,1,iorb)
 xaxis2=THIS%waxis(:,1,jorb)
 zaxis1=THIS%waxis(:,2,iorb)
 zaxis2=THIS%waxis(:,2,jorb)
-wws=wws_full(sr,l_w1,mr_w1,l_w2,mr_w2,xaxis1,zaxis1,xaxis2,zaxis2)
+wws=wws_full(trev,sr,l_w1,mr_w1,l_w2,mr_w2,xaxis1,zaxis1,xaxis2,zaxis2)
 end function
 
 
-complex(dp) function wws_full(sr,l_w1,mr_w1,l_w2,mr_w2,xaxis1,zaxis1,xaxis2,zaxis2)
+complex(dp) function wws_full(trev,sr,l_w1,mr_w1,l_w2,mr_w2,xaxis1,zaxis1,xaxis2,zaxis2)
+logical, intent(in) :: trev
 real(dp), intent(in) :: sr(3,3)
 integer, intent(in) ::  l_w1,mr_w1,l_w2,mr_w2
 real(dp), intent(in) :: xaxis1(3),zaxis1(3),xaxis2(3),zaxis2(3)
@@ -239,34 +257,50 @@ if (l_w1.gt.10.or.l_w2.gt.10) then
   if (l_w1.ne.l_w2) then
      wws_full=0.d0
   else
-     do ip=1,5
-        CALL ylm_wannier(dylm_re(1,ip),2,ip,dvec,32)
-        CALL ylm_wannier(dylm_im(1,ip),2,ip,dvec,32)
-     end do
      call clmr(l_w1,mr_w1,l1,m1i,m1j,sgn1)
-     CALL ylm_wannier(dylm_re(1,1),l1,m1i,matmul(vaxis1,dvec),32)
-     CALL ylm_wannier(dylm_im(1,1),l1,m1j,matmul(vaxis1,dvec),32)
-     zylm_ket=cmplx(dylm_re(:,1),sgn1*dylm_im(:,1),kind=dp)*sqrt12
+     call clmr(l_w2,mr_w2,l2,m2i,m2j,sgn2)
+     if (trev) then 
+       if (sgn1.eq.sgn2) then
+         wws_full=0.d0
+       else
+         wws_full=1.d0
+       end if
+     else
+       do ip=1,5
+          CALL ylm_wannier(dylm_re(1,ip),2,ip,dvec,32)
+          CALL ylm_wannier(dylm_im(1,ip),2,ip,dvec,32)
+       end do
+       CALL ylm_wannier(dylm_re(1,1),l1,m1i,matmul(vaxis1,dvec),32)
+       CALL ylm_wannier(dylm_im(1,1),l1,m1j,matmul(vaxis1,dvec),32)
+       zylm_ket=cmplx(dylm_re(:,1),sgn1*dylm_im(:,1),kind=dp)*sqrt12
+       do ir=1,32
+          dvec2(:,ir)=matmul(sr,dvec(:,ir))
+       end do
+       CALL ylm_wannier(dylm_re(1,2),l2,m2i,matmul(vaxis2,dvec2),32)
+       CALL ylm_wannier(dylm_im(1,2),l2,m2j,matmul(vaxis2,dvec2),32)
+       zylm_bra=cmplx(dylm_re(:,2),sgn2*dylm_im(:,2),kind=dp)*sqrt12
+       !<Rotated Y(jw)|Not rotated Y(iw)> for sym.op.(isym).
+       wws_full=sum(conjg(zylm_bra)*zylm_ket*dwgt)*2d0*tpi
+     end if
+  end if
+else
+  if (trev) then
+     if (l_w1.eq.l_w2 .and. mr_w1.eq.mr_w2) then
+        wws_full=1._dp
+     else
+        wws_full=0._dp
+     end if
+  else
+     do ip=1,5
+        CALL ylm_wannier(dylm(1,ip),2,ip,dvec,32)
+     end do
+     CALL ylm_wannier(dylm(1,1),l_w1,mr_w1,matmul(vaxis1,dvec),32)
      do ir=1,32
         dvec2(:,ir)=matmul(sr,dvec(:,ir))
      end do
-     call clmr(l_w2,mr_w2,l2,m2i,m2j,sgn2)
-     CALL ylm_wannier(dylm_re(1,2),l2,m2i,matmul(vaxis2,dvec2),32)
-     CALL ylm_wannier(dylm_im(1,2),l2,m2j,matmul(vaxis2,dvec2),32)
-     zylm_bra=cmplx(dylm_re(:,2),sgn2*dylm_im(:,2),kind=dp)*sqrt12
-     !<Rotated Y(jw)|Not rotated Y(iw)> for sym.op.(isym).
-     wws_full=sum(conjg(zylm_bra)*zylm_ket*dwgt)*2d0*tpi
+     CALL ylm_wannier(dylm(1,2),l_w2,mr_w2,matmul(vaxis2,dvec2),32)
+     wws_full=sum(dylm(:,1)*dylm(:,2)*dwgt)*2d0*tpi !<Rotated Y(jw)|Not rotated Y(iw)> for sym.op.(isym).
   end if
-else
-  do ip=1,5
-     CALL ylm_wannier(dylm(1,ip),2,ip,dvec,32)
-  end do
-  CALL ylm_wannier(dylm(1,1),l_w1,mr_w1,matmul(vaxis1,dvec),32)
-  do ir=1,32
-     dvec2(:,ir)=matmul(sr,dvec(:,ir))
-  end do
-  CALL ylm_wannier(dylm(1,2),l_w2,mr_w2,matmul(vaxis2,dvec2),32)
-  wws_full=sum(dylm(:,1)*dylm(:,2)*dwgt)*2d0*tpi !<Rotated Y(jw)|Not rotated Y(iw)> for sym.op.(isym).
 end if
 end function
 

@@ -27,6 +27,7 @@ type, public, extends(CLgrid) :: GRID
   integer ngrid(NDIM)
   integer :: ip0=-1
   integer nir
+  integer nirT
   integer npt_sphere
   real(dp) :: vq0
   integer, allocatable :: sphere_to_homo(:)
@@ -35,6 +36,10 @@ type, public, extends(CLgrid) :: GRID
   integer, allocatable :: sik2ir(:)
   integer, allocatable :: ik2ir(:)
   integer, allocatable :: ir2ik(:)
+  ! time reversal
+  integer, allocatable :: ikT2k(:)
+  integer, allocatable :: ikT2ir(:)
+  integer, allocatable :: irT2ik(:)
   contains 
   procedure :: init=>init_grid
   procedure :: init_sphere
@@ -229,11 +234,12 @@ do ivert=2,THIS%nvert
 end do
 end subroutine
 
-subroutine sym_init(THIS,sym)
+subroutine sym_init(THIS,trev,sym)
 class(GRID), intent(inout) :: THIS
+logical, intent(in) :: trev
 class(CLsym), intent(in) :: sym
 ! local
-integer ik,ikp,isym
+integer ik,ikp,isym,nsym
 integer igk(NDIM+1)
 logical lfound(THIS%npt)
 real(dp) sv(NDIM)
@@ -241,7 +247,11 @@ real(dp) avec(NDIM,NDIM),tvec(NDIM,NDIM)
 real(dp) v1(NDIM),v2(NDIM),v3(NDIM),v4(NDIM)
 if (THIS%syminit_done) call throw("gridclass%sym_init","second call of sym_init")
 THIS%syminit_done=.true.
-allocate(THIS%iks2k(THIS%npt,sym%nsym))
+if (trev) then
+   allocate(THIS%iks2k(THIS%npt,sym%nsym+1))
+else
+   allocate(THIS%iks2k(THIS%npt,sym%nsym))
+end if
 tvec=THIS%vecs
 call dmatrix_inverse(tvec,avec,NDIM)
 THIS%iks2k=-999 !Sym.op.(isym) moves k(iks2k(ik,isym)) to k(ik) + G(iks2g(ik,isym)).
@@ -253,6 +263,14 @@ do isym=1,sym%nsym
      THIS%iks2k(ik,isym)=igk(NDIM+1)
    end do
 end do
+if (trev) then
+   do ik=1,THIS%npt
+     sv=-THIS%vpc(ik)
+     sv=matmul(sv,avec)
+     igk=THIS%find(sv)
+     THIS%iks2k(ik,sym%nsym+1)=igk(NDIM+1)
+   end do
+end if
 if (.false.) then
 ! origican code from QE
 do isym=1,sym%nsym
@@ -286,6 +304,11 @@ THIS%ik2ir=-999 !Gives irreducible-k points from regular-k points.
 THIS%ir2ik=-999 !Gives regular-k points from irreducible-k points.
 lfound=.false.
 THIS%nir=0
+if (trev) then
+   nsym=sym%nsym+1
+else
+   nsym=sym%nsym
+end if
 do ik=1,THIS%npt
    if(lfound(ik)) cycle
    lfound(ik)=.true.
@@ -293,7 +316,7 @@ do ik=1,THIS%npt
    THIS%ir2ik(THIS%nir)=ik
    THIS%ik2ir(ik)=THIS%nir
    THIS%sik2ir(ik)=1
-   do isym=1,sym%nsym
+   do isym=1,nsym
       ikp=THIS%iks2k(ik,isym)
       if(lfound(ikp)) cycle
       lfound(ikp)=.true.
@@ -301,6 +324,34 @@ do ik=1,THIS%npt
       THIS%sik2ir(ikp)=sym%inv(isym)
    end do
 end do
+call info("GRID%sym_init()","symmetry is initialized on the grid")
+call info("GRID%sym_init()","attemp to initilize k->-k for TR symmetry...")
+allocate(THIS%ikT2k(THIS%npt))
+THIS%ikT2k=-999 
+do ik=1,THIS%npt
+  igk=THIS%find(-THIS%vpl(ik))
+  THIS%ikT2k(ik)=igk(NDIM+1)
+end do
+allocate(THIS%ikT2ir(THIS%npt))
+allocate(THIS%irT2ik(THIS%npt))
+THIS%ikT2ir=-999 
+THIS%irT2ik=-999 
+lfound=.false.
+THIS%nirT=0
+do ik=1,THIS%npt
+   if(lfound(ik)) cycle
+   lfound(ik)=.true.
+   THIS%nirT=THIS%nirT+1
+   THIS%irT2ik(THIS%nirT)=ik
+   THIS%ikT2ir(ik)=THIS%nirT
+   do isym=1,sym%nsym
+      ikp=THIS%ikT2k(ik)
+      if(lfound(ikp)) cycle
+      lfound(ikp)=.true.
+      THIS%ikT2ir(ikp)=THIS%nirT
+   end do
+end do
+call info("GRID%sym_init()",".. TR symmetry is initialized on the grid")
 end subroutine
 
 subroutine io_grid(THIS,unt,fname,action,pars,norb)
