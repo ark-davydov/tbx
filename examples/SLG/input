@@ -1,11 +1,13 @@
 # The following combination of tasks produces the bandstructure 
 # and the electron polarisability within the Random Phase Approximation (RPA) for 
 # Single Layer Graphene (SLG)
-tasks 2
- hubbard_tbg
- write_hubbardu
- projection_wannier
-
+! task 'bands' allows to get the bandstrucuture. The output is 'bands.out',
+! which has a set of x-y data blocks (i.e., can be plotted with xmgrace)
+! task 'eigen' allows to get the egenvalues/eigenvectors, the solutions of the TB Hamiltonian
+! these are served as an input for the 'rpachi' task, to get the polarisability function
+! in the 'chi.dat' file, wich has also x-y data block format (unsorted with x)
+tasks 3
+ bands
  eigen
  rpachi
 
@@ -21,7 +23,7 @@ path 4
  0.0 0. 0. 40
  0.333333 0.666666 0. 40
 
-# Use geometry library to generate lattice vectors and atomic postions for the SLG.
+# Use geometry library to generate lattice vectors and atomic positions for the SLG.
 # The integer parameter of the next line is ignored in the SLG case
 geometry_source slg
  104
@@ -44,13 +46,13 @@ rcut_nn
 
 # Grid of q-points for polarisability calculation, it has to be commensurate with ngrid
 qgrid
- 50 1 1
+ 10 1 1
 
 # Grid of reciprocal vertices, such that q+G covers entire reciprocal space
 Ggrid
  4 1 1
 
-# This allows one to take only its sphereical part (Useful at large Ggrid)
+# This allows one to take only its spherical part (Useful at large Ggrid)
 rcut_grid
  6.0
 
@@ -58,20 +60,3 @@ rcut_grid
 ignore_chiIq
  .false.
 
-projections 2
-1 0.0000000 0.0000000 0.0
-   pz 1 0 0 0 0 1
-1 0.6666666 0.6666666 0.0
-   pz 1 0 0 0 0 1
-
-wannier_proj_mode
- wftrial_file
-
-seedname
- wannier
-
-coulrs_file
- coulrs.txt
-
-HubU_diagonal
-.false.
