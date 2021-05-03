@@ -282,8 +282,8 @@ type(CLsym) sym
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
 #endif
+
 call sym%init(pars)
-! everytime after symmetry run, we have to consider a shift to a more symmetric place
 if (trim(adjustl(opt)).ne."rpa") then
   call throw("CLtasks","unknown argument for the response function (only RPA is available via rpachi task)")
 end if
