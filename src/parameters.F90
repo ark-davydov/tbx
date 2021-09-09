@@ -37,6 +37,7 @@ type, public :: CLpars
   character(len=100) :: character_file=""
   character(len=100) :: tbtype="sk"
   character(len=100) :: coulrs_file=""
+  logical :: bands_evec=.false.
   logical :: real_wfmloc=.false.
   logical :: HubU_diagonal=.false.
   logical :: trev=.false.
@@ -372,6 +373,14 @@ do iline=1,nlines_max
     read(50,*,iostat=iostat) THIS%real_wfmloc
     if (iostat.ne.0) call throw("paramters%read_input()","problem with real_wfmloc data")
     if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%real_wfmloc
+
+  ! .true. eigen vectors from the band structure calculation are written into a file
+  else if (trim(block).eq."bands_evec") then
+    jline=jline+1
+    read(50,*,iostat=iostat) THIS%bands_evec
+    if (iostat.ne.0) call throw("paramters%read_input()","problem with bands_evec data")
+    if (mp_mpi) write(*,'(i6,": ",L6)') jline,THIS%bands_evec
+
 
 
   ! .true. use weights in the amn matrix construction

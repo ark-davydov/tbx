@@ -33,6 +33,11 @@ do itask=1,pars%ntasks
      call message("")
      call eigen(pars)
      call message("")
+  else if (trim(adjustl(pars%tasks(itask))).eq."valleyProjectionBands") then
+     call message("*** valleyProjectionBands calculation ***")
+     call message("")
+     call valleyProjectionBands(pars)
+     call message("")
   else if (trim(adjustl(pars%tasks(itask))).eq."dos") then
      call message("*** dos  calculation ***")
      call message("")
@@ -84,6 +89,70 @@ do itask=1,pars%ntasks
 end do
 end subroutine
 
+subroutine valleyProjectionBands(pars)
+class(CLpars), intent(inout) :: pars
+integer ik,ist
+real(dp) vv(NDIM)
+real(dp), allocatable :: eval(:,:)
+real(dp), allocatable :: vkl(:,:)
+complex(dp), allocatable :: evec(:,:,:)
+type(PATH) kpath
+type(CLtb) tbmodel
+type(CLsym) sym
+#ifdef MPI
+  call MPI_barrier(mpi_com,mpi_err)
+#endif
+! generater spatial symmetries
+call sym%init(pars)
+! init new kpath from input
+call kpath%init(pars%nvert,pars%np_per_vert,pars%vert,pars%bvec)
+! initialise TB model, to have centers coordinates and other data
+call tbmodel%init(pars,sym,"SK")
+! allocate array for eigen values
+allocate(eval(pars%nstates,kpath%npt))
+! allocate array for eigen vectors
+allocate(evec(tbmodel%norb_TB,pars%nstates,kpath%npt))
+! this is needed to copy the private data of kgrid object, i.e., k-points in lattice coordinates
+allocate(vkl(NDIM,kpath%npt))
+do ik=1,kpath%npt
+  ! copy the private data
+  vkl(:,ik)=kpath%vpl(ik)
+  ! read eigenvectors, subroutine in modcom.f90
+  call io_evec(ik,"read",'_bandsevec_',tbmodel%norb_TB,pars%nstates,evec(:,:,ik))
+end do
+open(100,file="bands_test.dat",action="write")
+do ist=1,pars%nstates
+  do ik=1,kpath%npt
+     write(100,*) kpath%dvpc(ik),eval(ist,ik)
+   end do
+   write(100,*)
+end do
+close(100)
+
+! zero the arrays for security reasons
+eval=0._dp
+! read eigenvalues
+open(100,file="bands.dat",action="read")
+do ist=1,pars%nstates
+  do ik=1,kpath%npt
+     read(100,*) vv(1),eval(ist,ik)
+   end do
+   read(100,*)
+end do
+close(100)
+
+open(100,file="valleyProjectionBands.dat",action="write")
+do ist=1,pars%nstates
+  do ik=1,kpath%npt
+     write(100,*) kpath%dvpc(ik), tbmodel%antiHaldaneME(vkl(:,ik),evec(:,ist,ik),ist)
+   end do
+   write(100,*)
+end do
+close(100)
+
+
+end subroutine
+
 subroutine bands(pars)
 class(CLpars), intent(inout) :: pars
 type(PATH) kpath
@@ -107,20 +176,28 @@ allocate(eval(pars%nstates,kpath%npt))
 allocate(evec(tbmodel%norb_TB,pars%nstates))
 eval=0._dp
 evec=0._dp
+
 call message("  Eigenproblem calculation. some k-points progress below ..")
+
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
 #endif
+
 do ik=1,kpath%npt
+
    if (mod(ik-1,np_mpi).ne.lp_mpi) cycle
    if (mod(ik-1,max(np_mpi,kpath%npt/10)).eq.0) write(*,*) "ik, of: ",ik,kpath%npt
-   call tbmodel%evalk(.false.,pars,kpath%vpl(ik),eval(:,ik),evec)
+   call tbmodel%evalk(pars%bands_evec,pars,kpath%vpl(ik),eval(:,ik),evec)
+   if (pars%bands_evec) call io_evec(ik,"write",'_bandsevec_',tbmodel%norb_TB,pars%nstates,evec)
+
 end do
+
 #ifdef MPI
   nn=pars%nstates*kpath%npt
   call mpi_allreduce(mpi_in_place,eval,nn,mpi_double_precision,mpi_sum, &
    mpi_com,mpi_err)
 #endif
+
 if (mp_mpi) then
   open(100,file="bands.dat",action="write")
   do ist=1,pars%nstates
@@ -182,10 +259,11 @@ do ij=1,pars%nkshift
   do ik=1,kgrid%npt
      if (mod(ik-1,np_mpi).ne.lp_mpi) cycle
      if (mod(ik-1,max(np_mpi,kgrid%npt/10)).eq.0) write(*,*) "ik, of: ",ik,kgrid%npt
-     write(filename,'(a,i0,a)') '_evec_',ij,'_'
      call tbmodel%evalk(.true.,pars,kgrid%vpl(ik)+pars%kshift(:,ij),eval(:,ik),evec)
+     write(filename,'(a,i0,a)') '_evec_',ij,'_'
      call io_evec(ik,"write",filename,tbmodel%norb_TB,pars%nstates,evec)
   end do
+
 #ifdef MPI
   nn=pars%nstates*kgrid%npt
   call mpi_allreduce(mpi_in_place,eval,nn,mpi_double_precision,mpi_sum, &

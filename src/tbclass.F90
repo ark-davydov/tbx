@@ -52,6 +52,8 @@ type, public :: CLtb
   procedure, public :: vplorb=>get_location_of_orbial
   procedure, public :: bloch_wf_transform
   procedure, public :: bloch_wf_transform_statk
+  procedure, public :: antiHaldaneME
+  procedure, private :: antiHaldaneR
   procedure, private :: hK=>give_hK
   procedure, private :: hR=>give_hR
   procedure, private :: tij=>tij_function
@@ -69,13 +71,176 @@ endtype CLtb
 
 contains
 
+real(dp) function antiHaldaneME(THIS,vkl,wfin,ist)
+class(CLtb), intent(in) :: THIS
+integer, intent(in) :: ist
+real(dp), intent(in) :: vkl(NDIM)
+complex(dp), intent(in) :: wfin(THIS%norb_TB)
+! local
+integer iR
+
+integer iorb,jorb,ic,jc,jr,ios,jos,nn,idx,ii,ispec,jspec
+
+real(dp) t1
+real(dp) eval(THIS%norb_TB)
+complex(dp) z1,summa
+complex(dp), allocatable :: hamr(:),hamk(:)!,hamfl(:,:),hpsi(:)
+!write(*,*)'vkl: ', vkl
+allocate(hamr(THIS%hamsize))
+allocate(hamk(THIS%hamsize))
+hamk=0._dp
+!write(*,*) "HR"
+do iR=1,THIS%rgrid%npt
+  t1=twopi*dot_product(vkl,THIS%rgrid%vpl(iR))
+  z1=cmplx(cos(t1),sin(t1),kind=dp)
+  call THIS%antiHaldaneR(iR,hamr)
+  !call THIS%hR(iR,hamr)
+! if(sum(abs(hamr))>0.1_dp) then
+!   do nn=1,THIS%hamsize
+!     do ii=1,THIS%norb_TB
+!       if (nn.ge.THIS%isa(ii).and.nn.lt.THIS%isa(ii+1)) then
+!          write(*,'(3I5,2G18.10)') ir, ii, THIS%jsa(nn), hamr(nn)
+!          exit
+!       end if
+!     end do
+!   end do
+! end if
+  ! LAPACK's B=\alpha*X+B  (z1=alpha,X=hamr,B=hamk)
+  call zaxpy(THIS%hamsize,z1,hamr,1,hamk,1)
+end do
+!write(*,*) "HK"
+!   do nn=1,THIS%hamsize
+!     do ii=1,THIS%norb_TB
+!       if (nn.ge.THIS%isa(ii).and.nn.lt.THIS%isa(ii+1)) then
+!          write(*,'(3I5,2G18.10)') ir, ii, THIS%jsa(nn), hamk(nn)
+!          exit
+!       end if
+!     end do
+!   end do
+
+!allocate(hamfl(THIS%norb_TB,THIS%norb_TB),hpsi(THIS%norb_TB))
+!hamfl = 0._dp
+summa = 0._dp
+! use unpacking sparse matrix to the full one in its upper triangular part
+do nn=1,THIS%hamsize
+  do ii=1,THIS%norb_TB
+    if (nn.ge.THIS%isa(ii).and.nn.lt.THIS%isa(ii+1)) then
+      if (THIS%jsa(nn) == ii) then
+!         hamfl(ii,ii) = hamk(nn)
+         summa = summa + hamk(nn)*conjg(wfin(ii))*wfin(THIS%jsa(nn))
+      else
+         summa = summa + hamk(nn)*conjg(wfin(ii))*wfin(THIS%jsa(nn)) + conjg(hamk(nn))*conjg(wfin(THIS%jsa(nn)))*wfin(ii)
+      end if
+    end if
+  end do
+end do
+!hpsi = matmul(hamfl,wfin)
+antiHaldaneME = summa
+!write(*,*)'antiHaldan complexME: ',summa
+!write(*,*)'wfin: '
+!write(*,'(2G18.10)') wfin
+!write(*,*)'H*wfin: '
+!write(*,'(2G18.10)') hpsi
+!write(*,*)'conjg(wfin)*H*wfin: '
+!write(*,'(2G18.10)') dot_product(wfin,hpsi)
+!write(*,*)
+deallocate(hamr,hamk)
+
+return
+end function
+
+integer function signAntiHaldane(iv)
+integer, intent(in) :: iv(2)
+signAntiHaldane = -999
+select case(iv(1))
+case(-1)
+  select case(iv(2))
+     case(0)
+        signAntiHaldane = -1
+     case(1)
+        signAntiHaldane =  1
+  end select
+case(0)
+  select case(iv(2))
+     case(-1)
+        signAntiHaldane =  1
+     case( 1)
+        signAntiHaldane = -1
+  end select
+case(1)
+  select case(iv(2))
+     case( 0)
+        signAntiHaldane =  1
+     case(-1)
+        signAntiHaldane = -1
+  end select
+end select
+if (signAntiHaldane < -1) call throw('signAntiHaldane', "unexpected values in the input data")
+end function
+subroutine antiHaldaneR(THIS,itr,ham)
+class(CLtb), intent(in) :: THIS
+integer, intent(in) :: itr
+complex(dp), intent(out) :: ham(THIS%hamsize)
+
+real(dp) vpl(NDIM), vpc(NDIM), dvec(NDIM), t1
+
+integer iorb,jorb,ic,jc,jr,ios,jos,nn,idx,ii,ispec,jspec
+
+ham=0._dp
+if (trim(adjustl(THIS%mode)).eq.'tbfile'.or.trim(adjustl(THIS%mode)).eq.'hrfile') then
+  call throw('tbclass%antiHaldaneR()',"I can not work with TB model read from file in this subroutine")
+else
+  do ic=1,THIS%wbase%ncenters
+    ispec=THIS%ic_ispec(ic)
+    do nn=1,THIS%ncenters_nn(ic)
+      jc=THIS%jcjr_nn(ic,nn,1)
+      jr=THIS%jcjr_nn(ic,nn,2)
+      vpl = THIS%rgrid%vpl(jr)
+      vpc = THIS%rgrid%vpc(jr)
+      dvec = THIS%wbase%centers_cart(:,jc) + vpc - THIS%wbase%centers_cart(:,ic)
+      t1 = sqrt(dot_product(dvec,dvec))
+      dvec = THIS%wbase%centers(:,jc) + vpl - THIS%wbase%centers(:,ic)
+
+      ! model works with second-NN only
+      if ( .not. (t1<2.7d0 .and. t1 > 2.d0)) cycle
+
+
+      jspec=THIS%ic_ispec(jc)
+      ! anti-Haldane term is diagonal in species index (AA or BB for TBG)
+      if (ispec.ne.jspec) cycle
+
+      if (itr.ne.jr) cycle
+
+      !write(*,'(4I6,8F9.5,I5)') ic,jc,jR,nn,THIS%wbase%centers(1:2,ic),&
+      !THIS%wbase%centers(1:2,jc) + vpl(1:2), t1, dvec, signAntiHaldane(nint(dvec(1:2)))
+
+      do ios=1,THIS%wbase%norb_ic(ic)
+        iorb=THIS%wbase%icio_orb(ic,ios)
+        ! sparse index of the first non-zero element in the row iorb
+        ii=THIS%isa(iorb)
+        do jos=1,THIS%wbase%norb_ic(jc)
+          jorb=THIS%wbase%icio_orb(jc,jos)
+          do idx=ii,min(THIS%isa(iorb+1),THIS%hamsize)
+             ! jsa is a map from sparse index to the column one
+             if(THIS%jsa(idx).eq.jorb) then
+               !ham(idx) = cmplx(0._dp,dble( sign(1,2*ispec-3)*signAntiHaldane(nint(dvec(1:2))) ),kind=dp)
+               ham(idx) = cmplx(0._dp,dble( signAntiHaldane(nint(dvec(1:2))) ),kind=dp)
+               exit
+             end if
+          end do
+        end do
+      end do
+    end do
+  end do
+end if
+end subroutine
 
 subroutine init_variables(THIS,pars,sym,mode)
 class(CLtb), intent(out) :: THIS
 class(CLpars), intent(inout) :: pars
 class(CLsym), intent(inout) :: sym
 character(len=*), intent(in) :: mode
-integer ispec,ios,iorb,ic,jc,ii
+integer ispec,ios,iorb,ic,jc
 real(dp) dvec(NDIM),t1,t2
 call info ("CLtb%init_variables","")
 if (trim(adjustl(mode)).eq.'noham') then
