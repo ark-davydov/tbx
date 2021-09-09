@@ -199,7 +199,10 @@ else
       vpc = THIS%rgrid%vpc(jr)
       dvec = THIS%wbase%centers_cart(:,jc) + vpc - THIS%wbase%centers_cart(:,ic)
       t1 = sqrt(dot_product(dvec,dvec))
-      dvec = THIS%wbase%centers(:,jc) + vpl - THIS%wbase%centers(:,ic)
+
+      if (abs(dvec(ZAXIS))>0.5_dp*tbg_ab_distance) cycle
+
+      !dvec = THIS%wbase%centers(:,jc) + vpl - THIS%wbase%centers(:,ic)
 
       ! model works with second-NN only
       if ( .not. (t1<2.7d0 .and. t1 > 2.d0)) cycle
