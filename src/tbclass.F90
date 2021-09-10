@@ -71,10 +71,9 @@ endtype CLtb
 
 contains
 
-real(dp) function antiHaldaneME(THIS,vkl,wfin,ist)
+real(dp) function antiHaldaneME(THIS, vkl, wfin, bvec1, bvec2)
 class(CLtb), intent(in) :: THIS
-integer, intent(in) :: ist
-real(dp), intent(in) :: vkl(NDIM)
+real(dp), intent(in) :: vkl(NDIM), bvec1(NDIM,NDIM), bvec2(NDIM,NDIM)
 complex(dp), intent(in) :: wfin(THIS%norb_TB)
 ! local
 integer iR
@@ -93,7 +92,7 @@ hamk=0._dp
 do iR=1,THIS%rgrid%npt
   t1=twopi*dot_product(vkl,THIS%rgrid%vpl(iR))
   z1=cmplx(cos(t1),sin(t1),kind=dp)
-  call THIS%antiHaldaneR(iR,hamr)
+  call THIS%antiHaldaneR(iR, hamr, bvec1, bvec2)
   !call THIS%hR(iR,hamr)
 ! if(sum(abs(hamr))>0.1_dp) then
 !   do nn=1,THIS%hamsize
@@ -128,8 +127,9 @@ do nn=1,THIS%hamsize
       if (THIS%jsa(nn) == ii) then
 !         hamfl(ii,ii) = hamk(nn)
          summa = summa + hamk(nn)*conjg(wfin(ii))*wfin(THIS%jsa(nn))
-      else
-         summa = summa + hamk(nn)*conjg(wfin(ii))*wfin(THIS%jsa(nn)) + conjg(hamk(nn))*conjg(wfin(THIS%jsa(nn)))*wfin(ii)
+! anti-Haldane model is diagonal, ignore the off-diagonal part
+!      else
+!         summa = summa + hamk(nn)*conjg(wfin(ii))*wfin(THIS%jsa(nn)) + conjg(hamk(nn))*conjg(wfin(THIS%jsa(nn)))*wfin(ii)
       end if
     end if
   end do
@@ -149,8 +149,9 @@ deallocate(hamr,hamk)
 return
 end function
 
-integer function signAntiHaldane(iv)
-integer, intent(in) :: iv(2)
+integer function signAntiHaldane(iv,dvec,dist)
+integer, intent(in) :: iv(NDIM)
+real(dp), intent(in) :: dvec(NDIM), dist
 signAntiHaldane = -999
 select case(iv(1))
 case(-1)
@@ -175,14 +176,20 @@ case(1)
         signAntiHaldane = -1
   end select
 end select
-if (signAntiHaldane < -1) call throw('signAntiHaldane', "unexpected values in the input data")
+if (signAntiHaldane < -1) then
+  write(*,*) 'signAntiHaldane, iv:',iv
+  write(*,*) 'signAntiHaldane, dvec:',dvec
+  write(*,*) 'signAntiHaldane, dist:',dist
+  call throw('signAntiHaldane', "unexpected values in the input data")
+end if
 end function
-subroutine antiHaldaneR(THIS,itr,ham)
+subroutine antiHaldaneR(THIS,itr,ham, bvec1, bvec2)
 class(CLtb), intent(in) :: THIS
 integer, intent(in) :: itr
+real(dp), intent(in) :: bvec1(NDIM,NDIM), bvec2(NDIM,NDIM)
 complex(dp), intent(out) :: ham(THIS%hamsize)
 
-real(dp) vpl(NDIM), vpc(NDIM), dvec(NDIM), t1
+real(dp) vpl(NDIM), vpc(NDIM), dvec(NDIM), dvecl(NDIM), t1
 
 integer iorb,jorb,ic,jc,jr,ios,jos,nn,idx,ii,ispec,jspec
 
@@ -202,11 +209,17 @@ else
 
       if (abs(dvec(ZAXIS))>0.5_dp*tbg_ab_distance) cycle
 
-      !dvec = THIS%wbase%centers(:,jc) + vpl - THIS%wbase%centers(:,ic)
-
+      ! below, both ic and jc are in the same layer, thanks to condition above => use coordinates of jc only to detect the layer
+      if (THIS%wbase%centers_cart(ZAXIS,jc) < 0._dp) then
+         ! compute dvec in lattice cordinates of the first layer
+         dvecl = matmul(dvec,bvec1)
+      else
+         ! second layer
+         dvecl = matmul(dvec,bvec2)
+      end if
+      
       ! model works with second-NN only
-      if ( .not. (t1<2.7d0 .and. t1 > 2.d0)) cycle
-
+      if ( .not. (t1 < 2.7d0 .and. t1 > 2.d0)) cycle
 
       jspec=THIS%ic_ispec(jc)
       ! anti-Haldane term is diagonal in species index (AA or BB for TBG)
@@ -215,7 +228,7 @@ else
       if (itr.ne.jr) cycle
 
       !write(*,'(4I6,8F9.5,I5)') ic,jc,jR,nn,THIS%wbase%centers(1:2,ic),&
-      !THIS%wbase%centers(1:2,jc) + vpl(1:2), t1, dvec, signAntiHaldane(nint(dvec(1:2)))
+      !THIS%wbase%centers(1:2,jc) + vpl(1:2), t1, dvecl, signAntiHaldane(nint(dvecl(1:2)))
 
       do ios=1,THIS%wbase%norb_ic(ic)
         iorb=THIS%wbase%icio_orb(ic,ios)
@@ -226,8 +239,8 @@ else
           do idx=ii,min(THIS%isa(iorb+1),THIS%hamsize)
              ! jsa is a map from sparse index to the column one
              if(THIS%jsa(idx).eq.jorb) then
-               !ham(idx) = cmplx(0._dp,dble( sign(1,2*ispec-3)*signAntiHaldane(nint(dvec(1:2))) ),kind=dp)
-               ham(idx) = cmplx(0._dp,dble( signAntiHaldane(nint(dvec(1:2))) ),kind=dp)
+               !ham(idx) = cmplx(0._dp,dble( sign(1,2*ispec-3)*signAntiHaldane(nint(dvecl(1:2))) ),kind=dp)
+               ham(idx) = cmplx(0._dp,dble( signAntiHaldane(nint(dvecl), dvecl, t1) ),kind=dp)
                exit
              end if
           end do

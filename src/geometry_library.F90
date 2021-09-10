@@ -159,6 +159,14 @@ if (mp_mpi) then
   write(*,'(10F16.6)')THIS%bvec(1,:)
   write(*,'(10F16.6)')THIS%bvec(2,:)
   write(*,'(10F16.6)')THIS%bvec(3,:)
+  write(*,*) "avec(1st layer):"
+  write(*,'(10F16.6)')ave(1,:)
+  write(*,'(10F16.6)')ave(2,:)
+  write(*,'(10F16.6)')ave(3,:)
+  write(*,*) "avec(2nd layer):"
+  write(*,'(10F16.6)')ave2(1,:)
+  write(*,'(10F16.6)')ave2(2,:)
+  write(*,'(10F16.6)')ave2(3,:)
   write(*,'("Number of atoms: ",I6)') number_of_atoms
   write(*,*)
 end if

@@ -93,12 +93,30 @@ subroutine valleyProjectionBands(pars)
 class(CLpars), intent(inout) :: pars
 integer ik,ist
 real(dp) vv(NDIM)
+real(dp), dimension(NDIM,NDIM) :: avec1, avec2, bvec1, bvec2
 real(dp), allocatable :: eval(:,:)
 real(dp), allocatable :: vkl(:,:)
 complex(dp), allocatable :: evec(:,:,:)
 type(PATH) kpath
 type(CLtb) tbmodel
 type(CLsym) sym
+call info('taskclass%valleyProjectionBands()','this part is hard-coded for 1.05-TBG, istruct=131')
+
+! hard-coded part
+! lattice vectors of the first TBG layer
+avec1 = transpose(reshape((/2.119061,-1.249471,   0.000000,&
+                            2.141605, 1.210425,   0.000000,&
+                            0.000000, 0.000000, 137.572253/),shape(avec1)))
+
+! lattice vectors of the second TBG layer
+avec2 = transpose(reshape((/2.141605,-1.210425,   0.000000,&
+                            2.119061, 1.249471,   0.000000,&
+                            0.000000, 0.000000, 137.572253/),shape(avec2)))
+
+! invert to get transposed reciprocal vectors, without 2pi factor
+call dmatrix_inverse(avec1, bvec1, NDIM)
+call dmatrix_inverse(avec2, bvec2, NDIM)
+
 #ifdef MPI
   call MPI_barrier(mpi_com,mpi_err)
 #endif
@@ -144,7 +162,7 @@ close(100)
 open(100,file="valleyProjectionBands.dat",action="write")
 do ist=1,pars%nstates
   do ik=1,kpath%npt
-     write(100,*) kpath%dvpc(ik), tbmodel%antiHaldaneME(vkl(:,ik),evec(:,ist,ik),ist)
+     write(100,*) kpath%dvpc(ik), tbmodel%antiHaldaneME(vkl(:,ik), evec(:,ist,ik), bvec1, bvec2)
    end do
    write(100,*)
 end do
