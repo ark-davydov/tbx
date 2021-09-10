@@ -100,18 +100,24 @@ complex(dp), allocatable :: evec(:,:,:)
 type(PATH) kpath
 type(CLtb) tbmodel
 type(CLsym) sym
-call info('taskclass%valleyProjectionBands()','this part is hard-coded for 1.05-TBG, istruct=131')
+
+call info('taskclass%valleyProjectionBands()','this part is hard-coded either for SLG, or 1.05-TBG with istruct=131')
 
 ! hard-coded part
-! lattice vectors of the first TBG layer
-avec1 = transpose(reshape((/2.119061,-1.249471,   0.000000,&
-                            2.141605, 1.210425,   0.000000,&
-                            0.000000, 0.000000, 137.572253/),shape(avec1)))
+if (trim(adjustl(pars%geometry_source))=='slg') then
+  avec1 = pars%avec
+  avec2 = pars%avec
+else
+  ! lattice vectors of the first TBG layer
+  avec1 = transpose(reshape((/2.119061,-1.249471,   0.000000,&
+                              2.141605, 1.210425,   0.000000,&
+                              0.000000, 0.000000, 137.572253/),shape(avec1)))
 
-! lattice vectors of the second TBG layer
-avec2 = transpose(reshape((/2.141605,-1.210425,   0.000000,&
-                            2.119061, 1.249471,   0.000000,&
-                            0.000000, 0.000000, 137.572253/),shape(avec2)))
+  ! lattice vectors of the second TBG layer
+  avec2 = transpose(reshape((/2.141605,-1.210425,   0.000000,&
+                              2.119061, 1.249471,   0.000000,&
+                              0.000000, 0.000000, 137.572253/),shape(avec2)))
+end if
 
 ! invert to get transposed reciprocal vectors, without 2pi factor
 call dmatrix_inverse(avec1, bvec1, NDIM)
