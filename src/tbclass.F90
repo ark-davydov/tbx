@@ -82,7 +82,7 @@ integer iorb,jorb,ic,jc,jr,ios,jos,nn,idx,ii,ispec,jspec
 
 real(dp) t1
 real(dp) eval(THIS%norb_TB)
-complex(dp) z1,summa
+complex(dp) z1,summa(THIS%hamsize)
 complex(dp), allocatable :: hamr(:),hamk(:)!,hamfl(:,:),hpsi(:)
 !write(*,*)'vkl: ', vkl
 allocate(hamr(THIS%hamsize))
@@ -119,14 +119,19 @@ end do
 
 !allocate(hamfl(THIS%norb_TB,THIS%norb_TB),hpsi(THIS%norb_TB))
 !hamfl = 0._dp
+write(*,*) "sumHam: ", sum(abs(hamk))
+write(*,*) "sumWf: ", sum(abs(wfin))
 summa = 0._dp
 ! use unpacking sparse matrix to the full one in its upper triangular part
+!$OMP PARALLEL DEFAULT(SHARED)&
+!$OMP PRIVATE(nn,ii)
+!$OMP DO
 do nn=1,THIS%hamsize
   do ii=1,THIS%norb_TB
     if (nn.ge.THIS%isa(ii).and.nn.lt.THIS%isa(ii+1)) then
       if (THIS%jsa(nn) == ii) then
 !         hamfl(ii,ii) = hamk(nn)
-         summa = summa + hamk(nn)*conjg(wfin(ii))*wfin(THIS%jsa(nn))
+         summa(nn) = summa(nn) + hamk(nn)*conjg(wfin(ii))*wfin(THIS%jsa(nn))
 ! anti-Haldane model is diagonal, ignore the off-diagonal part
 !      else
 !         summa = summa + hamk(nn)*conjg(wfin(ii))*wfin(THIS%jsa(nn)) + conjg(hamk(nn))*conjg(wfin(THIS%jsa(nn)))*wfin(ii)
@@ -134,8 +139,10 @@ do nn=1,THIS%hamsize
     end if
   end do
 end do
+!$OMP END DO
+!$OMP END PARALLEL
 !hpsi = matmul(hamfl,wfin)
-antiHaldaneME = summa
+antiHaldaneME = sum(summa)
 !write(*,*)'antiHaldan complexME: ',summa
 !write(*,*)'wfin: '
 !write(*,'(2G18.10)') wfin
